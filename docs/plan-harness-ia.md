@@ -505,7 +505,7 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
 - [x] **1.** Interfaz `ProveedorLLM` + `ProveedorOpenAICompatible` con presets (gemini, groq,
       openrouter, openai, personalizado) + bucle básico con `read_file`, `write_file`,
       `list_dir` sobre tareas-api. Configuración leída solo del `.env`
-- [ ] **2.** Carga y validación de `harness.yaml` (todas las claves, según
+- [x] **2.** Carga y validación de `harness.yaml` (todas las claves, según
       `docs/harness-yaml.md`) + `run_command` en Docker + tests + lint (autocorrección
       funcionando). Un solo contenedor, probado con tareas-api; la clase `EntornoDocker` ya
       pensada para varios. `servicios` y `variables_entorno` se validan, pero si traen algo la
