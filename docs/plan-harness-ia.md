@@ -160,11 +160,11 @@ Tu PC
 ```
 AL EMPEZAR LA EJECUCIÓN (una sola vez)
 1. docker network create harness-PROJ-123              ← red privada por ejecución
-2. docker run -d --network harness-PROJ-123 --name db \
-     -e POSTGRES_PASSWORD=test -e POSTGRES_DB=app_test postgres:16
+2. docker run -d --network harness-PROJ-123 --network-alias db \
+     --name harness-PROJ-123-db -e POSTGRES_PASSWORD -e POSTGRES_DB postgres:16
 3. esperar a que "pg_isready" responda                 ← Postgres tarda unos segundos
 4. docker run -d --network harness-PROJ-123 --name proyecto \
-     -e DATABASE_URL=postgresql://postgres:test@db:5432/app_test \
+     -e DATABASE_URL \
      -v <repo>:/app -w /app <imagen> sleep infinity    ← queda vivo toda la ejecución
 5. docker exec proyecto <docker.instalar>              ← dependencias UNA sola vez
 
@@ -178,6 +178,8 @@ AL TERMINAR (siempre, en un try/finally)
 - Sin servicios (como tareas-api) se saltan los pasos 1 a 3.
 - Dentro de la red, el contenedor del proyecto llega a la base usando el nombre del servicio
   (`db`) como dirección.
+- Los valores de las variables (`-e NOMBRE`) van en el entorno del proceso `docker`, no en la
+  línea de comandos.
 - Un solo contenedor vivo + `docker exec` evita reinstalar dependencias en cada `pytest`,
   que sería muy lento.
 
@@ -197,7 +199,7 @@ servicios:                          # opcional: solo si el proyecto necesita BD 
     variables:
       POSTGRES_PASSWORD: test
       POSTGRES_DB: app_test
-    listo_cuando: pg_isready -U postgres
+    listo_cuando: pg_isready -h 127.0.0.1 -U postgres
 
 variables_entorno:                  # se pasan al contenedor del proyecto
   DATABASE_URL: postgresql://postgres:test@db:5432/app_test
@@ -508,11 +510,11 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
 - [x] **2.** Carga y validación de `harness.yaml` (todas las claves, según
       `docs/harness-yaml.md`) + `run_command` en Docker + tests + lint (autocorrección
       funcionando). Un solo contenedor, probado con tareas-api; la clase `EntornoDocker` ya
-      pensada para varios. `servicios` y `variables_entorno` se validan, pero si traen algo la
-      ejecución se detiene con "se soporta desde la fase 3". Sin `harness.yaml`, el harness
-      avisa y trabaja como en la fase 1 (sin Docker ni validación)
+      pensada para varios. `servicios` y `variables_entorno` se validaban, pero si traían algo
+      la ejecución se detenía hasta la fase 3. Sin `harness.yaml`, el harness avisa y trabaja
+      como en la fase 1 (sin Docker ni validación)
 - [ ] **3.** Servicios en Docker: `servicios` y `variables_entorno` del `harness.yaml`, red
-      privada, espera de `listo_cuando` y limpieza. Probado con un proyecto con PostgreSQL
+      privada, espera de `listo_cuando` y limpieza. Probado con notas-api (PostgreSQL)
 - [ ] **4.** Lectura automática de `AGENTS.md` al contexto inicial (+ `harness init` si no
       existen `AGENTS.md` / `harness.yaml`) + fase de planificación. (La lectura de
       `harness.yaml` se adelantó a la fase 2 porque Docker y los tests dependen de ella)
@@ -544,6 +546,7 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
 
 - **tareas-api** (FastAPI, sin base de datos): fases 1, 2, 4 y 5. Trae `AGENTS.md`,
   `harness.yaml` y tickets `TAREAS-1` a `TAREAS-5`.
-- **Un proyecto con PostgreSQL** (por ejemplo un backend FastAPI existente con `pip`): fase 3.
+- **notas-api** (FastAPI + SQLAlchemy + PostgreSQL, con `pip`): fase 3. Trae `AGENTS.md`,
+  `harness.yaml` con un servicio `db` y tickets `NOTAS-1` a `NOTAS-4`.
 - **Un proyecto en otro lenguaje** (Spring Boot o Node): para mostrar en la defensa que el
   harness es genérico, cambiando solo `AGENTS.md` y `harness.yaml`.

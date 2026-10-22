@@ -59,7 +59,7 @@ servicios:
     variables:
       POSTGRES_PASSWORD: test
       POSTGRES_DB: app_test
-    listo_cuando: pg_isready -U postgres
+    listo_cuando: pg_isready -h 127.0.0.1 -U postgres
     timeout_listo_segundos: 60
 
 variables_entorno:
@@ -145,14 +145,31 @@ red privada de la ejecución y se destruye al terminar.
 
 | Clave | Tipo | Obligatoria | Por defecto | Descripción |
 |---|---|---|---|---|
-| `nombre` | texto | sí | | Nombre del contenedor y **dirección dentro de la red** (`db` → `postgresql://...@db:5432/...`). Formato `[a-z0-9-]+`, único entre servicios. |
+| `nombre` | texto | sí | | **Dirección del servicio dentro de la red** (`db` → `postgresql://...@db:5432/...`). Formato `[a-z0-9-]+`, único entre servicios. El contenedor se llama `harness-<proyecto>-<ticket>-<nombre>`: así dos ejecuciones pueden tener cada una su `db`. |
 | `imagen` | texto | sí | | Imagen de Docker Hub (`postgres:16`, `redis:7`...). |
 | `variables` | mapa texto→texto | no | `{}` | Variables de entorno **del servicio** (`POSTGRES_PASSWORD`...). Admiten `${VARIABLE}`. |
 | `listo_cuando` | texto o `null` | no | `null` | Comando que se ejecuta **dentro del servicio** cada segundo hasta que devuelve 0. Si es `null`, no se espera. |
 | `timeout_listo_segundos` | entero | no | `60` | Si `listo_cuando` no responde en ese tiempo, la ejecución se detiene con error. |
 
 Los servicios se levantan antes que el contenedor del proyecto, y el harness espera a que
-todos estén listos antes de ejecutar `instalar`.
+todos estén listos antes de ejecutar `instalar`. Si un servicio no queda listo a tiempo, el
+error incluye la última salida de `listo_cuando` y las últimas 20 líneas de `docker logs` del
+servicio, donde suele estar la causa (una variable mal puesta, una contraseña vacía...).
+
+**PostgreSQL: usar `pg_isready -h 127.0.0.1`.** Al arrancar por primera vez, la imagen de
+postgres levanta un servidor temporal (solo por socket local) para crear la base y después lo
+reinicia. `pg_isready` sin `-h` pregunta por el socket y puede responder "listo" justo antes de
+ese reinicio. Con `-h 127.0.0.1` pregunta por TCP, que el servidor temporal no escucha, así que
+solo responde cuando la base está lista de verdad.
+
+Cómo se arma, por ejecución:
+
+- Una red `harness-<proyecto>-<ticket>` (solo si hay servicios).
+- Cada servicio corre en esa red con su `nombre` como alias, sin puertos expuestos al host.
+- El contenedor del proyecto se conecta a la misma red y recibe `variables_entorno`.
+- Al terminar (bien, con error o con Ctrl+C) se borran los contenedores y la red. Si una
+  ejecución anterior se cortó sin limpiar, sus restos se borran al empezar la siguiente.
+- Las imágenes que falten se descargan antes de empezar (puede tardar la primera vez).
 
 ### `variables_entorno`
 
@@ -163,8 +180,13 @@ Variables que se pasan al **contenedor del proyecto** (no a los servicios).
   variable de entorno `NOMBRE` de la máquina del usuario (o del `.env` local en desarrollo).
 - Si una variable `${NOMBRE}` no existe, la ejecución se detiene al arrancar con un mensaje
   que dice cuál falta.
+- Una referencia puede ir dentro de un texto más largo:
+  `DATABASE_URL: postgresql://app:${CLAVE_BD}@db:5432/app`.
+- `${...}` también se puede usar en `servicios[].variables`.
 - Los valores obtenidos de `${...}` **nunca se escriben en los logs** ni se le muestran al
   modelo; se reemplazan por `****`.
+- Los valores se pasan a Docker por el entorno del proceso (`docker run -e NOMBRE`), no en la
+  línea de comandos, donde cualquier proceso de la máquina podría leerlos.
 
 ### `git`
 
