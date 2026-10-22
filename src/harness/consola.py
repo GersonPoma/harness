@@ -1,5 +1,6 @@
 """Salida por consola de una ejecución, con rich."""
 
+import sys
 from typing import Any
 
 from rich.console import Console
@@ -16,6 +17,19 @@ MAX_CARACTERES_ARGUMENTO = 60
 LINEAS_INFORME_VALIDACION = 8
 
 consola = Console()
+
+
+def forzar_salida_utf8() -> None:
+    """Pasa stdout y stderr a UTF-8.
+
+    En Windows, si la salida va a un archivo o a una tubería, Python usa la página de códigos
+    del sistema (cp1252), que no tiene caracteres como '→' o '✓': el primer print fallaría
+    con UnicodeEncodeError y cortaría la ejecución.
+    """
+    for flujo in (sys.stdout, sys.stderr):
+        reconfigurar = getattr(flujo, "reconfigure", None)
+        if reconfigurar:
+            reconfigurar(encoding="utf-8", errors="replace")
 
 
 def mostrar_inicio(ticket: str, repo: str, proveedor: str, modelo: str) -> None:

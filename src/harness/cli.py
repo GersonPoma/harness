@@ -196,4 +196,5 @@ def version() -> None:
 
 
 def main() -> None:
+    consola.forzar_salida_utf8()
     app()
