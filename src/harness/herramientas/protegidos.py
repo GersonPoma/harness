@@ -10,8 +10,8 @@ import os
 from collections.abc import Sequence
 from pathlib import Path
 
+from harness.carpetas import CARPETAS_IGNORADAS
 from harness.globs import coincide_alguno
-from harness.herramientas.archivos import CARPETAS_IGNORADAS
 
 
 class GuardiaProtegidos:

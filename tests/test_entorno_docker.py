@@ -295,3 +295,37 @@ def test_sin_servicios_no_se_crea_red(repo: Path) -> None:
     assert "network" not in docker.subcomandos()
     run = next(a for a in docker.llamadas if a[1] == "run")
     assert "--network" not in run
+
+
+def _montajes(docker: DockerFalso) -> list[str]:
+    run = next(a for a in docker.llamadas if a[1] == "run")
+    return [run[i + 1] for i, a in enumerate(run) if a == "--mount"]
+
+
+def test_tapa_los_env_con_un_archivo_vacio_de_solo_lectura(repo: Path) -> None:
+    for ruta in [".env", "backend/.env.local", ".env.example", ".venv/.env"]:
+        (repo / ruta).parent.mkdir(parents=True, exist_ok=True)
+        (repo / ruta).write_text("API_KEY=real\n", encoding="utf-8")
+    docker = DockerFalso()
+    entorno = _iniciar(repo, docker)
+
+    tapas = [m for m in _montajes(docker) if ".env" in m]
+    fuentes = {m.split(",")[1].removeprefix("source=") for m in tapas}
+    assert len(fuentes) == 1
+    vacio = Path(fuentes.pop())
+    assert tapas == [
+        f"type=bind,source={vacio},target=/app/.env,readonly",
+        f"type=bind,source={vacio},target=/app/backend/.env.local,readonly",
+    ]
+    assert vacio.read_bytes() == b""
+    # El .env del disco no se toca.
+    assert (repo / ".env").read_text(encoding="utf-8") == "API_KEY=real\n"
+
+    entorno.cerrar()
+    assert not vacio.exists()
+
+
+def test_sin_env_no_hay_montajes_extra(repo: Path) -> None:
+    docker = DockerFalso()
+    _iniciar(repo, docker).cerrar()
+    assert not any(".env" in m for m in _montajes(docker))

@@ -62,6 +62,26 @@ def test_ejecuta_en_el_contenedor_y_ve_el_repo(repo: Path) -> None:
     assert "harness-prueba-prueba-real" not in _nombres_contenedores()
 
 
+def test_env_se_ve_vacio_dentro_del_contenedor(repo: Path) -> None:
+    (repo / ".env").write_text("API_KEY=sk-real\n", encoding="utf-8")
+    (repo / "backend").mkdir()
+    (repo / "backend" / ".env.local").write_text("CLAVE=real\n", encoding="utf-8")
+    (repo / ".env.example").write_text("API_KEY=\n", encoding="utf-8")
+    with EntornoDocker(repo, _config(), "prueba-env") as entorno:
+        entorno.iniciar()
+        for ruta in [".env", "backend/.env.local"]:
+            resultado = entorno.ejecutar(f"cat {ruta}")
+            assert resultado.codigo == 0, resultado.salida
+            assert resultado.salida == "", ruta
+        # La plantilla sin secretos sí se ve.
+        assert entorno.ejecutar("cat .env.example").salida == "API_KEY=\n"
+        sobrescribir = entorno.ejecutar("python -c \"open('.env','w').write('x')\"")
+        assert sobrescribir.codigo != 0
+        assert "Read-only file system" in sobrescribir.salida
+    assert (repo / ".env").read_text(encoding="utf-8") == "API_KEY=sk-real\n"
+    assert (repo / "backend" / ".env.local").read_text(encoding="utf-8") == "CLAVE=real\n"
+
+
 def test_git_y_harness_yaml_son_de_solo_lectura(repo: Path) -> None:
     with EntornoDocker(repo, _config(), "prueba-ro") as entorno:
         entorno.iniciar()

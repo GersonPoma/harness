@@ -3,12 +3,12 @@
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
+from harness.carpetas import CARPETAS_IGNORADAS
 from harness.herramientas.rutas import resolver_ruta, validar_escritura
 
 # Limita lo que se manda al modelo: los planes gratis tienen pocos tokens por minuto.
 MAX_CARACTERES_LECTURA = 12_000
 MAX_ENTRADAS_LISTADO = 200
-CARPETAS_IGNORADAS = {".git", ".venv", "venv", "__pycache__", "node_modules", ".idea"}
 
 
 class ErrorHerramienta(Exception):

@@ -228,8 +228,15 @@ Hay además archivos que el modelo **no puede ni leer**, igual que `.git/`:
 - La comprobación se hace sobre la ruta ya resuelta, así que un symlink con otro nombre que
   apunta a un `.env` también se rechaza.
 - `listar_directorio` sí muestra que el archivo existe (el nombre no es un secreto).
-- Si el proyecto necesita una variable de esas en los tests, va en `variables_entorno` (con
-  `${NOMBRE}` si es secreta), no en un `.env` que lea el código.
+- **Dentro del contenedor los `.env` se ven vacíos.** Las herramientas no son el único
+  camino: el repo se monta completo, y `cat .env` (o un test que lo imprima) le mostraría su
+  contenido al modelo. Por eso, al crear el contenedor, el harness monta un archivo vacío de
+  solo lectura encima de cada `.env` y `.env.*` del repo (también en subcarpetas, saltando
+  `.git`, `.venv`, `node_modules` y las demás carpetas ignoradas). `.env.example` se ve normal.
+  El `.env` del disco no se modifica.
+- Por lo mismo, **los tests no pueden depender de un `.env`**: si un proyecto necesita
+  variables para correr sus tests, se declaran en `variables_entorno` (con `${NOMBRE}` si
+  son secretas).
 
 Cómo se hace cumplir:
 

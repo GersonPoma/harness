@@ -10,7 +10,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from harness.herramientas.archivos import CARPETAS_IGNORADAS
+from harness.carpetas import CARPETAS_IGNORADAS
 
 # Además de las ignoradas: lo que escriben el harness (logs) y las herramientas de tests, que
 # no es trabajo del modelo.

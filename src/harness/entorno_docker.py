@@ -8,6 +8,7 @@ necesita servicios (base de datos...), cada uno corre en su contenedor, en una r
 import os
 import re
 import subprocess
+import tempfile
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ from typing import Protocol
 
 from harness.config_proyecto import NOMBRE_ARCHIVO, ConfigProyecto, ConfigServicio
 from harness.globs import coincide_alguno
+from harness.secretos import buscar_archivos_de_secretos
 from harness.variables import VariablesResueltas, resolver_variables
 
 # La instalación descarga dependencias: puede tardar mucho más que un comando normal.
@@ -110,6 +112,8 @@ class EntornoDocker:
         self.nombre = f"harness-{config.proyecto}-{_nombre_seguro(ticket)}"
         self._contenedores: list[str] = []
         self._red: str | None = None
+        # Archivo vacío del host que se monta encima de cada .env del repo.
+        self._archivo_vacio: Path | None = None
         self._hay_que_reinstalar = False
 
     def __enter__(self) -> "EntornoDocker":
@@ -175,6 +179,10 @@ class EntornoDocker:
             pass  # Docker desapareció: no hay nada más que limpiar desde aquí.
         self._contenedores.clear()
         self._red = None
+        if self._archivo_vacio:
+            # Después de borrar los contenedores: mientras existan, el archivo está montado.
+            self._archivo_vacio.unlink(missing_ok=True)
+            self._archivo_vacio = None
 
     def _verificar_docker(self) -> None:
         argumentos = ["docker", "version", "--format", "{{.Server.Version}}"]
@@ -283,7 +291,29 @@ class EntornoDocker:
                     "--mount",
                     f"type=bind,source={origen},target={destino}/{ruta},readonly",
                 ]
+        argumentos += self._montajes_secretos(destino)
         argumentos += ["-w", destino, self._config.docker.imagen, "sleep", "infinity"]
+        return argumentos
+
+    def _montajes_secretos(self, destino: str) -> list[str]:
+        """Tapa cada .env con un archivo vacío de solo lectura.
+
+        Las herramientas ya no dejan leerlos, pero el repo está montado completo: sin esto,
+        'cat .env' o un test que lo imprima le mostraría los secretos al modelo.
+        """
+        rutas = buscar_archivos_de_secretos(self._repo)
+        if not rutas:
+            return []
+        if self._archivo_vacio is None:
+            descriptor, ruta_vacio = tempfile.mkstemp(prefix="harness-vacio-")
+            os.close(descriptor)
+            self._archivo_vacio = Path(ruta_vacio)
+        argumentos: list[str] = []
+        for ruta in rutas:
+            argumentos += [
+                "--mount",
+                f"type=bind,source={self._archivo_vacio},target={destino}/{ruta},readonly",
+            ]
         return argumentos
 
     def _instalar(self) -> None:

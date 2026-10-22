@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from pathlib import Path, PurePosixPath
 
 from harness.globs import coincide_alguno
+from harness.secretos import es_archivo_de_secretos
 
 # Siempre protegidos contra escritura (docs/harness-yaml.md, archivos_protegidos).
 # harness.yaml para que el modelo no pueda aflojar sus propios límites.
@@ -11,10 +12,6 @@ ARCHIVOS_PROTEGIDOS = ("harness.yaml",)
 CARPETAS_PROTEGIDAS = (".git", ".harness/sessions", ".harness/logs")
 # .git ni siquiera se puede leer: no aporta al modelo y puede contener credenciales.
 CARPETAS_PROHIBIDAS = (".git",)
-# .env y .env.* tampoco: suelen tener secretos reales y su contenido iría a la API del modelo.
-# .env.example es la plantilla sin valores reales que se sube a Git.
-ARCHIVO_SECRETOS = ".env"
-EXCEPCIONES_SECRETOS = (".env.example",)
 
 
 class ErrorRuta(Exception):
@@ -32,21 +29,14 @@ def resolver_ruta(repo: Path, ruta: str) -> Path:
         raise ErrorRuta(f"'{ruta}' está fuera del repo objetivo.")
     if _esta_dentro_de(_relativa(repo_resuelto, destino), CARPETAS_PROHIBIDAS):
         raise ErrorRuta(f"'{ruta}' está en una carpeta prohibida para el harness.")
-    # Se mira el destino ya resuelto: un symlink a .env con otro nombre también se rechaza.
+    # .env y .env.* tampoco: suelen tener secretos reales y su contenido iría a la API del
+    # modelo. Se mira el destino ya resuelto: un symlink a .env con otro nombre también cae.
     if es_archivo_de_secretos(destino.name):
         raise ErrorRuta(
             f"'{ruta}' puede contener secretos (API keys, contraseñas): el harness no lo lee "
             "ni lo escribe."
         )
     return destino
-
-
-def es_archivo_de_secretos(nombre: str) -> bool:
-    """True para .env y .env.* (en cualquier carpeta), salvo .env.example."""
-    nombre = nombre.lower()
-    if nombre in EXCEPCIONES_SECRETOS:
-        return False
-    return nombre == ARCHIVO_SECRETOS or nombre.startswith(f"{ARCHIVO_SECRETOS}.")
 
 
 def validar_escritura(repo: Path, destino: Path, protegidos: Sequence[str] = ()) -> None:
