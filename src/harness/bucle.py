@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from harness.proveedores import ProveedorLLM
+from harness.proveedores.base import ProveedorLLM
 from harness.tipos import Herramienta, LlamadaHerramienta, Mensaje, Rol
 
 MAX_PASOS_POR_DEFECTO = 30

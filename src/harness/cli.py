@@ -9,7 +9,8 @@ from harness.bucle import MAX_PASOS_POR_DEFECTO, Paso, ejecutar_bucle
 from harness.config import ConfigModelo, ErrorConfiguracion, cargar_config
 from harness.herramientas import crear_herramientas
 from harness.prompts import crear_mensajes_iniciales
-from harness.proveedores import ErrorProveedor, crear_proveedor
+from harness.proveedores.base import ErrorProveedor
+from harness.proveedores.fabrica import crear_proveedor
 from harness.registro import RegistroPasos
 from harness.ticket import ErrorTicket, leer_ticket_local
 

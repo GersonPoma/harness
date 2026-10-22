@@ -25,6 +25,10 @@ class LlamadaHerramienta:
     # Los modelos chicos a veces mandan JSON mal armado; se marca aquí para devolverle el
     # error al modelo en vez de cortar la ejecución.
     error_argumentos: str | None = None
+    # Datos opacos que el proveedor exige recibir de vuelta intactos (por ejemplo la
+    # thought_signature de Gemini 3). El bucle nunca los interpreta; deben ser serializables
+    # a JSON para guardarlos en las sesiones de harness resume.
+    datos_proveedor: dict[str, Any] | None = None
 
 
 @dataclass

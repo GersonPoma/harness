@@ -112,20 +112,23 @@ def _a_mensaje_openai(mensaje: Mensaje) -> dict[str, Any]:
         "content": mensaje.contenido,
     }
     if mensaje.llamadas:
-        resultado["tool_calls"] = [
-            {
-                "id": llamada.id,
-                "type": "function",
-                "function": {
-                    "name": llamada.nombre,
-                    "arguments": json.dumps(llamada.argumentos, ensure_ascii=False),
-                },
-            }
-            for llamada in mensaje.llamadas
-        ]
+        resultado["tool_calls"] = [_a_llamada_openai(llamada) for llamada in mensaje.llamadas]
     if mensaje.rol == Rol.HERRAMIENTA:
         resultado["tool_call_id"] = mensaje.id_llamada
     return resultado
+
+
+def _a_llamada_openai(llamada: LlamadaHerramienta) -> dict[str, Any]:
+    return {
+        # Primero los datos del proveedor, para que nunca pisen los campos estándar.
+        **(llamada.datos_proveedor or {}),
+        "id": llamada.id,
+        "type": "function",
+        "function": {
+            "name": llamada.nombre,
+            "arguments": json.dumps(llamada.argumentos, ensure_ascii=False),
+        },
+    }
 
 
 def _a_herramienta_openai(herramienta: Herramienta) -> dict[str, Any]:
@@ -156,15 +159,21 @@ def _a_respuesta_modelo(respuesta: Any) -> RespuestaModelo:
 def _a_llamada(llamada: Any, indice: int) -> LlamadaHerramienta:
     # Algunos proveedores compatibles no mandan id; sin id no se puede asociar el resultado.
     id_llamada = llamada.id or f"llamada_{indice}"
-    texto_argumentos = llamada.function.arguments or "{}"
+    # model_extra trae los campos fuera del estándar OpenAI (Gemini 3 manda ahí extra_content
+    # con la thought_signature, que exige recibir de vuelta en el siguiente pedido).
+    datos_proveedor = getattr(llamada, "model_extra", None) or None
+    argumentos, error = _leer_argumentos(llamada.function.arguments)
+    return LlamadaHerramienta(
+        id_llamada, llamada.function.name, argumentos, error, datos_proveedor
+    )
+
+
+def _leer_argumentos(texto: str | None) -> tuple[dict[str, Any], str | None]:
+    """Convierte los argumentos JSON del modelo en dict; si son inválidos, devuelve el error."""
     try:
-        argumentos = json.loads(texto_argumentos)
+        argumentos = json.loads(texto or "{}")
     except json.JSONDecodeError as error:
-        return LlamadaHerramienta(
-            id_llamada, llamada.function.name, {}, f"Argumentos con JSON inválido: {error}"
-        )
+        return {}, f"Argumentos con JSON inválido: {error}"
     if not isinstance(argumentos, dict):
-        return LlamadaHerramienta(
-            id_llamada, llamada.function.name, {}, "Los argumentos deben ser un objeto JSON."
-        )
-    return LlamadaHerramienta(id_llamada, llamada.function.name, argumentos)
+        return {}, "Los argumentos deben ser un objeto JSON."
+    return argumentos, None

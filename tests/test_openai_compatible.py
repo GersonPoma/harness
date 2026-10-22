@@ -1,3 +1,5 @@
+import json
+from dataclasses import asdict
 from types import SimpleNamespace
 from typing import Any
 
@@ -55,9 +57,12 @@ def respuesta_openai(texto: str | None = None, llamadas: list[Any] | None = None
     return SimpleNamespace(choices=[SimpleNamespace(message=mensaje)], usage=uso)
 
 
-def llamada_openai(id_llamada: str | None, nombre: str, argumentos: str) -> Any:
+def llamada_openai(
+    id_llamada: str | None, nombre: str, argumentos: str, extra: dict[str, Any] | None = None
+) -> Any:
     funcion = SimpleNamespace(name=nombre, arguments=argumentos)
-    return SimpleNamespace(id=id_llamada, function=funcion)
+    # model_extra imita a pydantic: los campos fuera del estándar OpenAI.
+    return SimpleNamespace(id=id_llamada, function=funcion, model_extra=extra or {})
 
 
 def error_429(retry_after: str | None = None) -> openai.RateLimitError:
@@ -151,3 +156,40 @@ def test_error_de_autenticacion_no_se_reintenta() -> None:
     with pytest.raises(ErrorProveedor, match="API key"):
         proveedor.responder([Mensaje(Rol.USUARIO, "hola")], [])
     assert len(cliente.pedidos) == 1
+
+
+EXTRA_GEMINI = {"extra_content": {"google": {"thought_signature": "EmAKXg+firma/=="}}}
+
+
+def _reenviar_llamadas(extra: dict[str, Any] | None) -> tuple[Any, dict[str, Any]]:
+    """Pide una herramienta, devuelve su resultado y retorna (llamada, tool_call reenviado)."""
+    llamadas = [llamada_openai("c1", "leer_archivo", '{"ruta": "AGENTS.md"}', extra)]
+    proveedor, cliente, _ = crear([respuesta_openai(None, llamadas), respuesta_openai("ok")])
+    mensajes = [Mensaje(Rol.USUARIO, "hola")]
+    respuesta = proveedor.responder(mensajes, [HERRAMIENTA])
+    mensajes += [
+        Mensaje(Rol.ASISTENTE, respuesta.texto, respuesta.llamadas),
+        Mensaje(Rol.HERRAMIENTA, "# AGENTS", id_llamada="c1"),
+    ]
+    proveedor.responder(mensajes, [HERRAMIENTA])
+    return respuesta.llamadas[0], cliente.pedidos[1]["messages"][1]["tool_calls"][0]
+
+
+def test_datos_del_proveedor_vuelven_identicos_en_el_siguiente_pedido() -> None:
+    llamada, reenviada = _reenviar_llamadas(EXTRA_GEMINI)
+    assert llamada.datos_proveedor == EXTRA_GEMINI
+    assert reenviada["extra_content"] == EXTRA_GEMINI["extra_content"]
+    assert reenviada["id"] == "c1"
+    assert reenviada["function"]["name"] == "leer_archivo"
+
+
+def test_sin_datos_del_proveedor_no_se_agrega_el_campo() -> None:
+    llamada, reenviada = _reenviar_llamadas(None)
+    assert llamada.datos_proveedor is None
+    assert set(reenviada) == {"id", "type", "function"}
+
+
+def test_llamada_con_datos_del_proveedor_se_guarda_en_json() -> None:
+    llamada, _ = _reenviar_llamadas(EXTRA_GEMINI)
+    restaurada = LlamadaHerramienta(**json.loads(json.dumps(asdict(llamada))))
+    assert restaurada == llamada
