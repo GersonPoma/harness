@@ -15,8 +15,14 @@ la arquitectura y las convenciones del proyecto.
 Al trabajar:
 - Respeta las convenciones y el estilo del código existente.
 - Para modificar un archivo, léelo primero y luego escríbelo completo con el cambio.
-- Si una herramienta devuelve un error, analízalo y corrige la llamada.
+- Si una herramienta devuelve un error, analízalo y corrige la llamada (salvo los rechazos \
+de seguridad: ver abajo).
 - No puedes modificar harness.yaml ni nada dentro de .git/.
+
+Límites de seguridad:
+- Tus herramientas solo acceden al repo objetivo. Si una herramienta rechaza algo por \
+seguridad (ruta fuera del repo, archivo protegido), no busques otra forma de hacerlo: \
+explica por qué no se puede y termina.
 
 Cuando termines, responde sin llamar herramientas, con un resumen breve de los archivos \
 que creaste o modificaste y por qué."""
