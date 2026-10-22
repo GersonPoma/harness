@@ -34,6 +34,9 @@ CODIGO_TIEMPO_AGOTADO = -1
 MAX_CARACTERES_ERROR_INSTALACION = 3000
 # Carpetas y archivos del repo que el contenedor solo puede leer.
 MONTAJES_SOLO_LECTURA = (".git", NOMBRE_ARCHIVO, ".harness")
+# -v borra también los volúmenes anónimos: imágenes como postgres declaran un VOLUME y Docker
+# crea uno por contenedor que, sin -v, queda huérfano ocupando disco.
+BORRAR_CONTENEDORES = ["docker", "rm", "-f", "-v"]
 
 
 class EjecutorProceso(Protocol):
@@ -163,7 +166,7 @@ class EntornoDocker:
         try:
             if self._contenedores:
                 self._ejecutar(
-                    ["docker", "rm", "-f", *reversed(self._contenedores)], TIMEOUT_DOCKER_SEGUNDOS
+                    [*BORRAR_CONTENEDORES, *reversed(self._contenedores)], TIMEOUT_DOCKER_SEGUNDOS
                 )
             # La red se borra al final: Docker no la borra mientras tenga contenedores.
             if self._red:
@@ -185,7 +188,7 @@ class EntornoDocker:
     def _limpiar_restos(self) -> None:
         # Si una ejecución anterior se cortó sin limpiar, sus contenedores ocupan los nombres.
         nombres = [self.nombre, *(self._nombre_servicio(s) for s in self._config.servicios)]
-        self._ejecutar(["docker", "rm", "-f", *nombres], TIMEOUT_DOCKER_SEGUNDOS)
+        self._ejecutar([*BORRAR_CONTENEDORES, *nombres], TIMEOUT_DOCKER_SEGUNDOS)
         if self._config.servicios:
             self._ejecutar(["docker", "network", "rm", self.nombre], TIMEOUT_DOCKER_SEGUNDOS)
 

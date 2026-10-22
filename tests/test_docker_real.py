@@ -86,6 +86,13 @@ def test_timeout_corta_el_proceso_dentro_del_contenedor(repo: Path) -> None:
         assert "sleep(30)" not in procesos.salida
 
 
+def _volumenes() -> set[str]:
+    proceso = subprocess.run(
+        ["docker", "volume", "ls", "-q"], capture_output=True, text=True
+    )
+    return set(proceso.stdout.split())
+
+
 def _redes() -> str:
     proceso = subprocess.run(
         ["docker", "network", "ls", "--format", "{{.Name}}"], capture_output=True, text=True
@@ -107,6 +114,7 @@ def test_servicio_en_red_privada(repo: Path) -> None:
         "variables_entorno": {"CACHE_HOST": "cache", "CLAVE": "${CLAVE_PRUEBA_HARNESS}"},
     })
     variables = resolver_variables(config, {"CLAVE_PRUEBA_HARNESS": "valor-secreto"})
+    volumenes_antes = _volumenes()
     with EntornoDocker(repo, config, "prueba-servicio", variables) as entorno:
         entorno.iniciar()
         # El proyecto llega al servicio por su alias y habla el protocolo de Redis.
@@ -119,3 +127,5 @@ def test_servicio_en_red_privada(repo: Path) -> None:
         assert "+PONG" in resultado.salida and "valor-secreto" in resultado.salida
     assert "harness-prueba-prueba-servicio" not in _nombres_contenedores()
     assert "harness-prueba-prueba-servicio" not in _redes()
+    # redis declara VOLUME /data: su volumen anónimo se borra junto con el contenedor.
+    assert _volumenes() - volumenes_antes == set()

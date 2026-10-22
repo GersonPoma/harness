@@ -61,7 +61,7 @@ def test_iniciar_crea_contenedor_e_instala(repo: Path) -> None:
         assert docker.subcomandos() == [
             "version", "rm", "image", "run", "exec pip install -e .", "exec pip install pytest",
         ]
-    assert docker.llamadas[-1] == ["docker", "rm", "-f", "harness-tareas-api-tareas-1"]
+    assert docker.llamadas[-1] == ["docker", "rm", "-f", "-v", "harness-tareas-api-tareas-1"]
 
 
 def test_montajes_de_solo_lectura(repo: Path) -> None:
@@ -120,7 +120,7 @@ def test_si_falla_la_instalacion_se_borra_el_contenedor(repo: Path) -> None:
     with pytest.raises(ErrorDocker, match="no se encontró setup.py"):
         with EntornoDocker(repo, CONFIG, "T", ejecutar=docker) as entorno:
             entorno.iniciar()
-    assert docker.llamadas[-1][:3] == ["docker", "rm", "-f"]
+    assert docker.llamadas[-1][:4] == ["docker", "rm", "-f", "-v"]
 
 
 def test_ctrl_c_borra_el_contenedor(repo: Path) -> None:
@@ -193,13 +193,23 @@ def test_servicios_en_red_privada_antes_que_el_proyecto(repo: Path) -> None:
         "exec pg_isready -h 127.0.0.1", "run", "exec pip install -r requirements.txt",
         "rm", "network",
     ]
-    assert docker.llamadas[1] == ["docker", "rm", "-f", CONTENEDOR, SERVICIO]
+    assert docker.llamadas[1] == ["docker", "rm", "-f", "-v", CONTENEDOR, SERVICIO]
     assert docker.llamadas[5] == [
         "docker", "network", "create", "--label", "harness=1", CONTENEDOR,
     ]
-    assert docker.llamadas[-2] == ["docker", "rm", "-f", CONTENEDOR, SERVICIO]
+    assert docker.llamadas[-2] == ["docker", "rm", "-f", "-v", CONTENEDOR, SERVICIO]
     assert docker.llamadas[-1] == ["docker", "network", "rm", CONTENEDOR]
     assert "Esperando a que el servicio db esté listo..." in avisos
+
+
+def test_borra_los_volumenes_anonimos_de_los_contenedores(repo: Path) -> None:
+    # postgres declara un VOLUME: sin -v, cada ejecución dejaría un volumen huérfano.
+    docker = DockerFalso()
+    with _entorno_servicios(repo, docker) as entorno:
+        entorno.iniciar()
+    borrados = [a for a in docker.llamadas if a[1] == "rm"]
+    assert len(borrados) == 2  # restos al empezar y limpieza al cerrar
+    assert all(a[2:4] == ["-f", "-v"] for a in borrados)
 
 
 def test_argumentos_del_servicio_y_del_proyecto(repo: Path) -> None:
@@ -251,7 +261,7 @@ def test_servicio_que_no_esta_listo_muestra_sus_logs(repo: Path) -> None:
     assert "superuser password is not specified" in mensaje
     assert ["docker", "logs", "--tail", "20", SERVICIO] in docker.llamadas
     # El proyecto no llegó a crearse, pero el servicio y la red sí se borran.
-    assert docker.llamadas[-2] == ["docker", "rm", "-f", SERVICIO]
+    assert docker.llamadas[-2] == ["docker", "rm", "-f", "-v", SERVICIO]
     assert docker.llamadas[-1] == ["docker", "network", "rm", CONTENEDOR]
 
 
