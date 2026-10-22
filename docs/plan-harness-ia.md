@@ -502,7 +502,7 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
 
 ## Orden de construcción (roadmap)
 
-- [ ] **1.** Interfaz `ProveedorLLM` + `ProveedorOpenAICompatible` con presets (gemini, groq,
+- [x] **1.** Interfaz `ProveedorLLM` + `ProveedorOpenAICompatible` con presets (gemini, groq,
       openrouter, openai, personalizado) + bucle básico con `read_file`, `write_file`,
       `list_dir` sobre tareas-api. Configuración leída solo del `.env`
 - [ ] **2.** `run_command` en Docker + tests + lint (autocorrección funcionando). Un solo
