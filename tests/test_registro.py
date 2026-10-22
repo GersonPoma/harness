@@ -21,4 +21,12 @@ def test_registra_pasos_en_jsonl_sin_secretos(repo: Path) -> None:
     assert "sk-secreta" not in texto
     eventos = [json.loads(linea) for linea in texto.splitlines()]
     assert [e["evento"] for e in eventos] == ["inicio", "herramienta", "fin"]
-    assert eventos[1]["argumentos"]["contenido"] == "K=***"
+    assert eventos[1]["argumentos"]["contenido"] == "K=****"
+
+
+def test_oculta_secretos_con_comillas_o_barras(repo: Path) -> None:
+    registro = RegistroPasos(repo, "T", secretos=['cl"a\\ve'])
+    registro.registrar_error('falló con cl"a\\ve')
+    texto = registro.ruta.read_text(encoding="utf-8")
+    assert "cl" not in texto
+    assert json.loads(texto)["mensaje"] == "falló con ****"

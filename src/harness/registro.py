@@ -7,10 +7,10 @@ from typing import Any
 
 from harness.bucle import Paso
 from harness.ejecucion import ResultadoEjecucion, Validacion
+from harness.variables import ocultar_secretos
 
 CARPETA_LOGS = Path(".harness") / "logs"
 MAX_CARACTERES_RESULTADO_LOG = 2_000
-TEXTO_OCULTO = "***"
 
 
 class RegistroPasos:
@@ -20,7 +20,9 @@ class RegistroPasos:
         fecha = datetime.now().strftime("%Y%m%d-%H%M%S")
         self.ruta = repo / CARPETA_LOGS / f"{ticket}-{fecha}.jsonl"
         self.ruta.parent.mkdir(parents=True, exist_ok=True)
+        # También en su forma escapada en JSON, por si el secreto tiene comillas o barras.
         self._secretos = [s for s in secretos if s]
+        self._secretos += [json.dumps(s)[1:-1] for s in self._secretos]
 
     def registrar_inicio(self, proveedor: str, modelo: str) -> None:
         """Registra con qué proveedor y modelo empezó la ejecución (nunca la API key)."""
@@ -71,7 +73,6 @@ class RegistroPasos:
         evento = {"hora": datetime.now().isoformat(timespec="seconds"), **evento}
         linea = json.dumps(evento, ensure_ascii=False)
         # Se reemplaza sobre el JSON ya armado para cubrir cualquier campo, incluso anidado.
-        for secreto in self._secretos:
-            linea = linea.replace(secreto, TEXTO_OCULTO)
+        linea = ocultar_secretos(linea, self._secretos)
         with self.ruta.open("a", encoding="utf-8") as archivo:
             archivo.write(f"{linea}\n")

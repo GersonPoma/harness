@@ -74,6 +74,11 @@ def estado(mensaje: str) -> Status:
     return consola.status(escape(mensaje))
 
 
+def actualizar_estado(estado: Status, mensaje: str) -> None:
+    """Cambia el texto del indicador animado (cada etapa de la preparación de Docker)."""
+    estado.update(escape(mensaje))
+
+
 def mostrar_error(mensaje: str) -> None:
     """Muestra un error que corta la ejecución."""
     consola.print(f"[bold red]Error:[/] {escape(mensaje)}")

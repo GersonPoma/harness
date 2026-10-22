@@ -161,3 +161,11 @@ def test_herramienta_ejecutar_comando(repo: Path) -> None:
     comando = crear_herramientas(repo, _config(), ejecutor)[-1]
     assert comando.funcion(comando="python -V") == "Código de salida: 0\nPython 3.12"
     assert entorno.comandos == ["python -V"]
+
+
+def test_los_secretos_no_llegan_al_modelo(repo: Path) -> None:
+    entorno = EntornoFalso([ResultadoComando(0, "DATABASE_URL=postgresql://u:s3creta@db/x")])
+    ejecutor = EjecutorComandos(entorno, GuardiaProtegidos(repo, []), 4000, 120, ["s3creta"])
+    assert ejecutor.correr("python -c 'import os; print(os.environ)'")[1] == (
+        "Código de salida: 0\nDATABASE_URL=postgresql://u:****@db/x"
+    )

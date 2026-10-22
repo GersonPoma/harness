@@ -20,6 +20,7 @@ from harness.proveedores.base import ErrorProveedor, ProveedorLLM
 from harness.proveedores.fabrica import crear_proveedor
 from harness.registro import RegistroPasos
 from harness.ticket import ErrorTicket, leer_ticket_local
+from harness.variables import ErrorVariables, VariablesResueltas, resolver_variables
 
 CODIGO_CANCELADO = 130
 
@@ -35,6 +36,12 @@ class _Preparacion:
     texto_ticket: str
     config: ConfigModelo
     config_proyecto: ConfigProyecto | None
+    variables: VariablesResueltas
+
+    @property
+    def secretos(self) -> list[str]:
+        """Lo que nunca se escribe en el log ni se le muestra al modelo."""
+        return [self.config.api_key, *self.variables.secretos]
 
 
 class _Reporte:
@@ -71,7 +78,7 @@ def run(
     prep = _preparar_ejecucion(ticket, (repo or Path.cwd()).resolve())
     limites = prep.config_proyecto.limites if prep.config_proyecto else None
     max_pasos = max_pasos or (limites.max_pasos if limites else MAX_PASOS_POR_DEFECTO)
-    registro = RegistroPasos(prep.repo, prep.ticket, secretos=[prep.config.api_key])
+    registro = RegistroPasos(prep.repo, prep.ticket, secretos=prep.secretos)
     registro.registrar_inicio(prep.config.proveedor, prep.config.modelo)
     consola.mostrar_inicio(prep.ticket, str(prep.repo), prep.config.proveedor, prep.config.modelo)
 
@@ -100,9 +107,11 @@ def _preparar_ejecucion(ticket: Path, repo: Path) -> _Preparacion:
         raise typer.Exit(1)
     try:
         texto_ticket = leer_ticket_local(ticket)
+        # cargar_config carga el .env: después ya se pueden resolver los ${NOMBRE}.
         config = cargar_config()
         config_proyecto = cargar_config_proyecto(repo)
-    except (ErrorTicket, ErrorConfiguracion, ErrorConfigProyecto) as error:
+        variables = resolver_variables(config_proyecto) if config_proyecto else None
+    except (ErrorTicket, ErrorConfiguracion, ErrorConfigProyecto, ErrorVariables) as error:
         consola.mostrar_error(str(error))
         raise typer.Exit(1) from error
     if config_proyecto is None:
@@ -110,7 +119,10 @@ def _preparar_ejecucion(ticket: Path, repo: Path) -> _Preparacion:
             "El repo no tiene harness.yaml: se trabaja sin Docker, sin tests y sin validación. "
             "Créalo con 'harness init' (próximamente) o a mano (docs/harness-yaml.md)."
         )
-    return _Preparacion(repo, ticket.stem, texto_ticket, config, config_proyecto)
+    return _Preparacion(
+        repo, ticket.stem, texto_ticket, config, config_proyecto,
+        variables or VariablesResueltas(),
+    )
 
 
 def _ejecutar(prep: _Preparacion, max_pasos: int, reporte: _Reporte) -> ResultadoEjecucion:
@@ -124,10 +136,9 @@ def _ejecutar(prep: _Preparacion, max_pasos: int, reporte: _Reporte) -> Resultad
             al_paso=reporte.paso,
         )
     # El with garantiza que los contenedores se borran aunque algo falle o haya Ctrl+C.
-    with EntornoDocker(prep.repo, prep.config_proyecto, prep.ticket) as entorno:
-        imagen = prep.config_proyecto.docker.imagen
-        with consola.estado(f"Preparando contenedor ({imagen}) e instalando dependencias..."):
-            entorno.iniciar()
+    with EntornoDocker(prep.repo, prep.config_proyecto, prep.ticket, prep.variables) as entorno:
+        with consola.estado("Preparando Docker...") as estado:
+            entorno.iniciar(al_avanzar=partial(consola.actualizar_estado, estado))
         return _ejecutar_con_validacion(
             prep, prep.config_proyecto, entorno, proveedor, max_pasos, reporte
         )
@@ -145,7 +156,11 @@ def _ejecutar_con_validacion(
     # La copia se toma después de instalar: lo que cambie desde aquí lo cambió el modelo.
     guardia = GuardiaProtegidos(prep.repo, config_proyecto.archivos_protegidos)
     ejecutor = EjecutorComandos(
-        entorno, guardia, limites.max_caracteres_salida, limites.timeout_comando_segundos
+        entorno,
+        guardia,
+        limites.max_caracteres_salida,
+        limites.timeout_comando_segundos,
+        prep.variables.secretos,
     )
     comandos = config_proyecto.comandos
     return ejecutar_ticket(

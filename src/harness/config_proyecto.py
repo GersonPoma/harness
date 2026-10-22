@@ -120,17 +120,7 @@ def cargar_config_proyecto(repo: Path) -> ConfigProyecto | None:
         config = ConfigProyecto.model_validate(datos)
     except ValidationError as error:
         raise ErrorConfigProyecto(_formatear_errores(error)) from error
-    _rechazar_lo_no_soportado(config)
     return config
-
-
-def _rechazar_lo_no_soportado(config: ConfigProyecto) -> None:
-    # Correr los tests sin la base de datos que necesitan confundiría a la autocorrección.
-    for clave in ("servicios", "variables_entorno"):
-        if getattr(config, clave):
-            raise ErrorConfigProyecto(
-                f"{NOMBRE_ARCHIVO}: {clave}: se soporta desde la fase 3 del harness."
-            )
 
 
 def _formatear_errores(error: ValidationError) -> str:

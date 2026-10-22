@@ -6,6 +6,7 @@ from typing import Protocol
 from harness.entorno_docker import ResultadoComando
 from harness.herramientas.archivos import ErrorHerramienta
 from harness.herramientas.protegidos import GuardiaProtegidos
+from harness.variables import ocultar_secretos
 
 # Con sh -c, cualquiera de estos permite encadenar un programa no permitido detrás de uno
 # permitido ('pytest & rm -rf /app', o un salto de línea). '&' y '|' cubren '&&' y '||'.
@@ -64,15 +65,19 @@ class EjecutorComandos:
         guardia: GuardiaProtegidos,
         max_caracteres: int,
         timeout: int,
+        secretos: Sequence[str] = (),
     ) -> None:
         self._entorno = entorno
         self._guardia = guardia
         self._max_caracteres = max_caracteres
         self._timeout = timeout
+        self._secretos = list(secretos)
 
     def correr(self, comando: str) -> tuple[bool, str]:
         """Devuelve (pasó, texto para el modelo)."""
         resultado = self._entorno.ejecutar(comando)
+        # Se oculta antes de recortar: el recorte podría dejar un secreto partido a la mitad.
+        resultado.salida = ocultar_secretos(resultado.salida, self._secretos)
         texto = formatear_resultado(resultado, self._max_caracteres, self._timeout)
         avisos = self._guardia.revisar()
         if avisos:

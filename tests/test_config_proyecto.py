@@ -13,7 +13,7 @@ comandos:
   tests: pytest -q
 """
 
-COMPLETO_SIN_FASE_3 = """\
+COMPLETO = """\
 version: 1
 proyecto: mi-api
 docker:
@@ -28,6 +28,14 @@ comandos:
   tests: pytest -q
   lint: ruff check .
 comandos_permitidos: [pytest, python]
+servicios:
+  - nombre: db
+    imagen: postgres:16
+    variables:
+      POSTGRES_PASSWORD: test
+    listo_cuando: pg_isready -h 127.0.0.1 -U postgres
+variables_entorno:
+  DATABASE_URL: postgresql://postgres:test@db:5432/app_test
 git:
   rama_base: develop
 limites:
@@ -63,12 +71,15 @@ def test_minimo_con_valores_por_defecto(tmp_path: Path) -> None:
 
 
 def test_completo(tmp_path: Path) -> None:
-    config = _cargar(tmp_path, COMPLETO_SIN_FASE_3)
+    config = _cargar(tmp_path, COMPLETO)
     assert len(config.docker.instalar) == 2
     assert config.limites.max_pasos == 10
     assert config.limites.timeout_comando_segundos == 120
     assert config.git.rama_base == "develop"
     assert config.archivos_protegidos == ["migrations/**"]
+    assert config.servicios[0].variables == {"POSTGRES_PASSWORD": "test"}
+    assert config.servicios[0].timeout_listo_segundos == 60
+    assert config.variables_entorno["DATABASE_URL"].endswith("@db:5432/app_test")
 
 
 def test_instalar_como_texto_se_vuelve_lista(tmp_path: Path) -> None:
@@ -117,14 +128,6 @@ def test_servicios_repetidos(tmp_path: Path) -> None:
 def test_servicio_con_error_indica_la_posicion(tmp_path: Path) -> None:
     servicios = "servicios:\n  - {nombre: db}\n"
     assert "servicios[0].imagen: falta este campo" in _error(tmp_path, MINIMO + servicios)
-
-
-@pytest.mark.parametrize(
-    "extra",
-    ["servicios:\n  - {nombre: db, imagen: postgres:16}\n", "variables_entorno:\n  A: b\n"],
-)
-def test_lo_de_la_fase_3_se_rechaza(tmp_path: Path, extra: str) -> None:
-    assert "se soporta desde la fase 3" in _error(tmp_path, MINIMO + extra)
 
 
 def test_yaml_invalido(tmp_path: Path) -> None:

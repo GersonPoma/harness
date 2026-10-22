@@ -10,6 +10,7 @@ import pytest
 
 from harness.config_proyecto import ConfigComandos, ConfigDocker, ConfigProyecto
 from harness.entorno_docker import EntornoDocker
+from harness.variables import resolver_variables
 
 
 def _docker_corriendo() -> bool:
@@ -83,3 +84,38 @@ def test_timeout_corta_el_proceso_dentro_del_contenedor(repo: Path) -> None:
             "for p in os.listdir('/proc') if p.isdigit()])\""
         )
         assert "sleep(30)" not in procesos.salida
+
+
+def _redes() -> str:
+    proceso = subprocess.run(
+        ["docker", "network", "ls", "--format", "{{.Name}}"], capture_output=True, text=True
+    )
+    return proceso.stdout
+
+
+def test_servicio_en_red_privada(repo: Path) -> None:
+    config = ConfigProyecto.model_validate({
+        "version": 1,
+        "proyecto": "prueba",
+        "docker": {"imagen": IMAGEN},
+        "comandos": {"tests": "true"},
+        "servicios": [{
+            "nombre": "cache",
+            "imagen": "redis:7-alpine",
+            "listo_cuando": "redis-cli ping",
+        }],
+        "variables_entorno": {"CACHE_HOST": "cache", "CLAVE": "${CLAVE_PRUEBA_HARNESS}"},
+    })
+    variables = resolver_variables(config, {"CLAVE_PRUEBA_HARNESS": "valor-secreto"})
+    with EntornoDocker(repo, config, "prueba-servicio", variables) as entorno:
+        entorno.iniciar()
+        # El proyecto llega al servicio por su alias y habla el protocolo de Redis.
+        resultado = entorno.ejecutar(
+            "python -c \"import os, socket; s = socket.create_connection("
+            "(os.environ['CACHE_HOST'], 6379)); s.sendall(b'PING\\r\\n'); "
+            "print(s.recv(16), os.environ['CLAVE'])\""
+        )
+        assert resultado.codigo == 0, resultado.salida
+        assert "+PONG" in resultado.salida and "valor-secreto" in resultado.salida
+    assert "harness-prueba-prueba-servicio" not in _nombres_contenedores()
+    assert "harness-prueba-prueba-servicio" not in _redes()
