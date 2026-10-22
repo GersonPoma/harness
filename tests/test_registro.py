@@ -1,7 +1,8 @@
 import json
 from pathlib import Path
 
-from harness.bucle import Paso, ResultadoBucle
+from harness.bucle import Paso
+from harness.ejecucion import ResultadoEjecucion
 from harness.registro import RegistroPasos
 from harness.tipos import LlamadaHerramienta
 
@@ -12,7 +13,7 @@ def test_registra_pasos_en_jsonl_sin_secretos(repo: Path) -> None:
     argumentos = {"ruta": ".env", "contenido": "K=sk-secreta"}
     llamada = LlamadaHerramienta("c1", "escribir_archivo", argumentos)
     registro.registrar_paso(Paso(1, llamada, "leído sk-secreta", es_error=False))
-    registro.registrar_fin(ResultadoBucle("Listo", 2, 20, 10, False))
+    registro.registrar_fin(ResultadoEjecucion("Listo", 2, 20, 10, False, True, 1))
 
     assert registro.ruta.parent == repo / ".harness" / "logs"
     assert registro.ruta.name.startswith("TAREAS-1-")

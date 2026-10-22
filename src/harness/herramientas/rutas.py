@@ -1,6 +1,9 @@
 """Validación de rutas: el modelo solo puede tocar archivos dentro del repo objetivo."""
 
+from collections.abc import Sequence
 from pathlib import Path, PurePosixPath
+
+from harness.globs import coincide_alguno
 
 # Siempre protegidos contra escritura (docs/harness-yaml.md, archivos_protegidos).
 # harness.yaml para que el modelo no pueda aflojar sus propios límites.
@@ -28,11 +31,18 @@ def resolver_ruta(repo: Path, ruta: str) -> Path:
     return destino
 
 
-def validar_escritura(repo: Path, destino: Path) -> None:
-    """Lanza ErrorRuta si el archivo está protegido contra escritura."""
+def validar_escritura(repo: Path, destino: Path, protegidos: Sequence[str] = ()) -> None:
+    """Lanza ErrorRuta si el archivo está protegido contra escritura.
+
+    `protegidos` son los globs de archivos_protegidos de harness.yaml.
+    """
     relativa = _relativa(repo.resolve(), destino)
     texto = relativa.as_posix().lower()
-    if texto in ARCHIVOS_PROTEGIDOS or _esta_dentro_de(relativa, CARPETAS_PROTEGIDAS):
+    if (
+        texto in ARCHIVOS_PROTEGIDOS
+        or _esta_dentro_de(relativa, CARPETAS_PROTEGIDAS)
+        or coincide_alguno(relativa.as_posix(), protegidos)
+    ):
         raise ErrorRuta(f"'{relativa}' está protegido: el harness no puede modificarlo.")
 
 

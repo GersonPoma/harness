@@ -36,20 +36,23 @@ def ejecutar_bucle(
     herramientas: list[Herramienta],
     max_pasos: int = MAX_PASOS_POR_DEFECTO,
     al_paso: Callable[[Paso], None] | None = None,
+    primer_paso: int = 1,
 ) -> ResultadoBucle:
     """Llama al modelo hasta que deje de pedir herramientas o se acaben los pasos.
 
     Agrega a `mensajes` cada respuesta y cada resultado, para poder registrarlos o retomarlos.
+    `primer_paso` numera los pasos cuando el bucle continúa después de una validación.
     """
     por_nombre = {h.nombre: h for h in herramientas}
     tokens_entrada = tokens_salida = 0
-    for numero in range(1, max_pasos + 1):
+    for numero in range(primer_paso, primer_paso + max_pasos):
         respuesta = proveedor.responder(mensajes, herramientas)
         tokens_entrada += respuesta.tokens_entrada
         tokens_salida += respuesta.tokens_salida
         mensajes.append(Mensaje(Rol.ASISTENTE, respuesta.texto, respuesta.llamadas))
         if not respuesta.llamadas:
-            return ResultadoBucle(respuesta.texto, numero, tokens_entrada, tokens_salida, False)
+            pasos = numero - primer_paso + 1
+            return ResultadoBucle(respuesta.texto, pasos, tokens_entrada, tokens_salida, False)
         for llamada in respuesta.llamadas:
             resultado, es_error = ejecutar_llamada(llamada, por_nombre)
             mensajes.append(Mensaje(Rol.HERRAMIENTA, resultado, id_llamada=llamada.id))

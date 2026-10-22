@@ -505,13 +505,19 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
 - [x] **1.** Interfaz `ProveedorLLM` + `ProveedorOpenAICompatible` con presets (gemini, groq,
       openrouter, openai, personalizado) + bucle básico con `read_file`, `write_file`,
       `list_dir` sobre tareas-api. Configuración leída solo del `.env`
-- [ ] **2.** `run_command` en Docker + tests + lint (autocorrección funcionando). Un solo
-      contenedor, probado con tareas-api; la clase `EntornoDocker` ya pensada para varios
+- [ ] **2.** Carga y validación de `harness.yaml` (todas las claves, según
+      `docs/harness-yaml.md`) + `run_command` en Docker + tests + lint (autocorrección
+      funcionando). Un solo contenedor, probado con tareas-api; la clase `EntornoDocker` ya
+      pensada para varios. `servicios` y `variables_entorno` se validan, pero si traen algo la
+      ejecución se detiene con "se soporta desde la fase 3". Sin `harness.yaml`, el harness
+      avisa y trabaja como en la fase 1 (sin Docker ni validación)
 - [ ] **3.** Servicios en Docker: `servicios` y `variables_entorno` del `harness.yaml`, red
       privada, espera de `listo_cuando` y limpieza. Probado con un proyecto con PostgreSQL
-- [ ] **4.** Lectura automática de `AGENTS.md` / `harness.yaml` del repo (+ `harness init` si
-      no existe) + fase de planificación
-- [ ] **5.** Git: rama, commit, push
+- [ ] **4.** Lectura automática de `AGENTS.md` al contexto inicial (+ `harness init` si no
+      existen `AGENTS.md` / `harness.yaml`) + fase de planificación. (La lectura de
+      `harness.yaml` se adelantó a la fase 2 porque Docker y los tests dependen de ella)
+- [ ] **5.** Git: rama, commit, push. **No se hace commit ni push de código que no pasó la
+      validación** (tests + lint), ni de ejecuciones sin `harness.yaml` (no hubo validación)
 - [ ] **6.** Integración real con Jira (reemplaza el ticket local)
 - [ ] **7.** Memoria: manejo de contexto (recorte + resumen), `.harness/memory.md` con
       `save_memory`, y `harness resume`
@@ -521,6 +527,18 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
       y usen)
 
 > Con 1 y 2 ya hay algo funcional y demostrable; lo demás se suma encima.
+
+### Pendientes conocidos
+
+- **Archivos con dueño root en Linux:** el contenedor corre como root, así que lo que crea en
+  el repo montado (`.pytest_cache/`, `*.egg-info/`, archivos que escribe un comando del modelo)
+  queda con dueño root en la máquina del usuario. En Windows/macOS con Docker Desktop no pasa.
+  Se resolvería con `docker run --user <uid>:<gid>` en Linux (ojo: `docker.instalar` con
+  `pip install` necesita entonces un entorno virtual o `--user`, porque no podrá escribir en
+  el Python del sistema de la imagen).
+- **Imágenes sin `timeout`:** el límite de tiempo de cada comando usa `timeout -s KILL` dentro
+  del contenedor. Las imágenes basadas en Debian o Alpine lo traen; una imagen mínima
+  (distroless) no, y sus comandos fallarían con "timeout: not found".
 
 ### Proyectos de prueba
 

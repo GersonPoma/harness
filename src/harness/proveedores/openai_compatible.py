@@ -16,6 +16,9 @@ INTERVALO_MINIMO_SEGUNDOS = 4.0
 MAX_REINTENTOS = 5
 ESPERA_INICIAL_SEGUNDOS = 5.0
 ESPERA_MAXIMA_SEGUNDOS = 60.0
+# El SDK espera 600 s por defecto: un pedido colgado congelaría la ejecución 10 minutos por
+# cada reintento. Una respuesta normal tarda segundos.
+TIMEOUT_PEDIDO_SEGUNDOS = 120.0
 ESTADO_LIMITE = 429
 ESTADO_ERROR_SERVIDOR = 500
 
@@ -41,7 +44,10 @@ class ProveedorOpenAICompatible:
         self._config = config
         # max_retries=0: los reintentos los maneja esta clase, con sus propias esperas.
         self._cliente = cliente or openai.OpenAI(
-            api_key=config.api_key, base_url=config.base_url, max_retries=0
+            api_key=config.api_key,
+            base_url=config.base_url,
+            max_retries=0,
+            timeout=TIMEOUT_PEDIDO_SEGUNDOS,
         )
         self._dormir = dormir
         self._reloj = reloj

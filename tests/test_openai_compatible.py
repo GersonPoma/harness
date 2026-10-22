@@ -264,3 +264,11 @@ def test_conexion_agotada_dice_servicio_no_disponible() -> None:
     proveedor, _, _ = crear(errores)
     with pytest.raises(ErrorProveedor, match="no está disponible.*sin conexión"):
         proveedor.responder([Mensaje(Rol.USUARIO, "hola")], [])
+
+
+def test_el_cliente_real_tiene_timeout_por_pedido(monkeypatch: pytest.MonkeyPatch) -> None:
+    recibido: dict[str, Any] = {}
+    monkeypatch.setattr(openai, "OpenAI", lambda **kwargs: recibido.update(kwargs))
+    ProveedorOpenAICompatible(CONFIG)
+    assert recibido["timeout"] == openai_compatible.TIMEOUT_PEDIDO_SEGUNDOS
+    assert recibido["max_retries"] == 0

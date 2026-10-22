@@ -1,5 +1,6 @@
 """Herramientas de archivos que se le ofrecen al modelo."""
 
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from harness.herramientas.rutas import resolver_ruta, validar_escritura
@@ -32,15 +33,27 @@ def leer_archivo(repo: Path, ruta: str) -> str:
     return contenido
 
 
-def escribir_archivo(repo: Path, ruta: str, contenido: str) -> str:
-    """Crea o reemplaza un archivo del repo, creando las carpetas que falten."""
+def escribir_archivo(
+    repo: Path,
+    ruta: str,
+    contenido: str,
+    protegidos: Sequence[str] = (),
+    al_escribir: Callable[[str], None] | None = None,
+) -> str:
+    """Crea o reemplaza un archivo del repo, creando las carpetas que falten.
+
+    `protegidos` son los globs de archivos_protegidos; `al_escribir` recibe la ruta relativa
+    escrita (el entorno Docker la usa para saber si debe reinstalar dependencias).
+    """
     archivo = resolver_ruta(repo, ruta)
-    validar_escritura(repo, archivo)
+    validar_escritura(repo, archivo, protegidos)
     if archivo.is_dir():
         raise ErrorHerramienta(f"'{ruta}' es una carpeta, no un archivo.")
     archivo.parent.mkdir(parents=True, exist_ok=True)
     # newline="" para escribir los saltos de línea tal cual vienen, también en Windows.
     archivo.write_text(contenido, encoding="utf-8", newline="")
+    if al_escribir:
+        al_escribir(archivo.relative_to(repo.resolve()).as_posix())
     return f"Archivo '{ruta}' escrito ({len(contenido)} caracteres)."
 
 

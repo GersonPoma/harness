@@ -1,4 +1,4 @@
-"""Textos que se le mandan al modelo al empezar una ejecución."""
+"""Textos que se le mandan al modelo."""
 
 from harness.tipos import Mensaje, Rol
 
@@ -28,9 +28,28 @@ Cuando termines, responde sin llamar herramientas, con un resumen breve de los a
 que creaste o modificaste y por qué."""
 
 
-def crear_mensajes_iniciales(ticket: str) -> list[Mensaje]:
+# Solo se agrega si el repo tiene harness.yaml: sin él no hay contenedor ni tests.
+PROMPT_VALIDACION = """
+
+Tests:
+- Los comandos corren en un contenedor Docker con el repo montado en la carpeta de trabajo.
+- Usa ejecutar_tests para comprobar tu trabajo antes de terminar.
+- Cuando termines, el harness correrá los tests (y el lint, si hay). Si fallan, recibirás \
+la salida y tendrás que corregir el código."""
+
+
+def crear_mensajes_iniciales(ticket: str, hay_validacion: bool = False) -> list[Mensaje]:
     """Arma la conversación inicial: instrucciones y ticket."""
+    sistema = PROMPT_SISTEMA + (PROMPT_VALIDACION if hay_validacion else "")
     return [
-        Mensaje(Rol.SISTEMA, PROMPT_SISTEMA),
+        Mensaje(Rol.SISTEMA, sistema),
         Mensaje(Rol.USUARIO, f"Implementa el siguiente ticket:\n\n{ticket}"),
     ]
+
+
+def crear_mensaje_validacion_fallida(informe: str, intento: int, max_intentos: int) -> str:
+    """Mensaje que recibe el modelo cuando los tests o el lint fallan al terminar."""
+    return (
+        f"La validación falló (corrección {intento} de {max_intentos}). Revisa la salida, "
+        f"corrige el código y vuelve a terminar cuando los tests pasen.\n\n{informe}"
+    )

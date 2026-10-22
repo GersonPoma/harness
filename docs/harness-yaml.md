@@ -130,8 +130,10 @@ Programas que el modelo puede ejecutar con la herramienta `ejecutar_comando`, ad
 
 - Se compara la **primera palabra** del comando: con `[pytest, python]`, se permite
   `pytest -k crear`, pero no `rm -rf /app`.
-- Se rechaza cualquier comando del modelo que contenga `;`, `&&`, `||`, `|`, `>`, `<`,
-  `` ` `` o `$(`, para que no pueda encadenar un programa no permitido detrás de uno permitido.
+- Se rechaza cualquier comando del modelo que contenga `;`, `&` (incluye `&&`), `|` (incluye
+  `||`), `>`, `<`, `` ` ``, `$(` o un salto de línea (`\n`, `\r`), para que no pueda
+  encadenar un programa no permitido detrás de uno permitido. Con `sh -c`, tanto `&` como el
+  salto de línea separan comandos: `pytest & rm -rf /app`.
 - Si la lista está vacía, el modelo no recibe la herramienta `ejecutar_comando`.
 - No incluir instaladores de paquetes (`pip`, `npm`) salvo que el proyecto lo necesite: el
   modelo podría agregar dependencias por su cuenta.
@@ -193,6 +195,20 @@ Además de las que se pongan aquí, **siempre** están protegidas, aunque no se 
 - `.harness/sessions/**` y `.harness/logs/**`
 
 `.harness/memory.md` no está protegido: lo modifica la herramienta `guardar_memoria`.
+
+Cómo se hace cumplir:
+
+- `escribir_archivo` (y `editar_archivo`) rechazan escribir en cualquiera de esas rutas.
+- Dentro del contenedor, `.git`, `harness.yaml` y `.harness/` se montan **de solo lectura**.
+  Es importante para `.git`: un hook escrito desde el contenedor (`.git/hooks/pre-commit`) se
+  ejecutaría en la máquina del usuario cuando el harness haga commit.
+- Los globs de `archivos_protegidos` no se pueden montar de solo lectura (son patrones), y un
+  comando permitido como `python` o un test escrito por el modelo podría modificarlos. Por eso,
+  después de instalar las dependencias, el harness guarda una copia (y su hash) de cada archivo
+  que coincide. Después de **cada comando** del contenedor (`ejecutar_comando`,
+  `ejecutar_tests`, `ejecutar_lint` y la validación final) compara: si uno cambió o
+  desapareció, lo restaura; si apareció uno nuevo en una ruta protegida, lo borra. En los dos
+  casos agrega un aviso al resultado del comando para que el modelo lo sepa.
 
 ---
 

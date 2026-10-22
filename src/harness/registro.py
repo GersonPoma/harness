@@ -5,7 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from harness.bucle import Paso, ResultadoBucle
+from harness.bucle import Paso
+from harness.ejecucion import ResultadoEjecucion, Validacion
 
 CARPETA_LOGS = Path(".harness") / "logs"
 MAX_CARACTERES_RESULTADO_LOG = 2_000
@@ -36,12 +37,23 @@ class RegistroPasos:
             "resultado": paso.resultado[:MAX_CARACTERES_RESULTADO_LOG],
         })
 
-    def registrar_fin(self, resultado: ResultadoBucle) -> None:
-        """Registra cómo terminó el bucle."""
+    def registrar_validacion(self, validacion: Validacion) -> None:
+        """Registra una corrida de tests + lint y su informe recortado."""
+        self._escribir({
+            "evento": "validacion",
+            "intento": validacion.intento,
+            "es_valido": validacion.es_valido,
+            "informe": validacion.informe[:MAX_CARACTERES_RESULTADO_LOG],
+        })
+
+    def registrar_fin(self, resultado: ResultadoEjecucion) -> None:
+        """Registra cómo terminó la ejecución."""
         self._escribir({
             "evento": "fin",
             "pasos": resultado.pasos,
             "es_limite_alcanzado": resultado.es_limite_alcanzado,
+            "es_validado": resultado.es_validado,
+            "validaciones": resultado.validaciones,
             "tokens_entrada": resultado.tokens_entrada,
             "tokens_salida": resultado.tokens_salida,
             "texto_final": resultado.texto_final,
