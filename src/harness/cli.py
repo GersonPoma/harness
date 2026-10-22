@@ -7,7 +7,8 @@ import typer
 from rich import print
 
 from harness import consola
-from harness.bucle import MAX_PASOS_POR_DEFECTO, Paso
+from harness.bucle import MAX_PASOS_POR_DEFECTO, ErrorRespuestaVacia, Paso
+from harness.cambios import CambiosRepo, comparar, tomar_instantanea
 from harness.config import ConfigModelo, ErrorConfiguracion, cargar_config
 from harness.config_proyecto import ConfigProyecto, ErrorConfigProyecto, cargar_config_proyecto
 from harness.ejecucion import ResultadoEjecucion, Validacion, ejecutar_ticket
@@ -58,6 +59,10 @@ class _Reporte:
         consola.mostrar_aviso(mensaje)
         self.registro.registrar_reintento(mensaje)
 
+    def aviso(self, mensaje: str) -> None:
+        consola.mostrar_aviso(mensaje)
+        self.registro.registrar_aviso(mensaje)
+
     def validacion(self, validacion: Validacion) -> None:
         consola.mostrar_validacion(validacion)
         self.registro.registrar_validacion(validacion)
@@ -84,8 +89,8 @@ def run(
 
     reporte = _Reporte(registro)
     try:
-        resultado = _ejecutar(prep, max_pasos, reporte)
-    except (ErrorProveedor, ErrorDocker) as error:
+        resultado, cambios = _ejecutar(prep, max_pasos, reporte)
+    except (ErrorProveedor, ErrorDocker, ErrorRespuestaVacia) as error:
         registro.registrar_error(str(error))
         consola.mostrar_error(str(error))
         raise typer.Exit(1) from error
@@ -94,8 +99,8 @@ def run(
         consola.mostrar_error("Ejecución cancelada (los contenedores se borraron).")
         raise typer.Exit(CODIGO_CANCELADO) from error
 
-    registro.registrar_fin(resultado)
-    consola.mostrar_fin(resultado, str(registro.ruta))
+    registro.registrar_fin(resultado, cambios)
+    consola.mostrar_fin(resultado, cambios, str(registro.ruta))
     if resultado.es_limite_alcanzado or resultado.es_validado is False:
         raise typer.Exit(1)
 
@@ -125,16 +130,21 @@ def _preparar_ejecucion(ticket: Path, repo: Path) -> _Preparacion:
     )
 
 
-def _ejecutar(prep: _Preparacion, max_pasos: int, reporte: _Reporte) -> ResultadoEjecucion:
+def _ejecutar(
+    prep: _Preparacion, max_pasos: int, reporte: _Reporte
+) -> tuple[ResultadoEjecucion, CambiosRepo]:
     proveedor = crear_proveedor(prep.config, reporte.reintento)
     if prep.config_proyecto is None:
-        return ejecutar_ticket(
+        antes = tomar_instantanea(prep.repo)
+        resultado = ejecutar_ticket(
             proveedor,
             crear_mensajes_iniciales(prep.texto_ticket),
             crear_herramientas(prep.repo),
             max_pasos,
             al_paso=reporte.paso,
+            al_aviso=reporte.aviso,
         )
+        return resultado, comparar(antes, tomar_instantanea(prep.repo))
     # El with garantiza que los contenedores se borran aunque algo falle o haya Ctrl+C.
     with EntornoDocker(prep.repo, prep.config_proyecto, prep.ticket, prep.variables) as entorno:
         with consola.estado("Preparando Docker...") as estado:
@@ -151,8 +161,10 @@ def _ejecutar_con_validacion(
     proveedor: ProveedorLLM,
     max_pasos: int,
     reporte: _Reporte,
-) -> ResultadoEjecucion:
+) -> tuple[ResultadoEjecucion, CambiosRepo]:
     limites = config_proyecto.limites
+    # Después de instalar: lo que la instalación crea en el repo no es trabajo del modelo.
+    antes = tomar_instantanea(prep.repo)
     # La copia se toma después de instalar: lo que cambie desde aquí lo cambió el modelo.
     guardia = GuardiaProtegidos(prep.repo, config_proyecto.archivos_protegidos)
     ejecutor = EjecutorComandos(
@@ -163,7 +175,7 @@ def _ejecutar_con_validacion(
         prep.variables.secretos,
     )
     comandos = config_proyecto.comandos
-    return ejecutar_ticket(
+    resultado = ejecutar_ticket(
         proveedor,
         crear_mensajes_iniciales(prep.texto_ticket, hay_validacion=True),
         crear_herramientas(prep.repo, config_proyecto, ejecutor, entorno.marcar_cambio),
@@ -172,7 +184,9 @@ def _ejecutar_con_validacion(
         max_intentos_validacion=limites.max_intentos_validacion,
         al_paso=reporte.paso,
         al_validar=reporte.validacion,
+        al_aviso=reporte.aviso,
     )
+    return resultado, comparar(antes, tomar_instantanea(prep.repo))
 
 
 @app.command()

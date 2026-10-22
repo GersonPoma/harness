@@ -44,6 +44,7 @@ def ejecutar_ticket(
     max_intentos_validacion: int = 0,
     al_paso: Callable[[Paso], None] | None = None,
     al_validar: Callable[[Validacion], None] | None = None,
+    al_aviso: Callable[[str], None] | None = None,
 ) -> ResultadoEjecucion:
     """Corre el bucle; cuando el modelo termina, valida y, si falla, le devuelve el error.
 
@@ -54,7 +55,7 @@ def ejecutar_ticket(
     while True:
         bucle = ejecutar_bucle(
             proveedor, mensajes, herramientas, max_pasos - resultado.pasos, al_paso,
-            primer_paso=resultado.pasos + 1,
+            primer_paso=resultado.pasos + 1, al_aviso=al_aviso,
         )
         _acumular(resultado, bucle.pasos, bucle.tokens_entrada, bucle.tokens_salida)
         resultado.texto_final = bucle.texto_final

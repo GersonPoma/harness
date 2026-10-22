@@ -48,3 +48,8 @@ def pedir(*llamadas: LlamadaHerramienta) -> RespuestaModelo:
 def terminar(texto: str = "Listo") -> RespuestaModelo:
     """Respuesta del modelo que da por terminado el trabajo."""
     return RespuestaModelo(texto, [], tokens_entrada=10, tokens_salida=5)
+
+
+def vacia(texto: str | None = None) -> RespuestaModelo:
+    """Respuesta del modelo sin texto (o solo espacios) y sin herramientas."""
+    return RespuestaModelo(texto, [], tokens_entrada=10, tokens_salida=0)

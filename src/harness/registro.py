@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from harness.bucle import Paso
+from harness.cambios import CambiosRepo
 from harness.ejecucion import ResultadoEjecucion, Validacion
 from harness.variables import ocultar_secretos
 
@@ -48,8 +49,11 @@ class RegistroPasos:
             "informe": validacion.informe[:MAX_CARACTERES_RESULTADO_LOG],
         })
 
-    def registrar_fin(self, resultado: ResultadoEjecucion) -> None:
-        """Registra cómo terminó la ejecución."""
+    def registrar_fin(
+        self, resultado: ResultadoEjecucion, cambios: CambiosRepo | None = None
+    ) -> None:
+        """Registra cómo terminó la ejecución y qué archivos cambiaron."""
+        cambios = cambios or CambiosRepo()
         self._escribir({
             "evento": "fin",
             "pasos": resultado.pasos,
@@ -59,7 +63,14 @@ class RegistroPasos:
             "tokens_entrada": resultado.tokens_entrada,
             "tokens_salida": resultado.tokens_salida,
             "texto_final": resultado.texto_final,
+            "creados": cambios.creados,
+            "modificados": cambios.modificados,
+            "eliminados": cambios.eliminados,
         })
+
+    def registrar_aviso(self, mensaje: str) -> None:
+        """Registra un aviso que no corta la ejecución (por ejemplo, una respuesta vacía)."""
+        self._escribir({"evento": "aviso", "mensaje": mensaje})
 
     def registrar_reintento(self, mensaje: str) -> None:
         """Registra un reintento del proveedor ante un error pasajero."""

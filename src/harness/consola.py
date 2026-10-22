@@ -8,6 +8,7 @@ from rich.panel import Panel
 from rich.status import Status
 
 from harness.bucle import Paso
+from harness.cambios import CambiosRepo
 from harness.ejecucion import ResultadoEjecucion, Validacion
 
 MAX_CARACTERES_RESUMEN = 120
@@ -46,8 +47,8 @@ def mostrar_validacion(validacion: Validacion) -> None:
     consola.print(f"[dim]{escape(_ultimas_lineas(validacion.informe))}[/]")
 
 
-def mostrar_fin(resultado: ResultadoEjecucion, ruta_log: str) -> None:
-    """Muestra cómo terminó la ejecución, los tokens usados y dónde quedó el log."""
+def mostrar_fin(resultado: ResultadoEjecucion, cambios: CambiosRepo, ruta_log: str) -> None:
+    """Muestra cómo terminó la ejecución, qué archivos cambió, los tokens y el log."""
     if resultado.es_limite_alcanzado:
         consola.print(
             f"[bold red]Se alcanzó el límite de {resultado.pasos} pasos sin terminar.[/]"
@@ -58,10 +59,28 @@ def mostrar_fin(resultado: ResultadoEjecucion, ruta_log: str) -> None:
         consola.print(
             f"[bold red]Los tests no pasan después de {resultado.validaciones} validaciones.[/]"
         )
+    mostrar_cambios(cambios)
     consola.print(
         f"[dim]Pasos: {resultado.pasos} · Tokens: {resultado.tokens_entrada} entrada / "
         f"{resultado.tokens_salida} salida · Log: {escape(ruta_log)}[/]"
     )
+
+
+def mostrar_cambios(cambios: CambiosRepo) -> None:
+    """Lista los archivos creados, modificados y eliminados en el repo objetivo."""
+    if not cambios.hay_cambios:
+        mostrar_aviso("El modelo no modificó ningún archivo.")
+        return
+    grupos = [
+        ("Creados", "green", cambios.creados),
+        ("Modificados", "yellow", cambios.modificados),
+        ("Eliminados", "red", cambios.eliminados),
+    ]
+    for titulo, color, rutas in grupos:
+        if rutas:
+            consola.print(f"[bold]{titulo}:[/]")
+            for ruta in rutas:
+                consola.print(f"  [{color}]{escape(ruta)}[/]")
 
 
 def mostrar_aviso(mensaje: str) -> None:

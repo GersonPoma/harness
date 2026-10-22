@@ -1,10 +1,12 @@
 from pathlib import Path
 
-from harness.bucle import Paso, ejecutar_bucle
+import pytest
+
+from harness.bucle import ErrorRespuestaVacia, Paso, ejecutar_bucle
 from harness.herramientas import crear_herramientas
-from harness.prompts import crear_mensajes_iniciales
-from harness.tipos import LlamadaHerramienta, Rol
-from tests.falsos import ProveedorFalso, pedir, terminar
+from harness.prompts import MENSAJE_RESPUESTA_VACIA, crear_mensajes_iniciales
+from harness.tipos import LlamadaHerramienta, Mensaje, Rol
+from tests.falsos import ProveedorFalso, pedir, terminar, vacia
 
 
 def _resultados_por_id(mensajes: list) -> dict[str, str]:
@@ -106,3 +108,46 @@ def test_se_detiene_al_llegar_al_limite_de_pasos(repo: Path) -> None:
     assert resultado.es_limite_alcanzado
     assert resultado.pasos == 3
     assert len(proveedor.conversaciones) == 3
+
+
+def test_respuesta_vacia_pide_continuar_y_consume_un_paso(repo: Path) -> None:
+    proveedor = ProveedorFalso([vacia(), vacia("  "), terminar("Hecho")])
+    avisos: list[str] = []
+    mensajes = crear_mensajes_iniciales("T")
+    resultado = ejecutar_bucle(
+        proveedor, mensajes, crear_herramientas(repo), al_aviso=avisos.append
+    )
+
+    assert resultado.texto_final == "Hecho"
+    assert resultado.pasos == 3
+    assert not resultado.es_limite_alcanzado
+    assert proveedor.conversaciones[1][-1] == Mensaje(Rol.USUARIO, MENSAJE_RESPUESTA_VACIA)
+    # Las respuestas vacías no se guardan en la conversación.
+    assert [m.rol for m in mensajes[2:]] == [Rol.USUARIO, Rol.USUARIO, Rol.ASISTENTE]
+    assert avisos == [
+        "El modelo respondió vacío: se le pide que continúe (1/2).",
+        "El modelo respondió vacío: se le pide que continúe (2/2).",
+    ]
+
+
+def test_tercera_respuesta_vacia_seguida_corta_con_error(repo: Path) -> None:
+    proveedor = ProveedorFalso([vacia(), vacia(), vacia(), terminar()])
+    with pytest.raises(ErrorRespuestaVacia, match="3 veces seguidas"):
+        ejecutar_bucle(proveedor, crear_mensajes_iniciales("T"), crear_herramientas(repo))
+    assert len(proveedor.conversaciones) == 3
+
+
+def test_respuestas_vacias_no_seguidas_no_cortan(repo: Path) -> None:
+    leer = LlamadaHerramienta("c1", "leer_archivo", {"ruta": "src/app.py"})
+    proveedor = ProveedorFalso([vacia(), vacia(), pedir(leer), vacia(), vacia(), terminar()])
+    resultado = ejecutar_bucle(proveedor, crear_mensajes_iniciales("T"), crear_herramientas(repo))
+    assert resultado.texto_final == "Listo"
+    assert resultado.pasos == 6
+
+
+def test_respuestas_vacias_cuentan_para_el_limite_de_pasos(repo: Path) -> None:
+    proveedor = ProveedorFalso([vacia(), vacia()])
+    resultado = ejecutar_bucle(
+        proveedor, crear_mensajes_iniciales("T"), crear_herramientas(repo), max_pasos=2
+    )
+    assert resultado.es_limite_alcanzado

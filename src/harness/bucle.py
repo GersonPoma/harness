@@ -3,10 +3,17 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from harness.prompts import MENSAJE_RESPUESTA_VACIA
 from harness.proveedores.base import ProveedorLLM
 from harness.tipos import Herramienta, LlamadaHerramienta, Mensaje, Rol
 
 MAX_PASOS_POR_DEFECTO = 30
+# Respuestas vacías seguidas que se toleran; la siguiente corta la ejecución.
+MAX_RESPUESTAS_VACIAS = 2
+
+
+class ErrorRespuestaVacia(Exception):
+    """El modelo respondió sin texto ni herramientas demasiadas veces seguidas."""
 
 
 @dataclass
@@ -37,18 +44,26 @@ def ejecutar_bucle(
     max_pasos: int = MAX_PASOS_POR_DEFECTO,
     al_paso: Callable[[Paso], None] | None = None,
     primer_paso: int = 1,
+    al_aviso: Callable[[str], None] | None = None,
 ) -> ResultadoBucle:
     """Llama al modelo hasta que deje de pedir herramientas o se acaben los pasos.
 
     Agrega a `mensajes` cada respuesta y cada resultado, para poder registrarlos o retomarlos.
     `primer_paso` numera los pasos cuando el bucle continúa después de una validación.
+    Una respuesta vacía no cuenta como final: se le pide al modelo que continúe.
     """
     por_nombre = {h.nombre: h for h in herramientas}
     tokens_entrada = tokens_salida = 0
+    vacias_seguidas = 0
     for numero in range(primer_paso, primer_paso + max_pasos):
         respuesta = proveedor.responder(mensajes, herramientas)
         tokens_entrada += respuesta.tokens_entrada
         tokens_salida += respuesta.tokens_salida
+        if _es_vacia(respuesta.texto, respuesta.llamadas):
+            vacias_seguidas += 1
+            _insistir(mensajes, vacias_seguidas, al_aviso)
+            continue
+        vacias_seguidas = 0
         mensajes.append(Mensaje(Rol.ASISTENTE, respuesta.texto, respuesta.llamadas))
         if not respuesta.llamadas:
             pasos = numero - primer_paso + 1
@@ -59,6 +74,29 @@ def ejecutar_bucle(
             if al_paso:
                 al_paso(Paso(numero, llamada, resultado, es_error))
     return ResultadoBucle(None, max_pasos, tokens_entrada, tokens_salida, True)
+
+
+def _es_vacia(texto: str | None, llamadas: list[LlamadaHerramienta]) -> bool:
+    return not llamadas and not (texto or "").strip()
+
+
+def _insistir(
+    mensajes: list[Mensaje], vacias_seguidas: int, al_aviso: Callable[[str], None] | None
+) -> None:
+    """Le pide al modelo que continúe, o corta si ya respondió vacío demasiadas veces."""
+    if vacias_seguidas > MAX_RESPUESTAS_VACIAS:
+        raise ErrorRespuestaVacia(
+            f"El modelo respondió vacío (sin texto ni herramientas) {vacias_seguidas} veces "
+            "seguidas: se corta la ejecución."
+        )
+    if al_aviso:
+        al_aviso(
+            f"El modelo respondió vacío: se le pide que continúe "
+            f"({vacias_seguidas}/{MAX_RESPUESTAS_VACIAS})."
+        )
+    # La respuesta vacía no se guarda: algunos proveedores rechazan un mensaje de asistente
+    # sin contenido ni llamadas.
+    mensajes.append(Mensaje(Rol.USUARIO, MENSAJE_RESPUESTA_VACIA))
 
 
 def ejecutar_llamada(

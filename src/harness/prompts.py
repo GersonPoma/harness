@@ -38,6 +38,11 @@ Tests:
 la salida y tendrás que corregir el código."""
 
 
+MENSAJE_RESPUESTA_VACIA = (
+    "Tu respuesta llegó vacía. Si terminaste, explica qué hiciste; si no, sigue trabajando."
+)
+
+
 def crear_mensajes_iniciales(ticket: str, hay_validacion: bool = False) -> list[Mensaje]:
     """Arma la conversación inicial: instrucciones y ticket."""
     sistema = PROMPT_SISTEMA + (PROMPT_VALIDACION if hay_validacion else "")
