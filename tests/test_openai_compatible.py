@@ -12,12 +12,13 @@ from harness.proveedores import openai_compatible
 from harness.proveedores.base import ErrorProveedor
 from harness.proveedores.openai_compatible import (
     INTERVALO_MINIMO_SEGUNDOS,
-    MAX_REINTENTOS_429,
+    MAX_REINTENTOS,
     ProveedorOpenAICompatible,
 )
 from harness.tipos import Herramienta, LlamadaHerramienta, Mensaje, Rol
 
 CONFIG = ConfigModelo("gemini", "modelo-x", "https://ejemplo/v1", "clave")
+PEDIDO = httpx2.Request("POST", "https://ejemplo/v1")
 
 
 class ClienteFalso:
@@ -68,15 +69,38 @@ def llamada_openai(
 def error_429(retry_after: str | None = None) -> openai.RateLimitError:
     cabeceras = {"retry-after": retry_after} if retry_after else {}
     respuesta = httpx2.Response(
-        429, headers=cabeceras, request=httpx2.Request("POST", "https://ejemplo/v1")
+        429, headers=cabeceras, request=PEDIDO
     )
     return openai.RateLimitError("límite", response=respuesta, body=None)
 
 
-def crear(resultados: list[Any]) -> tuple[ProveedorOpenAICompatible, ClienteFalso, Reloj]:
+# La misma clase que usa el SDK para cada código HTTP.
+CLASES_ERROR_HTTP: dict[int, type[openai.APIStatusError]] = {
+    400: openai.BadRequestError,
+    401: openai.AuthenticationError,
+    403: openai.PermissionDeniedError,
+    404: openai.NotFoundError,
+    500: openai.InternalServerError,
+    502: openai.InternalServerError,
+    503: openai.InternalServerError,
+    504: openai.InternalServerError,
+}
+
+
+def error_http(estado: int) -> openai.APIStatusError:
+    respuesta = httpx2.Response(estado, request=PEDIDO)
+    return CLASES_ERROR_HTTP[estado]("falla", response=respuesta, body=None)
+
+
+def crear(
+    resultados: list[Any], avisos: list[str] | None = None
+) -> tuple[ProveedorOpenAICompatible, ClienteFalso, Reloj]:
     cliente = ClienteFalso(resultados)
     reloj = Reloj()
-    proveedor = ProveedorOpenAICompatible(CONFIG, cliente, dormir=reloj.dormir, reloj=reloj)
+    al_reintentar = avisos.append if avisos is not None else None
+    proveedor = ProveedorOpenAICompatible(
+        CONFIG, cliente, dormir=reloj.dormir, reloj=reloj, al_reintentar=al_reintentar
+    )
     return proveedor, cliente, reloj
 
 
@@ -131,14 +155,14 @@ def test_reintenta_ante_429_y_respeta_retry_after() -> None:
     respuesta = proveedor.responder([Mensaje(Rol.USUARIO, "hola")], [])
     assert respuesta.texto == "ok"
     assert len(cliente.pedidos) == 3
-    assert reloj.esperas == [7.0, openai_compatible.ESPERA_INICIAL_429_SEGUNDOS * 2]
+    assert reloj.esperas == [7.0, openai_compatible.ESPERA_INICIAL_SEGUNDOS * 2]
 
 
 def test_429_agotado_da_error_claro() -> None:
-    proveedor, cliente, _ = crear([error_429() for _ in range(MAX_REINTENTOS_429 + 1)])
+    proveedor, cliente, _ = crear([error_429() for _ in range(MAX_REINTENTOS + 1)])
     with pytest.raises(ErrorProveedor, match="límite o la cuota.*'gemini'.*HARNESS_PROVEEDOR"):
         proveedor.responder([Mensaje(Rol.USUARIO, "hola")], [])
-    assert len(cliente.pedidos) == MAX_REINTENTOS_429 + 1
+    assert len(cliente.pedidos) == MAX_REINTENTOS + 1
 
 
 def test_espera_el_intervalo_minimo_entre_pedidos() -> None:
@@ -147,15 +171,6 @@ def test_espera_el_intervalo_minimo_entre_pedidos() -> None:
     reloj.ahora += 1.5
     proveedor.responder([Mensaje(Rol.USUARIO, "hola")], [])
     assert reloj.esperas == [INTERVALO_MINIMO_SEGUNDOS - 1.5]
-
-
-def test_error_de_autenticacion_no_se_reintenta() -> None:
-    respuesta = httpx2.Response(401, request=httpx2.Request("POST", "https://ejemplo/v1"))
-    error = openai.AuthenticationError("no", response=respuesta, body=None)
-    proveedor, cliente, _ = crear([error])
-    with pytest.raises(ErrorProveedor, match="API key"):
-        proveedor.responder([Mensaje(Rol.USUARIO, "hola")], [])
-    assert len(cliente.pedidos) == 1
 
 
 EXTRA_GEMINI = {"extra_content": {"google": {"thought_signature": "EmAKXg+firma/=="}}}
@@ -193,3 +208,59 @@ def test_llamada_con_datos_del_proveedor_se_guarda_en_json() -> None:
     llamada, _ = _reenviar_llamadas(EXTRA_GEMINI)
     restaurada = LlamadaHerramienta(**json.loads(json.dumps(asdict(llamada))))
     assert restaurada == llamada
+
+
+def test_503_reintenta_avisa_y_sigue() -> None:
+    avisos: list[str] = []
+    proveedor, cliente, reloj = crear([error_http(503), respuesta_openai("ok")], avisos)
+    assert proveedor.responder([Mensaje(Rol.USUARIO, "hola")], []).texto == "ok"
+    assert len(cliente.pedidos) == 2
+    assert reloj.esperas[0] == openai_compatible.ESPERA_INICIAL_SEGUNDOS
+    assert avisos == [f"Gemini saturado (503), reintento 1/{MAX_REINTENTOS} en 5 s..."]
+
+
+@pytest.mark.parametrize("estado", [500, 502, 504])
+def test_otros_5xx_tambien_se_reintentan(estado: int) -> None:
+    proveedor, cliente, _ = crear([error_http(estado), respuesta_openai("ok")])
+    assert proveedor.responder([Mensaje(Rol.USUARIO, "hola")], []).texto == "ok"
+    assert len(cliente.pedidos) == 2
+
+
+@pytest.mark.parametrize(
+    "error", [openai.APIConnectionError(request=PEDIDO), openai.APITimeoutError(request=PEDIDO)]
+)
+def test_errores_de_conexion_se_reintentan(error: openai.APIError) -> None:
+    avisos: list[str] = []
+    proveedor, cliente, _ = crear([error, respuesta_openai("ok")], avisos)
+    assert proveedor.responder([Mensaje(Rol.USUARIO, "hola")], []).texto == "ok"
+    assert len(cliente.pedidos) == 2
+    assert len(avisos) == 1
+
+
+@pytest.mark.parametrize(
+    ("estado", "mensaje"),
+    [(400, "error 400"), (401, "API key"), (403, "error 403"), (404, "error 404")],
+)
+def test_errores_permanentes_no_se_reintentan(estado: int, mensaje: str) -> None:
+    avisos: list[str] = []
+    proveedor, cliente, reloj = crear([error_http(estado)], avisos)
+    with pytest.raises(ErrorProveedor, match=mensaje):
+        proveedor.responder([Mensaje(Rol.USUARIO, "hola")], [])
+    assert len(cliente.pedidos) == 1
+    assert (reloj.esperas, avisos) == ([], [])
+
+
+def test_5xx_agotado_dice_servicio_no_disponible() -> None:
+    proveedor, cliente, _ = crear([error_http(503) for _ in range(MAX_REINTENTOS + 1)])
+    esperado = "no está disponible.*503.*Intenta más tarde"
+    with pytest.raises(ErrorProveedor, match=esperado) as info:
+        proveedor.responder([Mensaje(Rol.USUARIO, "hola")], [])
+    assert "cuota" not in str(info.value)
+    assert len(cliente.pedidos) == MAX_REINTENTOS + 1
+
+
+def test_conexion_agotada_dice_servicio_no_disponible() -> None:
+    errores = [openai.APIConnectionError(request=PEDIDO) for _ in range(MAX_REINTENTOS + 1)]
+    proveedor, _, _ = crear(errores)
+    with pytest.raises(ErrorProveedor, match="no está disponible.*sin conexión"):
+        proveedor.responder([Mensaje(Rol.USUARIO, "hola")], [])

@@ -48,6 +48,11 @@ def mostrar_fin(resultado: ResultadoBucle, ruta_log: str) -> None:
     )
 
 
+def mostrar_aviso(mensaje: str) -> None:
+    """Muestra un aviso que no corta la ejecución (por ejemplo, un reintento)."""
+    consola.print(f"[yellow]{escape(mensaje)}[/]")
+
+
 def mostrar_error(mensaje: str) -> None:
     """Muestra un error que corta la ejecución."""
     consola.print(f"[bold red]Error:[/] {escape(mensaje)}")

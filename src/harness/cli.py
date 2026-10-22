@@ -38,9 +38,13 @@ def run(
         consola.mostrar_paso(paso)
         registro.registrar_paso(paso)
 
+    def al_reintentar(mensaje: str) -> None:
+        consola.mostrar_aviso(mensaje)
+        registro.registrar_reintento(mensaje)
+
     try:
         resultado = ejecutar_bucle(
-            crear_proveedor(config),
+            crear_proveedor(config, al_reintentar),
             crear_mensajes_iniciales(texto_ticket),
             crear_herramientas(repo),
             max_pasos,

@@ -47,6 +47,10 @@ class RegistroPasos:
             "texto_final": resultado.texto_final,
         })
 
+    def registrar_reintento(self, mensaje: str) -> None:
+        """Registra un reintento del proveedor ante un error pasajero."""
+        self._escribir({"evento": "reintento", "mensaje": mensaje})
+
     def registrar_error(self, mensaje: str) -> None:
         """Registra un error que cortó la ejecución."""
         self._escribir({"evento": "error", "mensaje": mensaje})

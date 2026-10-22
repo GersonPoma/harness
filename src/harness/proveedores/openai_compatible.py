@@ -13,9 +13,11 @@ from harness.tipos import Herramienta, LlamadaHerramienta, Mensaje, RespuestaMod
 
 # Gemini gratis permite 15 pedidos por minuto: uno cada 4 segundos como mínimo.
 INTERVALO_MINIMO_SEGUNDOS = 4.0
-MAX_REINTENTOS_429 = 5
-ESPERA_INICIAL_429_SEGUNDOS = 5.0
-ESPERA_MAXIMA_429_SEGUNDOS = 60.0
+MAX_REINTENTOS = 5
+ESPERA_INICIAL_SEGUNDOS = 5.0
+ESPERA_MAXIMA_SEGUNDOS = 60.0
+ESTADO_LIMITE = 429
+ESTADO_ERROR_SERVIDOR = 500
 
 _ROLES_OPENAI = {
     Rol.SISTEMA: "system",
@@ -26,7 +28,7 @@ _ROLES_OPENAI = {
 
 
 class ProveedorOpenAICompatible:
-    """Traduce los tipos propios al formato OpenAI y reintenta ante errores 429."""
+    """Traduce los tipos propios al formato OpenAI y reintenta ante errores pasajeros."""
 
     def __init__(
         self,
@@ -34,6 +36,7 @@ class ProveedorOpenAICompatible:
         cliente: Any | None = None,
         dormir: Callable[[float], None] = time.sleep,
         reloj: Callable[[], float] = time.monotonic,
+        al_reintentar: Callable[[str], None] | None = None,
     ) -> None:
         self._config = config
         # max_retries=0: los reintentos los maneja esta clase, con sus propias esperas.
@@ -42,6 +45,8 @@ class ProveedorOpenAICompatible:
         )
         self._dormir = dormir
         self._reloj = reloj
+        # Avisa de cada reintento para que una espera larga no parezca un cuelgue.
+        self._al_reintentar = al_reintentar
         self._ultimo_pedido: float | None = None
 
     def responder(
@@ -58,33 +63,53 @@ class ProveedorOpenAICompatible:
         return _a_respuesta_modelo(respuesta)
 
     def _pedir_con_reintentos(self, parametros: dict[str, Any]) -> Any:
-        espera = ESPERA_INICIAL_429_SEGUNDOS
-        for intento in range(MAX_REINTENTOS_429 + 1):
+        espera = ESPERA_INICIAL_SEGUNDOS
+        reintento = 0
+        while True:
             self._respetar_intervalo()
             try:
                 return self._cliente.chat.completions.create(**parametros)
-            except openai.RateLimitError as error:
-                if intento == MAX_REINTENTOS_429:
-                    break
-                self._dormir(_espera_sugerida(error) or espera)
-                espera = min(espera * 2, ESPERA_MAXIMA_429_SEGUNDOS)
-            except openai.AuthenticationError as error:
-                raise ErrorProveedor(
-                    f"El proveedor '{self._config.proveedor}' rechazó la API key: revisa el .env."
-                ) from error
-            except openai.APIConnectionError as error:
-                raise ErrorProveedor(
-                    f"No se pudo conectar con '{self._config.proveedor}': revisa tu internet."
-                ) from error
-            except openai.APIStatusError as error:
-                raise ErrorProveedor(
-                    f"'{self._config.proveedor}' respondió con error {error.status_code}: "
-                    f"{error.message}"
-                ) from error
-        raise ErrorProveedor(
-            f"Se agotó el límite o la cuota del proveedor '{self._config.proveedor}' "
-            f"(error 429) después de {MAX_REINTENTOS_429} reintentos. Espera un rato o prueba "
-            f"con otro proveedor o modelo cambiando HARNESS_PROVEEDOR / HARNESS_MODELO en el .env."
+            except openai.APIError as error:
+                if not _es_pasajero(error):
+                    raise self._error_permanente(error) from error
+                if reintento == MAX_REINTENTOS:
+                    raise self._error_agotado(error) from error
+                reintento += 1
+                segundos = _espera_sugerida(error) or espera
+                self._avisar_reintento(error, reintento, segundos)
+                self._dormir(segundos)
+                espera = min(espera * 2, ESPERA_MAXIMA_SEGUNDOS)
+
+    def _avisar_reintento(self, error: openai.APIError, reintento: int, segundos: float) -> None:
+        if self._al_reintentar:
+            self._al_reintentar(
+                f"{self._config.proveedor.capitalize()} {_describir(error)}, "
+                f"reintento {reintento}/{MAX_REINTENTOS} en {segundos:g} s..."
+            )
+
+    def _error_permanente(self, error: openai.APIError) -> ErrorProveedor:
+        proveedor = self._config.proveedor
+        if isinstance(error, openai.AuthenticationError):
+            return ErrorProveedor(
+                f"El proveedor '{proveedor}' rechazó la API key: revisa el .env."
+            )
+        estado = getattr(error, "status_code", "desconocido")
+        return ErrorProveedor(f"'{proveedor}' respondió con error {estado}: {error.message}")
+
+    def _error_agotado(self, error: openai.APIError) -> ErrorProveedor:
+        proveedor = self._config.proveedor
+        sugerencia = (
+            "prueba con otro proveedor o modelo cambiando HARNESS_PROVEEDOR / HARNESS_MODELO "
+            "en el .env."
+        )
+        if getattr(error, "status_code", None) == ESTADO_LIMITE:
+            return ErrorProveedor(
+                f"Se agotó el límite o la cuota del proveedor '{proveedor}' (error 429) después "
+                f"de {MAX_REINTENTOS} reintentos. Espera un rato o {sugerencia}"
+            )
+        return ErrorProveedor(
+            f"El servicio de '{proveedor}' no está disponible ({_describir(error)}) después de "
+            f"{MAX_REINTENTOS} reintentos. Intenta más tarde o {sugerencia}"
         )
 
     def _respetar_intervalo(self) -> None:
@@ -97,11 +122,31 @@ class ProveedorOpenAICompatible:
         self._ultimo_pedido = ahora
 
 
-def _espera_sugerida(error: openai.RateLimitError) -> float | None:
+def _es_pasajero(error: openai.APIError) -> bool:
+    """429, errores 5xx, falta de conexión y timeouts pueden resolverse solos esperando."""
+    if isinstance(error, openai.APIConnectionError):
+        return True
+    estado = getattr(error, "status_code", None)
+    return estado == ESTADO_LIMITE or (estado is not None and estado >= ESTADO_ERROR_SERVIDOR)
+
+
+def _describir(error: openai.APIError) -> str:
+    if isinstance(error, openai.APITimeoutError):
+        return "sin respuesta (tiempo agotado)"
+    if isinstance(error, openai.APIConnectionError):
+        return "sin conexión"
+    estado = getattr(error, "status_code", None)
+    if estado == ESTADO_LIMITE:
+        return f"con límite de pedidos ({estado})"
+    return f"saturado ({estado})"
+
+
+def _espera_sugerida(error: openai.APIError) -> float | None:
     """Segundos que pide esperar el servidor en Retry-After, si los manda."""
-    valor = error.response.headers.get("retry-after") if error.response is not None else None
+    respuesta = getattr(error, "response", None)
+    valor = respuesta.headers.get("retry-after") if respuesta is not None else None
     try:
-        return min(float(valor), ESPERA_MAXIMA_429_SEGUNDOS) if valor else None
+        return min(float(valor), ESPERA_MAXIMA_SEGUNDOS) if valor else None
     except ValueError:
         return None
 
