@@ -67,6 +67,25 @@ def test_escribir_en_git_esta_prohibido(repo: Path) -> None:
         escribir_archivo(repo, ".git/hooks/pre-commit", "x")
 
 
+def test_leer_env_esta_prohibido(repo: Path) -> None:
+    (repo / ".env").write_text("API_KEY=sk-real\n", encoding="utf-8")
+    with pytest.raises(ErrorRuta, match="puede contener secretos") as error:
+        leer_archivo(repo, ".env")
+    assert "sk-real" not in str(error.value)
+
+
+def test_escribir_env_esta_prohibido(repo: Path) -> None:
+    for ruta in [".env", ".env.local"]:
+        with pytest.raises(ErrorRuta, match="puede contener secretos"):
+            escribir_archivo(repo, ruta, "API_KEY=x\n")
+        assert not (repo / ruta).exists()
+
+
+def test_env_example_se_puede_leer_y_escribir(repo: Path) -> None:
+    escribir_archivo(repo, ".env.example", "API_KEY=\n")
+    assert leer_archivo(repo, ".env.example") == "API_KEY=\n"
+
+
 def test_listar_directorio_raiz(repo: Path) -> None:
     # .git se oculta; las carpetas van primero y terminan en '/'.
     assert listar_directorio(repo) == "src/\nharness.yaml"

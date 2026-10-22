@@ -18,6 +18,7 @@ Al trabajar:
 - Si una herramienta devuelve un error, analízalo y corrige la llamada (salvo los rechazos \
 de seguridad: ver abajo).
 - No puedes modificar harness.yaml ni nada dentro de .git/.
+- No puedes leer ni escribir archivos .env o .env.* (pueden tener secretos); .env.example sí.
 
 Límites de seguridad:
 - Tus herramientas solo acceden al repo objetivo. Si una herramienta rechaza algo por \

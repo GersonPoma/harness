@@ -218,6 +218,19 @@ Además de las que se pongan aquí, **siempre** están protegidas, aunque no se 
 
 `.harness/memory.md` no está protegido: lo modifica la herramienta `guardar_memoria`.
 
+Hay además archivos que el modelo **no puede ni leer**, igual que `.git/`:
+
+- `.env` y `.env.*` (por ejemplo `.env.local`, `.env.production`), en cualquier carpeta del
+  repo y sin importar mayúsculas: suelen tener secretos reales (API keys, contraseñas), y
+  lo que lee el modelo se envía a la API del proveedor. `leer_archivo` y `escribir_archivo`
+  los rechazan con un error que dice que el archivo puede contener secretos.
+- Se permite `.env.example`: es la plantilla sin valores reales que se sube a Git.
+- La comprobación se hace sobre la ruta ya resuelta, así que un symlink con otro nombre que
+  apunta a un `.env` también se rechaza.
+- `listar_directorio` sí muestra que el archivo existe (el nombre no es un secreto).
+- Si el proyecto necesita una variable de esas en los tests, va en `variables_entorno` (con
+  `${NOMBRE}` si es secreta), no en un `.env` que lea el código.
+
 Cómo se hace cumplir:
 
 - `escribir_archivo` (y `editar_archivo`) rechazan escribir en cualquiera de esas rutas.
