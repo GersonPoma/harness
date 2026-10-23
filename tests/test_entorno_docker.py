@@ -329,3 +329,34 @@ def test_sin_env_no_hay_montajes_extra(repo: Path) -> None:
     docker = DockerFalso()
     _iniciar(repo, docker).cerrar()
     assert not any(".env" in m for m in _montajes(docker))
+
+
+def test_servicio_detenido_corta_sin_esperar_el_timeout(repo: Path) -> None:
+    respuestas = {
+        "pg_isready -h 127.0.0.1": [(2, "no response")] * 100,
+        "inspect": [(0, "true\n"), (0, "false\n")],
+        "logs": [(0, "Error: Database is uninitialized and superuser password is not specified.")],
+    }
+    docker = DockerFalso(respuestas)
+    esperas: list[float] = []
+    with pytest.raises(ErrorDocker) as error:
+        with _entorno_servicios(repo, docker, dormir=esperas.append) as entorno:
+            entorno.iniciar()
+    mensaje = str(error.value)
+    assert "El servicio 'db' se detuvo antes de estar listo" in mensaje
+    assert "superuser password is not specified" in mensaje
+    # Dos comprobaciones y una sola espera: no se esperaron los 30 s del timeout.
+    assert docker.subcomandos().count("exec pg_isready -h 127.0.0.1") == 2
+    assert esperas == [1.0]
+    assert ["docker", "inspect", "-f", "{{.State.Running}}", SERVICIO] in docker.llamadas
+    assert docker.llamadas[-1] == ["docker", "network", "rm", CONTENEDOR]
+
+
+def test_si_docker_inspect_falla_se_sigue_esperando(repo: Path) -> None:
+    respuestas = {
+        "pg_isready -h 127.0.0.1": [(2, ""), (0, "")],
+        "inspect": [(1, "Error response from daemon: timeout")],
+    }
+    docker = DockerFalso(respuestas)
+    _entorno_servicios(repo, docker, dormir=_sin_dormir).iniciar()
+    assert docker.subcomandos().count("exec pg_isready -h 127.0.0.1") == 2

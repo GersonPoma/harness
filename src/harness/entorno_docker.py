@@ -255,19 +255,34 @@ class EntornoDocker:
             codigo, salida = self._ejecutar(comprobacion, TIMEOUT_DOCKER_SEGUNDOS)
             if codigo == 0:
                 return
+            # Un servicio que se detuvo (por ejemplo, postgres sin contraseña) no va a estar
+            # listo nunca: no tiene sentido esperar el timeout completo.
+            if not self._esta_corriendo(nombre):
+                motivo = "se detuvo antes de estar listo"
+                raise ErrorDocker(self._mensaje_no_listo(servicio, motivo, salida))
             if self._reloj() >= limite:
-                raise ErrorDocker(self._mensaje_no_listo(servicio, salida))
+                motivo = f"no estuvo listo en {servicio.timeout_listo_segundos} s"
+                raise ErrorDocker(self._mensaje_no_listo(servicio, motivo, salida))
             self._dormir(INTERVALO_LISTO_SEGUNDOS)
 
-    def _mensaje_no_listo(self, servicio: ConfigServicio, salida: str) -> str:
+    def _esta_corriendo(self, contenedor: str) -> bool:
+        # Solo un "false" explícito cuenta como detenido: si docker inspect falla por otro
+        # motivo, se sigue esperando y decide el timeout.
+        _, salida = self._ejecutar(
+            ["docker", "inspect", "-f", "{{.State.Running}}", contenedor],
+            TIMEOUT_DOCKER_SEGUNDOS,
+        )
+        return salida.strip() != "false"
+
+    def _mensaje_no_listo(self, servicio: ConfigServicio, motivo: str, salida: str) -> str:
         nombre = self._nombre_servicio(servicio)
         _, logs = self._ejecutar(
             ["docker", "logs", "--tail", str(LINEAS_LOGS_SERVICIO), nombre],
             TIMEOUT_DOCKER_SEGUNDOS,
         )
         return (
-            f"El servicio '{servicio.nombre}' no estuvo listo en "
-            f"{servicio.timeout_listo_segundos} s ('{servicio.listo_cuando}' no devolvió 0).\n"
+            f"El servicio '{servicio.nombre}' {motivo} "
+            f"('{servicio.listo_cuando}' no devolvió 0).\n"
             f"Última salida de la comprobación: {salida.strip() or '(vacía)'}\n"
             f"Últimas {LINEAS_LOGS_SERVICIO} líneas de 'docker logs' del servicio:\n"
             f"{logs.strip() or '(sin salida)'}"
