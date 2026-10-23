@@ -24,7 +24,7 @@ from harness.herramientas.comandos import EjecutorComandos, validar_proyecto
 from harness.herramientas.protegidos import GuardiaProtegidos
 from harness.init import ErrorInit, archivos_faltantes, ejecutar_init, verificar_config
 from harness.plan import Plan
-from harness.planificacion import ErrorPlan
+from harness.planificacion import ErrorPlan, calcular_pasos_plan
 from harness.prompts import crear_mensajes_iniciales
 from harness.proveedores.base import ErrorProveedor, ProveedorLLM
 from harness.proveedores.fabrica import crear_proveedor
@@ -128,6 +128,7 @@ def run(
     consola.mostrar_contexto(prep.contexto)
 
     reporte = _Reporte(registro, aprobar_plan)
+    _avisar_recorte_plan(prep, max_pasos, reporte)
     try:
         resultado, cambios = _ejecutar(prep, max_pasos, reporte)
     except (ErrorProveedor, ErrorDocker, ErrorRespuestaVacia, ErrorPlan) as error:
@@ -234,6 +235,20 @@ def _ejecutar_con_validacion(
         planificacion=_planificacion(prep, reporte),
     )
     return resultado, comparar(antes, tomar_instantanea(prep.repo))
+
+
+def _avisar_recorte_plan(prep: _Preparacion, max_pasos: int, reporte: _Reporte) -> None:
+    # harness.yaml ya garantiza max_pasos_plan <= max_pasos // 2: si se recorta, es porque
+    # --max-pasos bajó el total.
+    escrito = prep.config_proyecto.limites.max_pasos_plan if prep.config_proyecto else None
+    if not prep.es_con_plan or escrito is None:
+        return
+    efectivo = calcular_pasos_plan(max_pasos, escrito)
+    if efectivo < escrito:
+        reporte.aviso(
+            f"Pasos de planificación recortados de {escrito} a {efectivo} "
+            f"por --max-pasos {max_pasos}."
+        )
 
 
 def _planificacion(prep: _Preparacion, reporte: _Reporte) -> Planificacion | None:

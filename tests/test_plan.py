@@ -181,8 +181,10 @@ def test_el_pedido_de_plan_usa_los_pasos_reales(repo: Path) -> None:
         (10, None, 5),
         (7, None, 3),
         (30, 4, 4),
-        # --max-pasos por debajo de lo que dice harness.yaml.
-        (3, 8, 3),
+        (30, 15, 15),
+        # --max-pasos por debajo de lo que permitía harness.yaml: se recorta a la mitad.
+        (15, 10, 7),
+        (3, 8, 1),
     ],
 )
 def test_calcular_pasos_plan(max_pasos: int, max_pasos_plan: int | None, esperado: int) -> None:

@@ -116,13 +116,27 @@ def test_max_pasos_plan_por_defecto_y_explicito(tmp_path: Path) -> None:
     assert _cargar(tmp_path, MINIMO + "limites:\n  max_pasos: 5\n").limites.max_pasos == 5
     limites = "limites:\n  max_pasos: 20\n  max_pasos_plan: 4\n"
     assert _cargar(tmp_path, MINIMO + limites).limites.max_pasos_plan == 4
+    # Justo la mitad está permitido; también con max_pasos impar (15 // 2 = 7).
+    limites = "limites:\n  max_pasos: 15\n  max_pasos_plan: 7\n"
+    assert _cargar(tmp_path, MINIMO + limites).limites.max_pasos_plan == 7
 
 
-@pytest.mark.parametrize("plan", [20, 25])
-def test_max_pasos_plan_debe_ser_menor_que_max_pasos(tmp_path: Path, plan: int) -> None:
-    limites = f"limites:\n  max_pasos: 20\n  max_pasos_plan: {plan}\n"
+@pytest.mark.parametrize(("total", "plan", "maximo"), [(20, 11, 10), (20, 25, 10), (15, 8, 7)])
+def test_max_pasos_plan_como_maximo_la_mitad(
+    tmp_path: Path, total: int, plan: int, maximo: int
+) -> None:
+    limites = f"limites:\n  max_pasos: {total}\n  max_pasos_plan: {plan}\n"
     error = _error(tmp_path, MINIMO + limites)
-    assert f"limites: max_pasos_plan ({plan}) debe ser menor que max_pasos (20)" in error
+    assert (
+        f"limites.max_pasos_plan: puede ser como máximo la mitad de max_pasos "
+        f"({total} // 2 = {maximo}); vale {plan}"
+    ) in error
+
+
+def test_max_pasos_plan_con_el_max_pasos_por_defecto(tmp_path: Path) -> None:
+    # Sin max_pasos se compara con el valor por defecto, 30: el máximo es 15.
+    error = _error(tmp_path, MINIMO + "limites:\n  max_pasos_plan: 16\n")
+    assert "(30 // 2 = 15); vale 16" in error
 
 
 def test_version_no_soportada(tmp_path: Path) -> None:

@@ -47,7 +47,7 @@ class Planificacion:
     herramientas_lectura: list[Herramienta]
     # Recibe el plan para mostrarlo; si devuelve False, no se implementa (--aprobar-plan).
     al_planear: Callable[[Plan], bool] | None = None
-    # None: se calcula a partir de max_pasos (ver calcular_pasos_plan).
+    # None: 10. En los dos casos, nunca más de la mitad de max_pasos (calcular_pasos_plan).
     max_pasos_plan: int | None = None
 
 

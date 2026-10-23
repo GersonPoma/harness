@@ -75,7 +75,7 @@ git:
 
 limites:
   max_pasos: 30
-  max_pasos_plan: 10                # sin escribir: min(10, max_pasos // 2)
+  max_pasos_plan: 10                # como máximo max_pasos // 2
   max_intentos_validacion: 3
   timeout_comando_segundos: 120
   max_caracteres_salida: 4000
@@ -204,7 +204,7 @@ Variables que se pasan al **contenedor del proyecto** (no a los servicios).
 | Clave | Tipo | Obligatoria | Por defecto | Descripción |
 |---|---|---|---|---|
 | `max_pasos` | entero | no | `30` | Máximo de vueltas del bucle (cada respuesta del modelo es un paso). Al llegar, la ejecución se detiene y se puede retomar con `harness resume`. |
-| `max_pasos_plan` | entero | no | `min(10, max_pasos // 2)` | Máximo de pasos de la ronda de plan (explorar con herramientas de lectura antes de llamar a `proponer_plan`). Se descuentan de `max_pasos`. Si se escribe, debe ser **menor** que `max_pasos` (si no, error de validación). Si no se escribe, vale `min(10, max_pasos // 2)`: así siempre queda al menos la mitad de los pasos para implementar (con `max_pasos: 30`, 10; con `max_pasos: 10`, 5). Al agotarse, el harness le pide el plan al modelo con lo que ya sabe. |
+| `max_pasos_plan` | entero | no | `min(10, max_pasos // 2)` | Máximo de pasos de la ronda de plan (explorar con herramientas de lectura antes de llamar a `proponer_plan`). Se descuentan de `max_pasos`. Regla única: **la planificación nunca usa más de la mitad de los pasos**, así siempre queda al menos la otra mitad para implementar. Si se escribe, debe ser como máximo `max_pasos // 2` (si no, error de validación que indica el máximo permitido). Si no se escribe, vale `min(10, max_pasos // 2)` (con `max_pasos: 30`, 10; con `max_pasos: 10`, 5). Al ejecutar se usa `min(max_pasos_plan o 10, max_pasos // 2)` con el `max_pasos` efectivo: si `--max-pasos` lo baja, el valor escrito se recorta y el harness lo avisa en consola ("Pasos de planificación recortados de 20 a 7 por --max-pasos 15."). Al agotarse los pasos, el harness le pide el plan al modelo con lo que ya sabe. |
 | `max_intentos_validacion` | entero | no | `3` | Cuántas veces se vuelve de la validación (tests + lint) a la implementación antes de rendirse. |
 | `timeout_comando_segundos` | entero | no | `120` | Tiempo máximo de cada comando dentro del contenedor. Si se pasa, se corta y el modelo recibe "tiempo agotado". |
 | `max_caracteres_salida` | entero | no | `4000` | Largo máximo de la salida de una herramienta que se le devuelve al modelo. Se conserva el **final** (donde suelen estar los errores) y se avisa cuántos caracteres se recortaron. |

@@ -1,7 +1,7 @@
 """Carga y validación de harness.yaml del repo objetivo (docs/harness-yaml.md)."""
 
 from pathlib import Path
-from typing import Annotated, Self
+from typing import Annotated
 
 import yaml
 from pydantic import (
@@ -9,8 +9,8 @@ from pydantic import (
     ConfigDict,
     Field,
     ValidationError,
+    ValidationInfo,
     field_validator,
-    model_validator,
 )
 from pydantic_core import ErrorDetails
 
@@ -81,16 +81,21 @@ class ConfigLimites(_Modelo):
     timeout_comando_segundos: Entero = 120
     max_caracteres_salida: Entero = 4000
 
-    @model_validator(mode="after")
-    def _plan_menor_que_total(self) -> Self:
-        # Solo si se escribió: sin la clave, el presupuesto se calcula al ejecutar y siempre
-        # deja pasos para implementar, en vez de obligar a escribir las dos claves.
-        if self.max_pasos_plan is not None and self.max_pasos_plan >= self.max_pasos:
+    @field_validator("max_pasos_plan")
+    @classmethod
+    def _plan_hasta_la_mitad(cls, valor: int | None, info: ValidationInfo) -> int | None:
+        # La planificación nunca usa más de la mitad de los pasos: la otra mitad es para
+        # implementar. Sin la clave no hay nada que validar (se calcula al ejecutar).
+        max_pasos = info.data.get("max_pasos")
+        if valor is None or max_pasos is None:
+            return valor
+        maximo = max_pasos // 2
+        if valor > maximo:
             raise ValueError(
-                f"max_pasos_plan ({self.max_pasos_plan}) debe ser menor que max_pasos "
-                f"({self.max_pasos})"
+                f"puede ser como máximo la mitad de max_pasos ({max_pasos} // 2 = {maximo}); "
+                f"vale {valor}"
             )
-        return self
+        return valor
 
 
 class ConfigProyecto(_Modelo):

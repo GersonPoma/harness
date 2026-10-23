@@ -135,8 +135,8 @@ harness run PROJ-123
   donde cada archivo es `{ruta, accion: crear|modificar|eliminar, motivo}`. La ronda termina
   cuando la llama con un plan válido; si el plan no cumple el formato, el error vuelve al
   modelo para que lo corrija.
-- Tiene hasta `limites.max_pasos_plan` pasos (sin la clave, `min(10, max_pasos // 2)`, para
-  que quede al menos la mitad para implementar), descontados de `max_pasos`.
+- Tiene hasta `limites.max_pasos_plan` pasos (10 sin la clave), descontados de `max_pasos` y
+  nunca más de la mitad de ellos, para que quede al menos la mitad para implementar.
   Si responde con texto o se le acaban, se le pide "llama a `proponer_plan` ahora", ya sin
   herramientas de lectura; si aun así no hay plan, la ejecución se corta con error.
 - El pedido de plan le dice cuántos pasos tiene y que puede pedir varias lecturas en una misma

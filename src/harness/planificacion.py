@@ -79,12 +79,12 @@ def planificar(
 
 
 def calcular_pasos_plan(max_pasos: int, max_pasos_plan: int | None) -> int:
-    """Pasos para explorar: el de harness.yaml o, sin la clave, min(10, mitad del total)."""
-    if max_pasos_plan is None:
-        # La mitad como tope: siempre queda al menos la otra mitad para implementar.
-        return min(MAX_PASOS_PLAN_POR_DEFECTO, max_pasos // 2)
-    # --max-pasos puede bajar el total por debajo de lo que dice harness.yaml.
-    return min(max_pasos_plan, max_pasos)
+    """Pasos para explorar: el de harness.yaml (o 10), nunca más de la mitad del total.
+
+    `max_pasos` es el efectivo: con --max-pasos puede quedar por debajo de lo que permitía
+    harness.yaml, y entonces el valor escrito se recorta.
+    """
+    return min(max_pasos_plan or MAX_PASOS_PLAN_POR_DEFECTO, max_pasos // 2)
 
 
 def _nota_restantes(restantes: int) -> str | None:

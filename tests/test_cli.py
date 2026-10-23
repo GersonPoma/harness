@@ -7,6 +7,7 @@ from typer.testing import CliRunner
 from harness import cli
 from harness.config import ConfigModelo
 from harness.entorno_docker import ErrorDocker
+from harness.planificacion import calcular_pasos_plan
 from harness.tipos import LlamadaHerramienta, RespuestaModelo
 from tests.falsos import ProveedorFalso, pedir, proponer, terminar, vacia
 
@@ -168,6 +169,59 @@ def test_max_pasos_plan_de_harness_yaml_llega_a_la_planificacion(
     monkeypatch.setattr(cli, "_ejecutar", ejecutar_falso)
     _correr(monkeypatch, repo_sin_yaml, [])
     assert recibidas == [4]
+
+
+def _correr_con_limites(
+    monkeypatch: pytest.MonkeyPatch, repo: Path, limites: str, *opciones: str
+) -> tuple[list[int], str]:
+    """Corre con harness.yaml y anota el presupuesto de plan que llega a la ejecución."""
+    (repo / "harness.yaml").write_text(YAML_CON_DOCKER + limites, encoding="utf-8")
+    presupuestos: list[int] = []
+
+    def ejecutar_falso(prep, max_pasos, reporte):
+        planificacion = cli._planificacion(prep, reporte)
+        if planificacion:
+            presupuestos.append(calcular_pasos_plan(max_pasos, planificacion.max_pasos_plan))
+        raise ErrorDocker("fin de la prueba")
+
+    monkeypatch.setattr(cli, "_ejecutar", ejecutar_falso)
+    _, salida = _correr(monkeypatch, repo, [], *opciones)
+    return presupuestos, " ".join(salida.split())
+
+
+def test_max_pasos_menor_recorta_el_plan_y_avisa(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    limites = "limites:\n  max_pasos: 40\n  max_pasos_plan: 20\n"
+    presupuestos, salida = _correr_con_limites(
+        monkeypatch, repo_sin_yaml, limites, "--max-pasos", "15"
+    )
+    assert presupuestos == [7]
+    assert "Pasos de planificación recortados de 20 a 7 por --max-pasos 15." in salida
+    avisos = [e["mensaje"] for e in _eventos_del_log(repo_sin_yaml) if e["evento"] == "aviso"]
+    assert avisos == ["Pasos de planificación recortados de 20 a 7 por --max-pasos 15."]
+
+
+@pytest.mark.parametrize("opciones", [(), ("--max-pasos", "40"), ("--sin-plan",)])
+def test_sin_recorte_no_hay_aviso(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path, opciones: tuple[str, ...]
+) -> None:
+    limites = "limites:\n  max_pasos: 40\n  max_pasos_plan: 20\n"
+    presupuestos, salida = _correr_con_limites(monkeypatch, repo_sin_yaml, limites, *opciones)
+    assert "recortados" not in salida
+    if "--sin-plan" not in opciones:
+        assert presupuestos == [20]
+
+
+def test_sin_max_pasos_plan_escrito_no_hay_aviso(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    # Sin la clave, el 10 por defecto se ajusta a la mitad sin avisar: no se recorta nada escrito.
+    presupuestos, salida = _correr_con_limites(
+        monkeypatch, repo_sin_yaml, "", "--max-pasos", "6"
+    )
+    assert presupuestos == [3]
+    assert "recortados" not in salida
 
 
 def _escribir(ruta: str) -> RespuestaModelo:
