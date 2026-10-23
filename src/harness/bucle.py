@@ -24,6 +24,9 @@ class Paso:
     llamada: LlamadaHerramienta
     resultado: str
     es_error: bool
+    # Posición de la llamada dentro del paso (1..total): el modelo puede pedir varias juntas.
+    indice: int = 1
+    total: int = 1
 
 
 @dataclass
@@ -74,9 +77,10 @@ def ejecutar_bucle(
         if not respuesta.llamadas:
             pasos = numero - primer_paso + 1
             return ResultadoBucle(respuesta.texto, pasos, tokens_entrada, tokens_salida, False)
+        total = len(respuesta.llamadas)
         pasos_hechos = [
-            Paso(numero, llamada, *ejecutar_llamada(llamada, por_nombre))
-            for llamada in respuesta.llamadas
+            Paso(numero, llamada, *ejecutar_llamada(llamada, por_nombre), indice, total)
+            for indice, llamada in enumerate(respuesta.llamadas, start=1)
         ]
         es_ultimo = bool(es_fin and es_fin())
         if nota_restantes and not es_ultimo:

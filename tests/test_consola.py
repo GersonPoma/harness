@@ -87,3 +87,38 @@ def test_ruta_larga_se_abrevia_por_el_medio(monkeypatch: pytest.MonkeyPatch) -> 
     assert final.endswith("ProductoControlador.java")
     # El resto de los argumentos largos se sigue resumiendo.
     assert "contenido=<500 caracteres>" in linea
+
+
+def _grabar(monkeypatch: pytest.MonkeyPatch) -> Console:
+    grabadora = Console(record=True, width=200)
+    monkeypatch.setattr(consola, "consola", grabadora)
+    return grabadora
+
+
+def test_un_paso_con_varias_llamadas_se_agrupa(monkeypatch: pytest.MonkeyPatch) -> None:
+    grabadora = _grabar(monkeypatch)
+    llamadas = [
+        LlamadaHerramienta("a", "leer_archivo", {"ruta": "src/app.py"}),
+        LlamadaHerramienta("b", "listar_directorio", {"ruta": "src"}),
+        LlamadaHerramienta("c", "leer_archivo", {"ruta": "no.py"}),
+    ]
+    resultados = [("Archivo: src/app.py\nx = 1", False), ("app.py", False), ("Error: no", True)]
+    for indice, (llamada, (resultado, es_error)) in enumerate(zip(llamadas, resultados), 1):
+        consola.mostrar_paso(Paso(2, llamada, resultado, es_error, indice, total=3))
+
+    assert grabadora.export_text().splitlines() == [
+        "[2] 3 herramientas",
+        "    · leer_archivo(ruta='src/app.py') → Archivo: src/app.py (+1 líneas)",
+        "    · listar_directorio(ruta='src') → app.py",
+        "    · leer_archivo(ruta='no.py') → Error: no",
+    ]
+
+
+def test_un_paso_con_una_llamada_mantiene_el_formato(monkeypatch: pytest.MonkeyPatch) -> None:
+    grabadora = _grabar(monkeypatch)
+    llamada = LlamadaHerramienta("a", "listar_directorio", {"ruta": "."})
+    consola.mostrar_paso(Paso(1, llamada, "src/\nharness.yaml", es_error=False))
+    assert grabadora.export_text().splitlines() == [
+        "[1] listar_directorio(ruta='.')",
+        "    → src/ (+1 líneas)",
+    ]

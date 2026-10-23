@@ -68,16 +68,25 @@ def mostrar_contexto(contexto: ContextoProyecto) -> None:
 
 
 def mostrar_paso(paso: Paso) -> None:
-    """Muestra la herramienta llamada y un resumen de su resultado."""
+    """Muestra la herramienta llamada y un resumen de su resultado.
+
+    Si el paso tiene varias llamadas, la primera imprime la cabecera "[N] K herramientas" y
+    cada una va en su línea con "·", para no repetir el número de paso.
+    """
     argumentos = ", ".join(
         f"{nombre}={_resumir_argumento(nombre, valor)}"
         for nombre, valor in paso.llamada.argumentos.items()
     )
+    llamada = f"[bold]{escape(paso.llamada.nombre)}[/]({escape(argumentos)})"
     color = "red" if paso.es_error else "dim"
-    consola.print(
-        f"[cyan][{paso.numero}][/] [bold]{escape(paso.llamada.nombre)}[/]({escape(argumentos)})"
-    )
-    consola.print(f"    [{color}]→ {escape(_resumir_resultado(paso.resultado))}[/]")
+    resultado = f"[{color}]→ {escape(_resumir_resultado(paso.resultado))}[/]"
+    if paso.total == 1:
+        consola.print(f"[cyan][{paso.numero}][/] {llamada}")
+        consola.print(f"    {resultado}")
+        return
+    if paso.indice == 1:
+        consola.print(f"[cyan][{paso.numero}][/] {paso.total} herramientas")
+    consola.print(f"    · {llamada} {resultado}")
 
 
 def mostrar_validacion(validacion: Validacion) -> None:

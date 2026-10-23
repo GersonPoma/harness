@@ -224,6 +224,25 @@ def test_sin_max_pasos_plan_escrito_no_hay_aviso(
     assert "recortados" not in salida
 
 
+def test_varias_llamadas_en_un_paso_se_agrupan_y_el_log_no_cambia(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    leer = LlamadaHerramienta("a", "leer_archivo", {"ruta": "app.py"})
+    listar = LlamadaHerramienta("b", "listar_directorio", {"ruta": "."})
+    codigo, salida = _correr(
+        monkeypatch, repo_sin_yaml, [pedir(leer, listar), terminar()], "--sin-plan"
+    )
+    assert codigo == 0
+    assert "[1] 2 herramientas\n    · leer_archivo(ruta='app.py')" in salida
+    assert "    · listar_directorio(ruta='.')" in salida
+    pasos = [e for e in _eventos_del_log(repo_sin_yaml) if e["evento"] == "herramienta"]
+    # Un evento por llamada, con las mismas claves de siempre.
+    assert [(e["paso"], e["herramienta"]) for e in pasos] == [
+        (1, "leer_archivo"), (1, "listar_directorio"),
+    ]
+    assert not {"indice", "total"} & set(pasos[0])
+
+
 def _escribir(ruta: str) -> RespuestaModelo:
     argumentos = {"ruta": ruta, "contenido": "x"}
     return pedir(LlamadaHerramienta(f"e-{ruta}", "escribir_archivo", argumentos))
