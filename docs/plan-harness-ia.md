@@ -141,7 +141,10 @@ harness run PROJ-123
 - El plan se muestra en un panel (armado desde la estructura, no desde texto libre) y queda
   en el log como evento `plan`. Después el modelo implementa con todas las herramientas.
 - Al terminar, el harness compara el plan con los archivos que de verdad cambiaron y avisa
-  en amarillo de los que no estaban en el plan.
+  en amarillo de los que no estaban en el plan. Si el repo es Git, esa foto de cambios solo
+  mira los archivos que Git no ignora (`git ls-files --cached --others --exclude-standard`),
+  así las salidas de compilación de cada stack quedan fuera según su `.gitignore`; si no es
+  Git, se usa una lista fija de carpetas (más `target`, `build`, `dist`, `out` y `.gradle`).
 - `--aprobar-plan`: muestra el plan y pregunta "¿Implementar? [s/n]"; con "n" termina sin
   implementar (código 0). Por defecto el harness sigue solo.
 - `--sin-plan`: salta la ronda de plan (tickets triviales o para ahorrar pedidos).
