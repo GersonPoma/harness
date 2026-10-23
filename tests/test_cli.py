@@ -155,3 +155,11 @@ def test_sin_plan_valido_termina_con_codigo_1(
     codigo, salida = _correr(monkeypatch, repo_sin_yaml, [terminar("a"), terminar("b")])
     assert codigo == 1
     assert "no propuso un plan válido" in salida
+
+
+def test_el_paso_de_proponer_plan_no_repite_el_plan(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    _, salida = _correr(monkeypatch, repo_sin_yaml, [proponer(), _escribir("nuevo.py"), terminar()])
+    assert "proponer_plan(resumen=<24 caracteres>" not in salida
+    assert "archivos=<1 elementos>" in salida and "pasos=<1 elementos>" in salida

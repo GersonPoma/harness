@@ -225,6 +225,9 @@ def _resumir_argumento(valor: Any) -> str:
     # El contenido de un archivo no cabe en una línea: basta con saber cuánto mide.
     if isinstance(valor, str) and ("\n" in valor or len(valor) > MAX_CARACTERES_ARGUMENTO):
         return f"<{len(valor)} caracteres>"
+    # Listas como las de proponer_plan: el detalle ya se muestra en el panel del plan.
+    if isinstance(valor, list | dict):
+        return f"<{len(valor)} elementos>"
     return repr(valor)
 
 

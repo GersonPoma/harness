@@ -161,3 +161,13 @@ def test_en_la_ronda_de_plan_no_se_puede_escribir(repo: Path) -> None:
     _, mensajes = _ejecutar(repo, proveedor)
     assert "la herramienta 'escribir_archivo' no existe" in mensajes[4].contenido
     assert not (repo / "nuevo.py").exists()
+
+
+def test_quita_la_numeracion_que_pone_el_modelo() -> None:
+    pasos = [
+        "1. Crear el modelo", "2) Agregar el endpoint", " 10 - Correr tests", "Paso 3 sin número",
+    ]
+    plan = Plan.model_validate(_plan(pasos=pasos))
+    assert plan.pasos == [
+        "Crear el modelo", "Agregar el endpoint", "Correr tests", "Paso 3 sin número",
+    ]

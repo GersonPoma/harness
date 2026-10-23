@@ -1,5 +1,6 @@
 """Plan que el modelo propone antes de implementar, con la herramienta proponer_plan."""
 
+import re
 from collections.abc import Callable
 from typing import Any, Literal
 
@@ -11,6 +12,9 @@ from harness.tipos import Herramienta
 
 NOMBRE_HERRAMIENTA_PLAN = "proponer_plan"
 ACCIONES = ("crear", "modificar", "eliminar")
+
+# "1. Crear..." o "2) Agregar...": el harness ya numera los pasos al mostrarlos.
+PATRON_NUMERACION = re.compile(r"^\s*\d+\s*[.)-]\s*")
 
 Accion = Literal["crear", "modificar", "eliminar"]
 TextoNoVacio = Field(min_length=1)
@@ -44,6 +48,11 @@ class Plan(_Modelo):
     archivos: list[ArchivoPlan] = Field(min_length=1)
     pasos: list[str] = Field(min_length=1)
     tests: list[str] = []
+
+    @field_validator("pasos")
+    @classmethod
+    def _quitar_numeracion(cls, pasos: list[str]) -> list[str]:
+        return [PATRON_NUMERACION.sub("", paso, count=1) for paso in pasos]
 
 
 def crear_herramienta_plan(al_proponer: Callable[[Plan], None]) -> Herramienta:
