@@ -12,6 +12,8 @@ from harness.bucle import Paso
 from harness.cambios import CambiosRepo
 from harness.contexto import MAX_CARACTERES_AGENTS, ContextoProyecto
 from harness.ejecucion import ResultadoEjecucion, Validacion
+from harness.entorno_docker import ResultadoComando
+from harness.init import ResultadoInit
 from harness.plan import Plan, archivos_fuera_del_plan
 
 MAX_CARACTERES_RESUMEN = 120
@@ -20,6 +22,7 @@ LINEAS_INFORME_VALIDACION = 8
 SIMBOLOS_ACCION = {"crear": "[green]+[/]", "modificar": "[yellow]~[/]", "eliminar": "[red]-[/]"}
 RESPUESTAS_SI = ("s", "si", "sí")
 RESPUESTAS_NO = ("n", "no")
+LINEAS_VERIFICACION = 15
 
 consola = Console()
 
@@ -161,6 +164,41 @@ def preguntar_implementar() -> bool:
             return True
         if respuesta in RESPUESTAS_NO:
             return False
+
+
+def mostrar_inicio_init(repo: str, proveedor: str, modelo: str, faltantes: list[str]) -> None:
+    """Muestra qué va a generar harness init y con qué modelo."""
+    consola.print(
+        f"[bold green]Init[/] {escape(repo)}  [bold green]Genera[/] {escape(', '.join(faltantes))}"
+        f"\n[bold green]Modelo[/] {escape(proveedor)} / {escape(modelo)}"
+    )
+
+
+def mostrar_fin_init(resultado: ResultadoInit, ruta_log: str) -> None:
+    """Muestra los archivos creados y recuerda revisarlos antes de usarlos."""
+    if resultado.texto_final:
+        consola.print(Panel(escape(resultado.texto_final), title="Resultado"))
+    consola.print("[bold]Creados:[/]")
+    for nombre in resultado.creados:
+        consola.print(f"  [green]{escape(nombre)}[/]")
+    mostrar_aviso(
+        "Revísalos antes de usarlos, sobre todo docker.instalar y comandos_permitidos de "
+        "harness.yaml: definen qué se ejecuta. Puedes probarlos con 'harness init --verificar'."
+    )
+    consola.print(
+        f"[dim]Pasos: {resultado.pasos} · Tokens: {resultado.tokens_entrada} entrada / "
+        f"{resultado.tokens_salida} salida · Log: {escape(ruta_log)}[/]"
+    )
+
+
+def mostrar_verificacion(resultado: ResultadoComando, salida: str) -> None:
+    """Informa si los tests pasan con el harness.yaml (instalación incluida)."""
+    if resultado.codigo == 0 and not resultado.es_tiempo_agotado:
+        consola.print("[bold green]✓ Verificación: la instalación y los tests funcionan.[/]")
+        return
+    consola.print("[bold red]✗ Verificación: los tests no pasan con este harness.yaml.[/]")
+    lineas = salida.strip().splitlines()[-LINEAS_VERIFICACION:]
+    consola.print(f"[dim]{escape(chr(10).join(lineas))}[/]")
 
 
 def mostrar_aviso(mensaje: str) -> None:

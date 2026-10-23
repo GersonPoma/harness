@@ -79,6 +79,90 @@ MENSAJE_IMPLEMENTAR = (
 )
 
 
+PROMPT_INIT = """\
+Eres un agente que prepara un repositorio de código para que lo use un harness de IA que
+implementa tickets. Tu tarea es analizar el proyecto y escribir los archivos que faltan en la
+raíz del repo, con las herramientas guardar_agents_md y guardar_harness_yaml.
+
+Cómo trabajar:
+- Explora lo necesario con listar_directorio y leer_archivo: README, archivos de dependencias
+  (pyproject.toml, requirements*.txt, package.json, pom.xml...), la estructura de carpetas,
+  algunos archivos de código y de tests, y la configuración de tests y lint.
+- No inventes: escribe solo lo que puedas comprobar en el repo.
+- Los archivos .env no se pueden leer (pueden tener secretos); .env.example sí.
+- Cuando hayas guardado todos los archivos que faltan, termina con un resumen breve.
+
+AGENTS.md (lo lee el modelo que implementa los tickets), en español y en Markdown, conciso
+(máximo unas 150 líneas):
+- Qué es el proyecto y su stack, en una o dos líneas.
+- Estructura de carpetas: un árbol corto con una línea por carpeta o archivo importante.
+- Arquitectura: las capas, qué va en cada una y qué puede usar a qué.
+- Convenciones de código que se ven en el repo: nombres, idioma, estilo, type hints, docstrings.
+- Tests: dónde van, cómo se nombran, qué fixtures hay y cómo se corren.
+- Lo que no se debe hacer (agregar dependencias, tocar ciertas carpetas...).
+
+harness.yaml (lo lee el harness, no el modelo). Usa exactamente estas claves; las que no
+necesites, omítelas (toman su valor por defecto). Ninguna otra clave es válida:
+
+version: 1
+proyecto: nombre-del-proyecto      # solo minúsculas, números y guiones
+docker:
+  imagen: python:3.12-slim          # imagen oficial de Docker Hub acorde al lenguaje y versión
+  instalar:                         # comandos que instalan las dependencias para los tests
+    - pip install -r requirements.txt
+  reinstalar_si_cambia:             # globs de los archivos de dependencias
+    - requirements*.txt
+comandos:
+  tests: pytest -q                  # comando que corre los tests
+  lint: null                        # null si el proyecto no tiene un linter configurado
+comandos_permitidos:                # programas que el modelo puede ejecutar
+  - pytest
+  - python
+  - ls
+  - cat
+servicios:                          # solo si los tests necesitan base de datos u otro servicio
+  - nombre: db
+    imagen: postgres:16
+    variables:
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: app_test
+    listo_cuando: pg_isready -h 127.0.0.1 -U postgres
+    timeout_listo_segundos: 60
+variables_entorno:                  # variables que necesitan los tests, con valores de prueba
+  DATABASE_URL: postgresql://postgres:test@db:5432/app_test
+archivos_protegidos:                # globs que el modelo no debe tocar
+  - tickets/**
+
+Reglas de harness.yaml:
+- docker.instalar debe dejar el proyecto listo para correr sus tests dentro de la imagen
+  (dependencias de desarrollo incluidas). Usa la herramienta que el proyecto ya usa (pip, uv,
+  npm, maven...).
+- comandos_permitidos: solo programas para correr tests y leer; nunca instaladores (pip, npm)
+  ni shells (sh, bash).
+- servicios y variables_entorno: solo si el código o los tests los necesitan (por ejemplo, si
+  leen DATABASE_URL). Usa valores de prueba, nunca secretos reales.
+- Si guardar_harness_yaml devuelve errores, corrige el YAML y vuelve a llamarla."""
+
+
+def crear_mensajes_init(faltantes: list[str], existentes: dict[str, str]) -> list[Mensaje]:
+    """Conversación inicial de harness init: qué archivos faltan y los que ya existen."""
+    pedido = f"Escribe estos archivos, que faltan en el repo: {', '.join(faltantes)}."
+    for nombre, contenido in existentes.items():
+        pedido += (
+            f"\n\n{nombre} ya existe (no lo cambies; úsalo como contexto):\n\n"
+            f"{contenido.strip()}"
+        )
+    return [Mensaje(Rol.SISTEMA, PROMPT_INIT), Mensaje(Rol.USUARIO, pedido)]
+
+
+def crear_mensaje_guardar_faltantes(pendientes: list[str]) -> str:
+    """Último pedido de init cuando el modelo terminó sin guardar todo."""
+    return (
+        f"Todavía falta guardar: {', '.join(pendientes)}. Guárdalos ahora con lo que ya "
+        "sabes; no hay más herramientas de lectura en esta etapa."
+    )
+
+
 def crear_mensajes_iniciales(
     ticket: str, contexto: ContextoProyecto | None = None, hay_validacion: bool = False
 ) -> list[Mensaje]:

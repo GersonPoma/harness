@@ -10,7 +10,8 @@ import pytest
 
 from harness.config_proyecto import ConfigComandos, ConfigDocker, ConfigProyecto
 from harness.entorno_docker import EntornoDocker
-from harness.variables import resolver_variables
+from harness.init import verificar_config
+from harness.variables import VariablesResueltas, resolver_variables
 
 
 def _docker_corriendo() -> bool:
@@ -149,3 +150,15 @@ def test_servicio_en_red_privada(repo: Path) -> None:
     assert "harness-prueba-prueba-servicio" not in _redes()
     # redis declara VOLUME /data: su volumen anónimo se borra junto con el contenedor.
     assert _volumenes() - volumenes_antes == set()
+
+
+def test_verificar_config_de_init(repo: Path) -> None:
+    config = ConfigProyecto.model_validate({
+        "version": 1,
+        "proyecto": "prueba",
+        "docker": {"imagen": IMAGEN, "instalar": "python -c 'open(\"instalado\", \"w\")'"},
+        "comandos": {"tests": "python -c 'import os; assert os.path.exists(\"instalado\")'"},
+    })
+    resultado = verificar_config(repo, config, VariablesResueltas())
+    assert resultado.codigo == 0, resultado.salida
+    assert "harness-prueba-init" not in _nombres_contenedores()

@@ -109,9 +109,14 @@ def cargar_config_proyecto(repo: Path) -> ConfigProyecto | None:
     ruta = repo / NOMBRE_ARCHIVO
     if not ruta.is_file():
         return None
+    return validar_texto_config(ruta.read_text(encoding="utf-8"))
+
+
+def validar_texto_config(texto: str) -> ConfigProyecto:
+    """Valida el contenido de un harness.yaml (también uno propuesto que aún no se escribió)."""
     try:
         # safe_load y nunca load: load puede ejecutar código escrito en el YAML.
-        datos = yaml.safe_load(ruta.read_text(encoding="utf-8"))
+        datos = yaml.safe_load(texto)
     except yaml.YAMLError as error:
         raise ErrorConfigProyecto(f"{NOMBRE_ARCHIVO} no es YAML válido: {error}") from error
     if not isinstance(datos, dict):

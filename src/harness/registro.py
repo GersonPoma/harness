@@ -9,6 +9,7 @@ from harness.bucle import Paso
 from harness.cambios import CambiosRepo
 from harness.contexto import ContextoProyecto
 from harness.ejecucion import ResultadoEjecucion, Validacion
+from harness.init import ResultadoInit
 from harness.plan import Plan, archivos_fuera_del_plan
 from harness.variables import ocultar_secretos
 
@@ -82,6 +83,17 @@ class RegistroPasos:
             "fuera_del_plan": (
                 archivos_fuera_del_plan(resultado.plan, cambios) if resultado.plan else []
             ),
+        })
+
+    def registrar_fin_init(self, resultado: ResultadoInit) -> None:
+        """Registra qué archivos creó harness init."""
+        self._escribir({
+            "evento": "fin",
+            "creados": resultado.creados,
+            "pasos": resultado.pasos,
+            "tokens_entrada": resultado.tokens_entrada,
+            "tokens_salida": resultado.tokens_salida,
+            "texto_final": resultado.texto_final,
         })
 
     def registrar_plan(self, plan: Plan, es_aprobado: bool) -> None:

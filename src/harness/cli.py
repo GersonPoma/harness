@@ -9,7 +9,7 @@ from rich import print
 from harness import consola
 from harness.bucle import MAX_PASOS_POR_DEFECTO, ErrorRespuestaVacia, Paso
 from harness.cambios import CambiosRepo, comparar, tomar_instantanea
-from harness.config import ConfigModelo, ErrorConfiguracion, cargar_config
+from harness.config import ConfigModelo, ErrorConfiguracion, cargar_config, cargar_env
 from harness.config_proyecto import ConfigProyecto, ErrorConfigProyecto, cargar_config_proyecto
 from harness.contexto import ContextoProyecto, cargar_agents_md
 from harness.ejecucion import Planificacion, ResultadoEjecucion, Validacion, ejecutar_ticket
@@ -17,6 +17,7 @@ from harness.entorno_docker import EntornoDocker, ErrorDocker
 from harness.herramientas import crear_herramientas, crear_herramientas_lectura
 from harness.herramientas.comandos import EjecutorComandos, validar_proyecto
 from harness.herramientas.protegidos import GuardiaProtegidos
+from harness.init import ErrorInit, archivos_faltantes, ejecutar_init, verificar_config
 from harness.plan import Plan
 from harness.planificacion import ErrorPlan
 from harness.prompts import crear_mensajes_iniciales
@@ -24,9 +25,15 @@ from harness.proveedores.base import ErrorProveedor, ProveedorLLM
 from harness.proveedores.fabrica import crear_proveedor
 from harness.registro import RegistroPasos
 from harness.ticket import ErrorTicket, leer_ticket_local
-from harness.variables import ErrorVariables, VariablesResueltas, resolver_variables
+from harness.variables import (
+    ErrorVariables,
+    VariablesResueltas,
+    ocultar_secretos,
+    resolver_variables,
+)
 
 CODIGO_CANCELADO = 130
+NOMBRE_LOG_INIT = "init"
 
 app = typer.Typer(help="Harness de IA para generación de código")
 
@@ -220,6 +227,81 @@ def _planificacion(prep: _Preparacion, reporte: _Reporte) -> Planificacion | Non
     if not prep.es_con_plan:
         return None
     return Planificacion(crear_herramientas_lectura(prep.repo), reporte.plan)
+
+
+@app.command()
+def init(
+    repo: Annotated[
+        Path | None, typer.Option(help="Repo objetivo; por defecto, la carpeta actual.")
+    ] = None,
+    verificar: Annotated[
+        bool,
+        typer.Option(
+            "--verificar",
+            help="Después, levantar el entorno con harness.yaml, instalar y correr los tests.",
+        ),
+    ] = False,
+) -> None:
+    """Genera AGENTS.md y harness.yaml si faltan (el modelo analiza el repo)."""
+    raiz = (repo or Path.cwd()).resolve()
+    if not raiz.is_dir():
+        consola.mostrar_error(f"No existe la carpeta del repo: {raiz}")
+        raise typer.Exit(1)
+    faltantes = archivos_faltantes(raiz)
+    if faltantes:
+        _generar_archivos_init(raiz, faltantes)
+    else:
+        consola.mostrar_aviso("El repo ya tiene AGENTS.md y harness.yaml: no hay nada que generar.")
+    if verificar:
+        _verificar_init(raiz)
+
+
+def _generar_archivos_init(repo: Path, faltantes: list[str]) -> None:
+    try:
+        config = cargar_config()
+    except ErrorConfiguracion as error:
+        consola.mostrar_error(str(error))
+        raise typer.Exit(1) from error
+    registro = RegistroPasos(repo, NOMBRE_LOG_INIT, secretos=[config.api_key])
+    registro.registrar_inicio(config.proveedor, config.modelo)
+    consola.mostrar_inicio_init(str(repo), config.proveedor, config.modelo, faltantes)
+    reporte = _Reporte(registro)
+    try:
+        proveedor = crear_proveedor(config, reporte.reintento)
+        resultado = ejecutar_init(proveedor, repo, reporte.paso, reporte.aviso)
+    except (ErrorProveedor, ErrorRespuestaVacia, ErrorInit) as error:
+        registro.registrar_error(str(error))
+        consola.mostrar_error(str(error))
+        raise typer.Exit(1) from error
+    except KeyboardInterrupt as error:
+        registro.registrar_error("Init cancelado por el usuario.")
+        consola.mostrar_error("Init cancelado.")
+        raise typer.Exit(CODIGO_CANCELADO) from error
+    registro.registrar_fin_init(resultado)
+    consola.mostrar_fin_init(resultado, str(registro.ruta))
+
+
+def _verificar_init(repo: Path) -> None:
+    try:
+        # Las referencias ${NOMBRE} de harness.yaml se resuelven con el .env.
+        cargar_env()
+        config_proyecto = cargar_config_proyecto(repo)
+        if config_proyecto is None:
+            raise ErrorConfigProyecto("El repo no tiene harness.yaml: no hay nada que verificar.")
+        variables = resolver_variables(config_proyecto)
+        with consola.estado("Verificando harness.yaml...") as estado:
+            resultado = verificar_config(
+                repo, config_proyecto, variables, partial(consola.actualizar_estado, estado)
+            )
+    except (ErrorConfigProyecto, ErrorVariables, ErrorDocker) as error:
+        consola.mostrar_error(str(error))
+        raise typer.Exit(1) from error
+    except KeyboardInterrupt as error:
+        consola.mostrar_error("Verificación cancelada (los contenedores se borraron).")
+        raise typer.Exit(CODIGO_CANCELADO) from error
+    consola.mostrar_verificacion(resultado, ocultar_secretos(resultado.salida, variables.secretos))
+    if resultado.codigo != 0 or resultado.es_tiempo_agotado:
+        raise typer.Exit(1)
 
 
 @app.command()

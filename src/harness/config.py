@@ -32,9 +32,14 @@ class ConfigModelo:
     api_key: str = field(repr=False)
 
 
+def cargar_env(ruta_env: Path = RUTA_ENV) -> None:
+    """Carga el .env en el entorno (también lo usan las referencias ${NOMBRE} de harness.yaml)."""
+    load_dotenv(ruta_env)
+
+
 def cargar_config(ruta_env: Path = RUTA_ENV) -> ConfigModelo:
     """Lee la configuración del .env y valida que esté completa."""
-    load_dotenv(ruta_env)
+    cargar_env(ruta_env)
     proveedor = _leer_obligatoria(VAR_PROVEEDOR, "el proveedor del modelo").lower()
     if proveedor not in PRESETS:
         disponibles = ", ".join(PRESETS)

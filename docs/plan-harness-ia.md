@@ -78,6 +78,20 @@ for paso in range(MAX_PASOS):
   - el modelo explora con `list_dir` / `read_file` (más lento), o
   - `harness init` los genera analizando el proyecto, para revisarlos y subirlos al repo.
 
+  `harness init [--repo] [--verificar]`:
+  - Genera solo los que faltan y **nunca sobrescribe**. Si ya existen los dos, no llama al
+    modelo.
+  - El modelo explora con herramientas de lectura y guarda con `guardar_agents_md` y
+    `guardar_harness_yaml`. La segunda valida el YAML con las mismas reglas que
+    `harness run` antes de escribirlo; si no cumple, el error vuelve al modelo para que lo
+    corrija, así que no puede quedar un `harness.yaml` inválido.
+  - Al terminar recuerda revisarlos: `harness.yaml` define qué se ejecuta (`instalar`,
+    `comandos_permitidos`).
+  - `--verificar`: levanta el entorno con el `harness.yaml` (servicios incluidos), instala y
+    corre los tests, e informa si funcionan (código 1 si no). Solo informa: no corrige el YAML.
+  - `harness run` no llama a `init` por su cuenta: si falta algún archivo, avisa y lo sugiere.
+    Un `harness.yaml` tiene que verlo una persona antes del primer uso.
+
 ### Escribir código
 
 - **`write_file`**
@@ -546,7 +560,8 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
 - [ ] **8.** Pulido: PR automático, comentario en Jira, logs bonitos, `ProveedorAnthropic`
       (preset `anthropic`, para quien elija Claude), `harness config` +
       `~/.harness/config.toml` con el orden de prioridad (necesario para que otros lo instalen
-      y usen)
+      y usen). `harness init --verificar` con bucle de corrección: si la instalación o los
+      tests fallan, devolverle el error al modelo para que corrija el `harness.yaml`
 
 > Con 1 y 2 ya hay algo funcional y demostrable; lo demás se suma encima.
 
