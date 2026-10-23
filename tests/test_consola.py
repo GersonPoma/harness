@@ -6,8 +6,11 @@ import tomllib
 from pathlib import Path
 
 import pytest
+from rich.console import Console
 
 from harness import cli, consola
+from harness.bucle import Paso
+from harness.tipos import LlamadaHerramienta
 
 RAIZ_PROYECTO = Path(__file__).resolve().parents[1]
 
@@ -57,3 +60,30 @@ def test_main_pasa_a_utf8_antes_de_arrancar(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(cli, "app", lambda: orden.append("app"))
     cli.main()
     assert orden == ["utf8", "app"]
+
+
+def _mostrar_paso(monkeypatch: pytest.MonkeyPatch, argumentos: dict) -> str:
+    grabadora = Console(record=True, width=200)
+    monkeypatch.setattr(consola, "consola", grabadora)
+    llamada = LlamadaHerramienta("l1", "leer_archivo", argumentos)
+    consola.mostrar_paso(Paso(1, llamada, "ok", es_error=False))
+    return grabadora.export_text().splitlines()[0]
+
+
+def test_ruta_corta_se_muestra_entera(monkeypatch: pytest.MonkeyPatch) -> None:
+    linea = _mostrar_paso(monkeypatch, {"ruta": "src/app.py"})
+    assert linea == "[1] leer_archivo(ruta='src/app.py')"
+
+
+def test_ruta_larga_se_abrevia_por_el_medio(monkeypatch: pytest.MonkeyPatch) -> None:
+    ruta = "src/main/java/com/empresa/tienda/controladores/ProductoControlador.java"
+    linea = _mostrar_paso(monkeypatch, {"ruta": ruta, "contenido": "x" * 500})
+
+    abreviada = linea.split("'")[1]
+    assert len(ruta) > consola.MAX_CARACTERES_RUTA
+    assert len(abreviada) == consola.MAX_CARACTERES_RUTA
+    inicio, final = abreviada.split(consola.ELIPSIS)
+    assert ruta.startswith(inicio) and ruta.endswith(final)
+    assert final.endswith("ProductoControlador.java")
+    # El resto de los argumentos largos se sigue resumiendo.
+    assert "contenido=<500 caracteres>" in linea

@@ -18,6 +18,8 @@ from harness.plan import Plan, archivos_fuera_del_plan
 
 MAX_CARACTERES_RESUMEN = 120
 MAX_CARACTERES_ARGUMENTO = 60
+MAX_CARACTERES_RUTA = 60
+ELIPSIS = "…"
 LINEAS_INFORME_VALIDACION = 8
 SIMBOLOS_ACCION = {"crear": "[green]+[/]", "modificar": "[yellow]~[/]", "eliminar": "[red]-[/]"}
 RESPUESTAS_SI = ("s", "si", "sí")
@@ -68,7 +70,8 @@ def mostrar_contexto(contexto: ContextoProyecto) -> None:
 def mostrar_paso(paso: Paso) -> None:
     """Muestra la herramienta llamada y un resumen de su resultado."""
     argumentos = ", ".join(
-        f"{nombre}={_resumir_argumento(valor)}" for nombre, valor in paso.llamada.argumentos.items()
+        f"{nombre}={_resumir_argumento(nombre, valor)}"
+        for nombre, valor in paso.llamada.argumentos.items()
     )
     color = "red" if paso.es_error else "dim"
     consola.print(
@@ -221,7 +224,10 @@ def mostrar_error(mensaje: str) -> None:
     consola.print(f"[bold red]Error:[/] {escape(mensaje)}")
 
 
-def _resumir_argumento(valor: Any) -> str:
+def _resumir_argumento(nombre: str, valor: Any) -> str:
+    # La ruta siempre se ve: es lo que dice qué archivo se leyó o escribió.
+    if nombre == "ruta" and isinstance(valor, str):
+        return repr(_abreviar_ruta(valor))
     # El contenido de un archivo no cabe en una línea: basta con saber cuánto mide.
     if isinstance(valor, str) and ("\n" in valor or len(valor) > MAX_CARACTERES_ARGUMENTO):
         return f"<{len(valor)} caracteres>"
@@ -229,6 +235,15 @@ def _resumir_argumento(valor: Any) -> str:
     if isinstance(valor, list | dict):
         return f"<{len(valor)} elementos>"
     return repr(valor)
+
+
+def _abreviar_ruta(ruta: str) -> str:
+    if len(ruta) <= MAX_CARACTERES_RUTA:
+        return ruta
+    # Se corta el medio y se deja más del final, donde está el nombre del archivo.
+    visibles = MAX_CARACTERES_RUTA - len(ELIPSIS)
+    inicio = visibles // 3
+    return f"{ruta[:inicio]}{ELIPSIS}{ruta[inicio - visibles:]}"
 
 
 def _ultimas_lineas(texto: str) -> str:
