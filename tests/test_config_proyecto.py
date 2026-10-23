@@ -111,8 +111,8 @@ def test_tipo_incorrecto(tmp_path: Path) -> None:
 
 
 def test_max_pasos_plan_por_defecto_y_explicito(tmp_path: Path) -> None:
-    assert _cargar(tmp_path, MINIMO).limites.max_pasos_plan == 10
-    # Con max_pasos chico y sin escribir max_pasos_plan no hay error: se limita al ejecutar.
+    assert _cargar(tmp_path, MINIMO).limites.max_pasos_plan is None
+    # Con max_pasos chico y sin escribir max_pasos_plan no hay error: se calcula al ejecutar.
     assert _cargar(tmp_path, MINIMO + "limites:\n  max_pasos: 5\n").limites.max_pasos == 5
     limites = "limites:\n  max_pasos: 20\n  max_pasos_plan: 4\n"
     assert _cargar(tmp_path, MINIMO + limites).limites.max_pasos_plan == 4

@@ -7,7 +7,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from harness.bucle import Paso, ResultadoBucle, ejecutar_bucle
-from harness.config_proyecto import MAX_PASOS_PLAN_POR_DEFECTO
 from harness.plan import Plan, crear_herramienta_plan
 from harness.prompts import (
     MENSAJE_ENTREGAR_PLAN,
@@ -17,6 +16,7 @@ from harness.prompts import (
 from harness.proveedores.base import ProveedorLLM
 from harness.tipos import Herramienta, Mensaje, Rol
 
+MAX_PASOS_PLAN_POR_DEFECTO = 10
 # Pasos para el pedido final "llama a proponer_plan ahora", con solo esa herramienta: uno, y
 # otro por si el primer intento trae argumentos inválidos.
 MAX_PASOS_ENTREGA_PLAN = 2
@@ -46,15 +46,15 @@ def planificar(
     max_pasos: int,
     al_paso: Callable[[Paso], None] | None = None,
     al_aviso: Callable[[str], None] | None = None,
-    max_pasos_plan: int = MAX_PASOS_PLAN_POR_DEFECTO,
+    max_pasos_plan: int | None = None,
 ) -> ResultadoPlan:
     """Corre la ronda de plan; termina en cuanto el modelo llama a proponer_plan.
 
-    Explora hasta `max_pasos_plan` pasos, nunca más que `max_pasos` (el total de la ejecución).
+    Explora hasta `calcular_pasos_plan(max_pasos, max_pasos_plan)` pasos.
     """
     propuestos: list[Plan] = []
     herramienta_plan = crear_herramienta_plan(propuestos.append)
-    pasos_exploracion = min(max_pasos_plan, max_pasos)
+    pasos_exploracion = calcular_pasos_plan(max_pasos, max_pasos_plan)
     mensajes.append(Mensaje(Rol.USUARIO, crear_mensaje_planificar(pasos_exploracion)))
     bucle = ejecutar_bucle(
         proveedor, mensajes, [*herramientas_lectura, herramienta_plan],
@@ -76,6 +76,15 @@ def planificar(
     if not propuestos:
         raise ErrorPlan("El modelo no propuso un plan válido: se corta antes de implementar.")
     return ResultadoPlan(propuestos[-1], pasos, entrada, salida)
+
+
+def calcular_pasos_plan(max_pasos: int, max_pasos_plan: int | None) -> int:
+    """Pasos para explorar: el de harness.yaml o, sin la clave, min(10, mitad del total)."""
+    if max_pasos_plan is None:
+        # La mitad como tope: siempre queda al menos la otra mitad para implementar.
+        return min(MAX_PASOS_PLAN_POR_DEFECTO, max_pasos // 2)
+    # --max-pasos puede bajar el total por debajo de lo que dice harness.yaml.
+    return min(max_pasos_plan, max_pasos)
 
 
 def _nota_restantes(restantes: int) -> str | None:

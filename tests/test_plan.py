@@ -7,7 +7,7 @@ from harness.ejecucion import Planificacion, ejecutar_ticket
 from harness.herramientas import crear_herramientas, crear_herramientas_lectura
 from harness.herramientas.archivos import ErrorHerramienta
 from harness.plan import Plan, archivos_fuera_del_plan, crear_herramienta_plan
-from harness.planificacion import AVISO_FIN_EXPLORACION, ErrorPlan
+from harness.planificacion import AVISO_FIN_EXPLORACION, ErrorPlan, calcular_pasos_plan
 from harness.prompts import (
     MENSAJE_ENTREGAR_PLAN,
     MENSAJE_IMPLEMENTAR,
@@ -167,10 +167,36 @@ def test_el_pedido_de_plan_dice_los_pasos_y_que_puede_leer_varios() -> None:
 
 
 def test_el_pedido_de_plan_usa_los_pasos_reales(repo: Path) -> None:
-    # max_pasos_plan 10 pero la ejecución solo tiene 4: se le dicen 4.
+    # Sin max_pasos_plan y con 4 pasos en total: la mitad, 2.
     proveedor = ProveedorFalso([proponer(), terminar()])
     _, mensajes = _ejecutar(repo, proveedor, max_pasos=4)
-    assert "Tienes 4 pasos" in mensajes[2].contenido
+    assert "Tienes 2 pasos" in mensajes[2].contenido
+
+
+@pytest.mark.parametrize(
+    ("max_pasos", "max_pasos_plan", "esperado"),
+    [
+        (30, None, 10),
+        (20, None, 10),
+        (10, None, 5),
+        (7, None, 3),
+        (30, 4, 4),
+        # --max-pasos por debajo de lo que dice harness.yaml.
+        (3, 8, 3),
+    ],
+)
+def test_calcular_pasos_plan(max_pasos: int, max_pasos_plan: int | None, esperado: int) -> None:
+    assert calcular_pasos_plan(max_pasos, max_pasos_plan) == esperado
+
+
+def test_sin_la_clave_queda_la_mitad_para_implementar(repo: Path) -> None:
+    # max_pasos 10: el plan explora 5 y pide el plan; quedan pasos para escribir y terminar.
+    proveedor = ProveedorFalso([pedir(LEER)] * 5 + [proponer(), pedir(ESCRIBIR), terminar()])
+    resultado, _ = _ejecutar(repo, proveedor, max_pasos=10)
+    assert proveedor.herramientas[5] == ["proponer_plan"]
+    assert (repo / "nuevo.py").exists()
+    assert not resultado.es_limite_alcanzado
+    assert resultado.pasos == 8
 
 
 def test_varias_lecturas_en_un_paso_quedan_identificadas(repo: Path) -> None:

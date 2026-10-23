@@ -4,7 +4,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from harness.bucle import Paso, ejecutar_bucle
-from harness.config_proyecto import MAX_PASOS_PLAN_POR_DEFECTO
 from harness.plan import Plan
 from harness.planificacion import planificar
 from harness.prompts import MENSAJE_IMPLEMENTAR, crear_mensaje_validacion_fallida
@@ -48,7 +47,8 @@ class Planificacion:
     herramientas_lectura: list[Herramienta]
     # Recibe el plan para mostrarlo; si devuelve False, no se implementa (--aprobar-plan).
     al_planear: Callable[[Plan], bool] | None = None
-    max_pasos_plan: int = MAX_PASOS_PLAN_POR_DEFECTO
+    # None: se calcula a partir de max_pasos (ver calcular_pasos_plan).
+    max_pasos_plan: int | None = None
 
 
 def ejecutar_ticket(
