@@ -86,6 +86,7 @@ class ConfigProyecto(_Modelo):
     git: ConfigGit = ConfigGit()
     limites: ConfigLimites = ConfigLimites()
     archivos_protegidos: list[str] = []
+    requiere_agents_md: bool = False
 
     @field_validator("version")
     @classmethod

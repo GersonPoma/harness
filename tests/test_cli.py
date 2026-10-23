@@ -6,6 +6,7 @@ from typer.testing import CliRunner
 
 from harness import cli
 from harness.config import ConfigModelo
+from harness.entorno_docker import ErrorDocker
 from harness.tipos import LlamadaHerramienta, RespuestaModelo
 from tests.falsos import ProveedorFalso, pedir, proponer, terminar, vacia
 
@@ -91,6 +92,66 @@ def test_sin_agents_md_avisa(monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Pat
     _, salida = _correr(monkeypatch, repo_sin_yaml, [terminar()], "--sin-plan")
     assert "El repo no tiene AGENTS.md" in salida
     assert _eventos_del_log(repo_sin_yaml)[0]["agents_md"] is False
+
+
+YAML_CON_DOCKER = """\
+version: 1
+proyecto: demo
+docker:
+  imagen: python:3.12-slim
+comandos:
+  tests: pytest -q
+"""
+
+
+def _con_requiere_agents(
+    monkeypatch: pytest.MonkeyPatch, repo: Path, valor: str, agents_md: str | None
+) -> list[str]:
+    """Escribe harness.yaml con la clave y cambia Docker por uno que solo anota si se usó."""
+    yaml = YAML_CON_DOCKER + f"requiere_agents_md: {valor}\n"
+    (repo / "harness.yaml").write_text(yaml, encoding="utf-8")
+    if agents_md is not None:
+        (repo / "AGENTS.md").write_text(agents_md, encoding="utf-8")
+    usos: list[str] = []
+
+    def docker_falso(*_args: object) -> None:
+        usos.append("docker")
+        raise ErrorDocker("Docker falso")
+
+    monkeypatch.setattr(cli, "EntornoDocker", docker_falso)
+    return usos
+
+
+@pytest.mark.parametrize("agents_md", [None, "", " \n\n"])
+def test_requiere_agents_md_sin_agents_md_se_detiene(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path, agents_md: str | None
+) -> None:
+    usos = _con_requiere_agents(monkeypatch, repo_sin_yaml, "true", agents_md)
+    proveedor = ProveedorFalso([terminar()])
+    codigo, salida = _correr(monkeypatch, repo_sin_yaml, proveedor)
+    assert codigo == 1
+    assert cli.MENSAJE_REQUIERE_AGENTS in " ".join(salida.split())
+    assert usos == []
+    assert proveedor.conversaciones == []
+    assert not (repo_sin_yaml / ".harness").exists()
+
+
+def test_requiere_agents_md_con_agents_md_sigue(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    usos = _con_requiere_agents(monkeypatch, repo_sin_yaml, "true", "# demo\n")
+    codigo, salida = _correr(monkeypatch, repo_sin_yaml, [terminar()])
+    assert usos == ["docker"]
+    assert "Docker falso" in salida and codigo == 1
+
+
+def test_sin_requiere_agents_md_avisa_y_sigue(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    usos = _con_requiere_agents(monkeypatch, repo_sin_yaml, "false", None)
+    _, salida = _correr(monkeypatch, repo_sin_yaml, [terminar()])
+    assert "El repo no tiene AGENTS.md" in salida
+    assert usos == ["docker"]
 
 
 def _escribir(ruta: str) -> RespuestaModelo:

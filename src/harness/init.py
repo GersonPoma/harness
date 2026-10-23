@@ -1,12 +1,17 @@
 """harness init: el modelo analiza el repo y escribe los AGENTS.md / harness.yaml que falten.
 
-Nunca sobrescribe: los dos archivos los revisa una persona antes de usarlos (harness.yaml
-decide qué comandos se ejecutan).
+Nunca sobrescribe un archivo con contenido: los dos los revisa una persona antes de usarlos
+(harness.yaml decide qué comandos se ejecutan). Uno vacío cuenta como faltante. No mira
+requiere_agents_md: esa clave solo afecta a harness run.
 """
+
+import re
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import yaml
 
 from harness.bucle import Paso, ResultadoBucle, ejecutar_bucle
 from harness.config_proyecto import (
@@ -33,6 +38,11 @@ MAX_PASOS_INIT = 30
 # Pasos para el último pedido ("guarda lo que falta"), con solo las herramientas de guardar.
 MAX_PASOS_GUARDAR = 2
 NOMBRE_EJECUCION_VERIFICAR = "init"
+CLAVE_REQUIERE_AGENTS = "requiere_agents_md"
+LINEA_REQUIERE_AGENTS = (
+    f"{CLAVE_REQUIERE_AGENTS}: false  # true = harness run se detiene si falta AGENTS.md\n"
+)
+PATRON_LINEA_PROYECTO = re.compile(r"^proyecto:.*(?:\n|$)", re.MULTILINE)
 
 
 class ErrorInit(Exception):
@@ -51,8 +61,8 @@ class ResultadoInit:
 
 
 def archivos_faltantes(repo: Path) -> list[str]:
-    """AGENTS.md y harness.yaml que el repo todavía no tiene."""
-    return [nombre for nombre in ARCHIVOS_INIT if not (repo / nombre).is_file()]
+    """AGENTS.md y harness.yaml que el repo todavía no tiene (o tiene vacíos)."""
+    return [nombre for nombre in ARCHIVOS_INIT if _falta(repo / nombre)]
 
 
 def ejecutar_init(
@@ -117,7 +127,7 @@ def crear_herramientas_guardar(
                 validar_texto_config(contenido)
             except ErrorConfigProyecto as error:
                 raise ErrorHerramienta(f"{error}\nCorrige el YAML y vuelve a llamar.") from error
-            return _guardar(repo, NOMBRE_ARCHIVO, contenido, al_guardar)
+            return _guardar(repo, NOMBRE_ARCHIVO, _con_requiere_agents(contenido), al_guardar)
 
         herramientas.append(_herramienta_guardar(
             HERRAMIENTA_GUARDAR[NOMBRE_ARCHIVO],
@@ -143,6 +153,24 @@ def verificar_config(
         if al_avanzar:
             al_avanzar(f"Corriendo los tests ({config.comandos.tests})...")
         return entorno.ejecutar(config.comandos.tests)
+
+
+def _falta(ruta: Path) -> bool:
+    if not ruta.is_file():
+        return True
+    return not ruta.read_text(encoding="utf-8-sig", errors="replace").strip()
+
+
+def _con_requiere_agents(contenido: str) -> str:
+    """Agrega requiere_agents_md explícita si el modelo no la puso, para que se vea que existe."""
+    if CLAVE_REQUIERE_AGENTS in yaml.safe_load(contenido):
+        return contenido
+    linea_proyecto = PATRON_LINEA_PROYECTO.search(contenido)
+    if linea_proyecto is None:
+        return contenido.rstrip("\n") + "\n" + LINEA_REQUIERE_AGENTS
+    fin = linea_proyecto.end()
+    separador = "" if contenido[fin - 1:fin] == "\n" else "\n"
+    return contenido[:fin] + separador + LINEA_REQUIERE_AGENTS + contenido[fin:]
 
 
 def _solo_para(guardar: list[Herramienta], pendientes: list[str]) -> list[Herramienta]:

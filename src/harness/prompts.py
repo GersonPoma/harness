@@ -106,6 +106,7 @@ necesites, omítelas (toman su valor por defecto). Ninguna otra clave es válida
 
 version: 1
 proyecto: nombre-del-proyecto      # solo minúsculas, números y guiones
+requiere_agents_md: false  # true = harness run se detiene si falta AGENTS.md
 docker:
   imagen: python:3.12-slim          # imagen oficial de Docker Hub acorde al lenguaje y versión
   instalar:                         # comandos que instalan las dependencias para los tests
@@ -141,6 +142,8 @@ Reglas de harness.yaml:
   ni shells (sh, bash).
 - servicios y variables_entorno: solo si el código o los tests los necesitan (por ejemplo, si
   leen DATABASE_URL). Usa valores de prueba, nunca secretos reales.
+- requiere_agents_md: escríbela siempre así, en false y con su comentario; la cambia una
+  persona si la necesita.
 - Si guardar_harness_yaml devuelve errores, corrige el YAML y vuelve a llamarla."""
 
 

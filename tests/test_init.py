@@ -6,7 +6,8 @@ from typer.testing import CliRunner
 from harness import cli
 from harness.config import ConfigModelo
 from harness.entorno_docker import ResultadoComando
-from harness.init import ErrorInit, archivos_faltantes, ejecutar_init
+from harness.config_proyecto import validar_texto_config
+from harness.init import LINEA_REQUIERE_AGENTS, ErrorInit, archivos_faltantes, ejecutar_init
 from harness.tipos import LlamadaHerramienta, RespuestaModelo
 from tests.falsos import ProveedorFalso, pedir, terminar
 
@@ -58,7 +59,43 @@ def test_genera_los_dos_y_corrige_un_yaml_invalido(repo_vacio: Path) -> None:
     assert resultado.creados == ["AGENTS.md", "harness.yaml"]
     assert resultado.pasos == 4
     assert (repo_vacio / "AGENTS.md").read_text(encoding="utf-8") == "# demo\n"
-    assert (repo_vacio / "harness.yaml").read_text(encoding="utf-8") == YAML_VALIDO
+    guardado = (repo_vacio / "harness.yaml").read_text(encoding="utf-8")
+    linea_proyecto = "proyecto: demo\n"
+    assert guardado == YAML_VALIDO.replace(linea_proyecto, linea_proyecto + LINEA_REQUIERE_AGENTS)
+
+
+def test_el_yaml_generado_lleva_requiere_agents_md_explicita(repo_vacio: Path) -> None:
+    (repo_vacio / "AGENTS.md").write_text("# x", encoding="utf-8")
+    ejecutar_init(ProveedorFalso([_guardar("guardar_harness_yaml", YAML_VALIDO)]), repo_vacio)
+
+    guardado = (repo_vacio / "harness.yaml").read_text(encoding="utf-8")
+    lineas = guardado.splitlines()
+    assert lineas[2] == (
+        "requiere_agents_md: false  # true = harness run se detiene si falta AGENTS.md"
+    )
+    assert validar_texto_config(guardado).requiere_agents_md is False
+
+
+def test_si_el_modelo_ya_puso_requiere_agents_md_no_se_repite(repo_vacio: Path) -> None:
+    (repo_vacio / "AGENTS.md").write_text("# x", encoding="utf-8")
+    yaml = YAML_VALIDO + LINEA_REQUIERE_AGENTS
+    ejecutar_init(ProveedorFalso([_guardar("guardar_harness_yaml", yaml)]), repo_vacio)
+    assert (repo_vacio / "harness.yaml").read_text(encoding="utf-8") == yaml
+
+
+@pytest.mark.parametrize("agents_md", [None, "", "  \n"])
+def test_init_genera_agents_md_aunque_se_requiera(repo_vacio: Path, agents_md: str | None) -> None:
+    # requiere_agents_md solo afecta a harness run: init tiene que poder crear el que falta.
+    yaml = YAML_VALIDO + "requiere_agents_md: true\n"
+    (repo_vacio / "harness.yaml").write_text(yaml, encoding="utf-8")
+    if agents_md is not None:
+        (repo_vacio / "AGENTS.md").write_text(agents_md, encoding="utf-8")
+    resultado = ejecutar_init(
+        ProveedorFalso([_guardar("guardar_agents_md", "# demo\n")]), repo_vacio
+    )
+    assert resultado.creados == ["AGENTS.md"]
+    assert (repo_vacio / "AGENTS.md").read_text(encoding="utf-8") == "# demo\n"
+    assert (repo_vacio / "harness.yaml").read_text(encoding="utf-8") == yaml
 
 
 def test_solo_genera_lo_que_falta_y_usa_lo_existente(repo_vacio: Path) -> None:

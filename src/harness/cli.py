@@ -33,6 +33,9 @@ from harness.variables import (
 )
 
 CODIGO_CANCELADO = 130
+MENSAJE_REQUIERE_AGENTS = (
+    "Este proyecto requiere AGENTS.md (requiere_agents_md: true). Créalo con 'harness init'."
+)
 NOMBRE_LOG_INIT = "init"
 
 app = typer.Typer(help="Harness de IA para generación de código")
@@ -156,9 +159,14 @@ def _preparar_ejecucion(ticket: Path, repo: Path) -> _Preparacion:
             "El repo no tiene harness.yaml: se trabaja sin Docker, sin tests y sin validación. "
             "Créalo con 'harness init' o a mano (docs/harness-yaml.md)."
         )
+    contexto = cargar_agents_md(repo)
+    # Para ejecuciones sin nadie mirando la consola: el aviso de "falta AGENTS.md" no alcanza.
+    if config_proyecto and config_proyecto.requiere_agents_md and not contexto.tiene_contenido:
+        consola.mostrar_error(MENSAJE_REQUIERE_AGENTS)
+        raise typer.Exit(1)
     return _Preparacion(
         repo, ticket.stem, texto_ticket, config, config_proyecto,
-        variables or VariablesResueltas(), cargar_agents_md(repo),
+        variables or VariablesResueltas(), contexto,
     )
 
 

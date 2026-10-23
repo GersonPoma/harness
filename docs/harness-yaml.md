@@ -33,6 +33,7 @@ comandos:
 ```yaml
 version: 1
 proyecto: mi-api
+requiere_agents_md: false  # true = harness run se detiene si falta AGENTS.md
 
 docker:
   imagen: python:3.11-slim
@@ -101,6 +102,7 @@ archivos_protegidos:
 | `git` | objeto | no | (valores por defecto) | Ver [`git`](#git). |
 | `limites` | objeto | no | (valores por defecto) | Ver [`limites`](#limites). |
 | `archivos_protegidos` | lista de globs | no | `[]` | Ver [`archivos_protegidos`](#archivos_protegidos). |
+| `requiere_agents_md` | booleano | no | `false` | Con `true`, `harness run` se detiene enseguida (código 1, antes de crear contenedores y de llamar al modelo) si el repo no tiene `AGENTS.md` o está vacío. Con `false`, solo avisa y sigue. Ver [`requiere_agents_md`](#requiere_agents_md). |
 
 ### `docker`
 
@@ -251,6 +253,16 @@ Cómo se hace cumplir:
   `ejecutar_tests`, `ejecutar_lint` y la validación final) compara: si uno cambió o
   desapareció, lo restaura; si apareció uno nuevo en una ruta protegida, lo borra. En los dos
   casos agrega un aviso al resultado del comando para que el modelo lo sepa.
+
+### `requiere_agents_md`
+
+Sirve para las ejecuciones automáticas, sin nadie mirando la consola: ahí el aviso de "falta
+AGENTS.md" pasa desapercibido y el modelo trabajaría sin las convenciones del proyecto.
+
+- Solo afecta a `harness run`. `harness init` genera el archivo que falte (uno o los dos) sin
+  importar el valor de esta clave; un `AGENTS.md` vacío cuenta como faltante.
+- El `harness.yaml` que genera `harness init` siempre la incluye, explícita y en `false`:
+  `requiere_agents_md: false  # true = harness run se detiene si falta AGENTS.md`.
 
 ---
 

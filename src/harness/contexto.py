@@ -21,6 +21,11 @@ class ContextoProyecto:
         return self.agents_md is not None
 
     @property
+    def tiene_contenido(self) -> bool:
+        """True si el repo tiene AGENTS.md y no está vacío (solo espacios cuenta como vacío)."""
+        return bool(self.agents_md and self.agents_md.strip())
+
+    @property
     def es_recortado(self) -> bool:
         """True si AGENTS.md superaba el tope y se cortó."""
         return self.caracteres_originales > MAX_CARACTERES_AGENTS
