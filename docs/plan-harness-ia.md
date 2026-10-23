@@ -138,6 +138,11 @@ harness run PROJ-123
 - Tiene hasta `limites.max_pasos_plan` pasos (10 por defecto), descontados de `max_pasos`.
   Si responde con texto o se le acaban, se le pide "llama a `proponer_plan` ahora", ya sin
   herramientas de lectura; si aun así no hay plan, la ejecución se corta con error.
+- El pedido de plan le dice cuántos pasos tiene y que puede pedir varias lecturas en una misma
+  respuesta (cada resultado de `leer_archivo` empieza con `Archivo: <ruta>`). Cuando le quedan
+  3 pasos o menos, el resultado de la última herramienta del paso termina con "Te quedan N
+  pasos para planificar: llama a proponer_plan pronto." (dentro del resultado, no como
+  mensaje aparte, porque algunos proveedores no aceptan ese orden de mensajes).
 - El plan se muestra en un panel (armado desde la estructura, no desde texto libre) y queda
   en el log como evento `plan`. Después el modelo implementa con todas las herramientas.
 - Al terminar, el harness compara el plan con los archivos que de verdad cambiaron y avisa

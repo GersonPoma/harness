@@ -9,6 +9,7 @@ from harness.herramientas.rutas import resolver_ruta, validar_escritura
 # Limita lo que se manda al modelo: los planes gratis tienen pocos tokens por minuto.
 MAX_CARACTERES_LECTURA = 12_000
 MAX_ENTRADAS_LISTADO = 200
+PREFIJO_ARCHIVO = "Archivo: "
 
 
 class ErrorHerramienta(Exception):
@@ -16,7 +17,14 @@ class ErrorHerramienta(Exception):
 
 
 def leer_archivo(repo: Path, ruta: str) -> str:
-    """Devuelve el contenido de un archivo de texto del repo."""
+    """Devuelve el contenido de un archivo de texto del repo, después de "Archivo: <ruta>".
+
+    El encabezado identifica cada lectura cuando el modelo pide varias en un mismo paso.
+    """
+    return f"{PREFIJO_ARCHIVO}{ruta}\n{_leer_contenido(repo, ruta)}"
+
+
+def _leer_contenido(repo: Path, ruta: str) -> str:
     archivo = resolver_ruta(repo, ruta)
     if not archivo.is_file():
         raise ErrorHerramienta(f"No existe el archivo '{ruta}'.")

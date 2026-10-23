@@ -62,12 +62,25 @@ MENSAJE_RESPUESTA_VACIA = (
 )
 
 
-MENSAJE_PLANIFICAR = (
-    "Antes de cambiar nada, planifica. Explora solo lo necesario con las herramientas de "
-    "lectura y llama a proponer_plan con: un resumen, los archivos que vas a crear, modificar "
-    "o eliminar (con el motivo de cada uno), los pasos en orden y los tests que vas a agregar "
-    "o cambiar. En esta etapa no puedes escribir archivos ni ejecutar comandos."
-)
+def crear_mensaje_planificar(max_pasos: int) -> str:
+    """Pedido de la ronda de plan, con los pasos que tiene para explorar."""
+    return (
+        f"Antes de cambiar nada, planifica. Tienes {max_pasos} pasos (respuestas) para explorar "
+        "con las herramientas de lectura y llamar a proponer_plan con: un resumen, los archivos "
+        "que vas a crear, modificar o eliminar (con el motivo de cada uno), los pasos en orden y "
+        "los tests que vas a agregar o cambiar.\n"
+        "Puedes pedir varias herramientas de lectura en una misma respuesta cuando los archivos "
+        "están claramente relacionados (por ejemplo, una interfaz, su implementación y la "
+        "entidad que usan): así exploras más con menos pasos.\n"
+        "En esta etapa no puedes escribir archivos ni ejecutar comandos."
+    )
+
+
+def crear_aviso_pasos_plan(restantes: int) -> str:
+    """Se agrega al resultado de una herramienta cuando quedan pocos pasos para planificar."""
+    pasos = "paso" if restantes == 1 else "pasos"
+    queda = "queda" if restantes == 1 else "quedan"
+    return f"Te {queda} {restantes} {pasos} para planificar: llama a proponer_plan pronto."
 
 MENSAJE_ENTREGAR_PLAN = (
     "Llama a proponer_plan ahora, con lo que ya sabes. No hay más herramientas en esta etapa."

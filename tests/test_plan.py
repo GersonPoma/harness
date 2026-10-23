@@ -7,11 +7,12 @@ from harness.ejecucion import Planificacion, ejecutar_ticket
 from harness.herramientas import crear_herramientas, crear_herramientas_lectura
 from harness.herramientas.archivos import ErrorHerramienta
 from harness.plan import Plan, archivos_fuera_del_plan, crear_herramienta_plan
-from harness.planificacion import ErrorPlan
+from harness.planificacion import AVISO_FIN_EXPLORACION, ErrorPlan
 from harness.prompts import (
     MENSAJE_ENTREGAR_PLAN,
     MENSAJE_IMPLEMENTAR,
-    MENSAJE_PLANIFICAR,
+    crear_aviso_pasos_plan,
+    crear_mensaje_planificar,
     crear_mensajes_iniciales,
 )
 from harness.tipos import LlamadaHerramienta, Mensaje, Rol
@@ -98,7 +99,7 @@ def test_la_ronda_de_plan_solo_tiene_herramientas_de_lectura(repo: Path) -> None
 def test_la_conversacion_lleva_el_plan_y_el_pedido_de_implementar(repo: Path) -> None:
     proveedor = ProveedorFalso([proponer(), terminar()])
     _, mensajes = _ejecutar(repo, proveedor)
-    assert mensajes[2] == Mensaje(Rol.USUARIO, MENSAJE_PLANIFICAR)
+    assert mensajes[2] == Mensaje(Rol.USUARIO, crear_mensaje_planificar(10))
     assert mensajes[3].llamadas[0].nombre == "proponer_plan"
     assert mensajes[4].contenido == "Plan registrado."
     assert mensajes[5] == Mensaje(Rol.USUARIO, MENSAJE_IMPLEMENTAR)
@@ -116,7 +117,8 @@ def test_si_responde_texto_se_le_pide_el_plan_solo_con_proponer_plan(repo: Path)
     assert proveedor.herramientas[1] == ["proponer_plan"]
     assert resultado.plan is not None
     assert resultado.pasos == 3
-    assert "El modelo no propuso un plan: se le pide que llame a proponer_plan." in avisos
+    assert avisos == ["Terminaron los pasos de exploración: se le pide el plan al modelo."]
+    assert AVISO_FIN_EXPLORACION == avisos[0]
 
 
 def test_plan_agotado_se_pide_al_final(repo: Path) -> None:
@@ -156,6 +158,61 @@ def test_max_pasos_plan_configurable(repo: Path) -> None:
     assert proveedor.herramientas[2] == [*LECTURA, "proponer_plan"]
     assert proveedor.herramientas[3] == ["proponer_plan"]
     assert resultado.pasos == 5
+
+
+def test_el_pedido_de_plan_dice_los_pasos_y_que_puede_leer_varios() -> None:
+    mensaje = crear_mensaje_planificar(7)
+    assert "Tienes 7 pasos" in mensaje
+    assert "varias herramientas de lectura en una misma respuesta" in mensaje
+
+
+def test_el_pedido_de_plan_usa_los_pasos_reales(repo: Path) -> None:
+    # max_pasos_plan 10 pero la ejecución solo tiene 4: se le dicen 4.
+    proveedor = ProveedorFalso([proponer(), terminar()])
+    _, mensajes = _ejecutar(repo, proveedor, max_pasos=4)
+    assert "Tienes 4 pasos" in mensajes[2].contenido
+
+
+def test_varias_lecturas_en_un_paso_quedan_identificadas(repo: Path) -> None:
+    (repo / "src" / "otro.py").write_text("y = 2\n", encoding="utf-8")
+    otro = LlamadaHerramienta("l2", "leer_archivo", {"ruta": "src/otro.py"})
+    proveedor = ProveedorFalso([pedir(LEER, otro), proponer(), terminar()])
+    resultado, mensajes = _ejecutar(repo, proveedor)
+
+    assert mensajes[4].contenido == "Archivo: src/app.py\nprint('hola')\n"
+    assert mensajes[5].contenido == "Archivo: src/otro.py\ny = 2\n"
+    assert resultado.pasos == 3
+
+
+def _resultados_por_paso(mensajes: list[Mensaje]) -> list[str]:
+    return [m.contenido for m in mensajes if m.rol == Rol.HERRAMIENTA]
+
+
+def test_avisa_cuando_quedan_pocos_pasos_de_plan(repo: Path) -> None:
+    # 5 pasos de plan: después del paso 2 quedan 3, y se avisa en los pasos 2, 3 y 4.
+    proveedor = ProveedorFalso([pedir(LEER)] * 4 + [proponer(), terminar()])
+    _, mensajes = _ejecutar(repo, proveedor, max_pasos_plan=5)
+    resultados = _resultados_por_paso(mensajes)
+
+    assert "Te quedan" not in resultados[0]
+    assert resultados[1].endswith(
+        "\n\nTe quedan 3 pasos para planificar: llama a proponer_plan pronto."
+    )
+    assert resultados[2].endswith(crear_aviso_pasos_plan(2))
+    assert resultados[3].endswith("Te queda 1 paso para planificar: llama a proponer_plan pronto.")
+    # El aviso va dentro del resultado: no hay mensajes de usuario entre los pasos.
+    assert [m.rol for m in mensajes[3:11]] == [Rol.ASISTENTE, Rol.HERRAMIENTA] * 4
+    # Al llamar a proponer_plan no se agrega el aviso.
+    assert resultados[4] == "Plan registrado."
+
+
+def test_el_aviso_va_solo_en_el_ultimo_resultado_del_paso(repo: Path) -> None:
+    otro = LlamadaHerramienta("l2", "listar_directorio", {"ruta": "src"})
+    proveedor = ProveedorFalso([pedir(LEER, otro), proponer(), terminar()])
+    _, mensajes = _ejecutar(repo, proveedor, max_pasos_plan=3)
+    resultados = _resultados_por_paso(mensajes)
+    assert "Te quedan" not in resultados[0]
+    assert resultados[1].endswith(crear_aviso_pasos_plan(2))
 
 
 def test_los_pasos_del_plan_cuentan_para_el_limite(repo: Path) -> None:

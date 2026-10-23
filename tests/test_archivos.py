@@ -13,11 +13,11 @@ from harness.herramientas.rutas import ErrorRuta
 
 
 def test_leer_archivo(repo: Path) -> None:
-    assert leer_archivo(repo, "src/app.py") == "print('hola')\n"
+    assert leer_archivo(repo, "src/app.py") == "Archivo: src/app.py\nprint('hola')\n"
 
 
 def test_leer_harness_yaml_esta_permitido(repo: Path) -> None:
-    assert leer_archivo(repo, "harness.yaml") == "version: 1\n"
+    assert leer_archivo(repo, "harness.yaml") == "Archivo: harness.yaml\nversion: 1\n"
 
 
 def test_leer_archivo_inexistente(repo: Path) -> None:
@@ -35,7 +35,7 @@ def test_leer_archivo_largo_se_recorta(repo: Path, monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(archivos, "MAX_CARACTERES_LECTURA", 10)
     (repo / "largo.txt").write_text("x" * 50, encoding="utf-8")
     resultado = leer_archivo(repo, "largo.txt")
-    assert resultado.startswith("x" * 10 + "\n")
+    assert resultado.startswith("Archivo: largo.txt\n" + "x" * 10 + "\n")
     assert "10 de 50" in resultado
 
 
@@ -47,7 +47,7 @@ def test_escribir_archivo_crea_carpetas(repo: Path) -> None:
 
 def test_escribir_archivo_reemplaza(repo: Path) -> None:
     escribir_archivo(repo, "src/app.py", "nuevo")
-    assert leer_archivo(repo, "src/app.py") == "nuevo"
+    assert leer_archivo(repo, "src/app.py") == "Archivo: src/app.py\nnuevo"
 
 
 def test_escribir_harness_yaml_esta_prohibido(repo: Path) -> None:
@@ -83,7 +83,7 @@ def test_escribir_env_esta_prohibido(repo: Path) -> None:
 
 def test_env_example_se_puede_leer_y_escribir(repo: Path) -> None:
     escribir_archivo(repo, ".env.example", "API_KEY=\n")
-    assert leer_archivo(repo, ".env.example") == "API_KEY=\n"
+    assert leer_archivo(repo, ".env.example") == "Archivo: .env.example\nAPI_KEY=\n"
 
 
 def test_listar_directorio_raiz(repo: Path) -> None:

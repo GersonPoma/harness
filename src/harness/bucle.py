@@ -46,6 +46,7 @@ def ejecutar_bucle(
     primer_paso: int = 1,
     al_aviso: Callable[[str], None] | None = None,
     es_fin: Callable[[], bool] | None = None,
+    nota_restantes: Callable[[int], str | None] | None = None,
 ) -> ResultadoBucle:
     """Llama al modelo hasta que deje de pedir herramientas o se acaben los pasos.
 
@@ -54,6 +55,8 @@ def ejecutar_bucle(
     Una respuesta vacía no cuenta como final: se le pide al modelo que continúe.
     `es_fin` corta el bucle después de un paso aunque el modelo haya pedido herramientas
     (la ronda de plan termina cuando el modelo llama a proponer_plan).
+    `nota_restantes` recibe los pasos que quedan después de cada paso y puede devolver un
+    texto que se agrega al último resultado de herramienta de ese paso.
     """
     por_nombre = {h.nombre: h for h in herramientas}
     tokens_entrada = tokens_salida = 0
@@ -71,15 +74,28 @@ def ejecutar_bucle(
         if not respuesta.llamadas:
             pasos = numero - primer_paso + 1
             return ResultadoBucle(respuesta.texto, pasos, tokens_entrada, tokens_salida, False)
-        for llamada in respuesta.llamadas:
-            resultado, es_error = ejecutar_llamada(llamada, por_nombre)
-            mensajes.append(Mensaje(Rol.HERRAMIENTA, resultado, id_llamada=llamada.id))
+        pasos_hechos = [
+            Paso(numero, llamada, *ejecutar_llamada(llamada, por_nombre))
+            for llamada in respuesta.llamadas
+        ]
+        es_ultimo = bool(es_fin and es_fin())
+        if nota_restantes and not es_ultimo:
+            _anotar(pasos_hechos[-1], nota_restantes(primer_paso + max_pasos - 1 - numero))
+        for paso in pasos_hechos:
+            mensajes.append(Mensaje(Rol.HERRAMIENTA, paso.resultado, id_llamada=paso.llamada.id))
             if al_paso:
-                al_paso(Paso(numero, llamada, resultado, es_error))
-        if es_fin and es_fin():
+                al_paso(paso)
+        if es_ultimo:
             pasos = numero - primer_paso + 1
             return ResultadoBucle(None, pasos, tokens_entrada, tokens_salida, False)
     return ResultadoBucle(None, max_pasos, tokens_entrada, tokens_salida, True)
+
+
+def _anotar(paso: Paso, nota: str | None) -> None:
+    # Dentro del resultado y no como mensaje aparte: algunos proveedores no aceptan un mensaje
+    # de usuario entre los resultados de herramientas y la siguiente respuesta.
+    if nota:
+        paso.resultado = f"{paso.resultado}\n\n{nota}"
 
 
 def _es_vacia(texto: str | None, llamadas: list[LlamadaHerramienta]) -> bool:

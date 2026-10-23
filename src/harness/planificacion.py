@@ -9,13 +9,20 @@ from dataclasses import dataclass
 from harness.bucle import Paso, ResultadoBucle, ejecutar_bucle
 from harness.config_proyecto import MAX_PASOS_PLAN_POR_DEFECTO
 from harness.plan import Plan, crear_herramienta_plan
-from harness.prompts import MENSAJE_ENTREGAR_PLAN, MENSAJE_PLANIFICAR
+from harness.prompts import (
+    MENSAJE_ENTREGAR_PLAN,
+    crear_aviso_pasos_plan,
+    crear_mensaje_planificar,
+)
 from harness.proveedores.base import ProveedorLLM
 from harness.tipos import Herramienta, Mensaje, Rol
 
 # Pasos para el pedido final "llama a proponer_plan ahora", con solo esa herramienta: uno, y
 # otro por si el primer intento trae argumentos inválidos.
 MAX_PASOS_ENTREGA_PLAN = 2
+# Con esta cantidad de pasos restantes (o menos) se le recuerda al modelo que proponga el plan.
+PASOS_RESTANTES_PARA_AVISAR = 3
+AVISO_FIN_EXPLORACION = "Terminaron los pasos de exploración: se le pide el plan al modelo."
 
 
 class ErrorPlan(Exception):
@@ -47,17 +54,18 @@ def planificar(
     """
     propuestos: list[Plan] = []
     herramienta_plan = crear_herramienta_plan(propuestos.append)
-    mensajes.append(Mensaje(Rol.USUARIO, MENSAJE_PLANIFICAR))
+    pasos_exploracion = min(max_pasos_plan, max_pasos)
+    mensajes.append(Mensaje(Rol.USUARIO, crear_mensaje_planificar(pasos_exploracion)))
     bucle = ejecutar_bucle(
         proveedor, mensajes, [*herramientas_lectura, herramienta_plan],
-        min(max_pasos_plan, max_pasos), al_paso, al_aviso=al_aviso,
-        es_fin=lambda: bool(propuestos),
+        pasos_exploracion, al_paso, al_aviso=al_aviso,
+        es_fin=lambda: bool(propuestos), nota_restantes=_nota_restantes,
     )
     pasos, entrada, salida = bucle.pasos, bucle.tokens_entrada, bucle.tokens_salida
     if not propuestos and pasos < max_pasos:
         # Respondió con texto o se le acabaron los pasos: se le pide el plan, sin explorar más.
         if al_aviso:
-            al_aviso("El modelo no propuso un plan: se le pide que llame a proponer_plan.")
+            al_aviso(AVISO_FIN_EXPLORACION)
         mensajes.append(Mensaje(Rol.USUARIO, MENSAJE_ENTREGAR_PLAN))
         extra = ejecutar_bucle(
             proveedor, mensajes, [herramienta_plan],
@@ -68,6 +76,13 @@ def planificar(
     if not propuestos:
         raise ErrorPlan("El modelo no propuso un plan válido: se corta antes de implementar.")
     return ResultadoPlan(propuestos[-1], pasos, entrada, salida)
+
+
+def _nota_restantes(restantes: int) -> str | None:
+    # Con 0 no hace falta: enseguida llega el pedido final de proponer_plan.
+    if 0 < restantes <= PASOS_RESTANTES_PARA_AVISAR:
+        return crear_aviso_pasos_plan(restantes)
+    return None
 
 
 def _sumar(primero: ResultadoBucle, segundo: ResultadoBucle) -> tuple[int, int, int]:

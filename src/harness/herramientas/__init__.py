@@ -50,7 +50,10 @@ def _herramientas_de_archivos(
     return [
         Herramienta(
             nombre="leer_archivo",
-            descripcion="Lee un archivo de texto del repo y devuelve su contenido.",
+            descripcion=(
+                "Lee un archivo de texto del repo. Devuelve una primera línea 'Archivo: <ruta>' "
+                "(no es parte del archivo) y después el contenido."
+            ),
             parametros={
                 "type": "object",
                 "properties": {"ruta": _PARAMETRO_RUTA},

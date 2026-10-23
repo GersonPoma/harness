@@ -8,6 +8,8 @@ from harness.prompts import MENSAJE_RESPUESTA_VACIA, crear_mensajes_iniciales
 from harness.tipos import LlamadaHerramienta, Mensaje, Rol
 from tests.falsos import ProveedorFalso, pedir, terminar, vacia
 
+LEIDO_APP = "Archivo: src/app.py\nprint('hola')\n"
+
 
 def _resultados_por_id(mensajes: list) -> dict[str, str]:
     return {m.id_llamada: m.contenido for m in mensajes if m.rol == Rol.HERRAMIENTA}
@@ -34,7 +36,7 @@ def test_ejecuta_herramientas_y_devuelve_resultado_al_modelo(repo: Path) -> None
     assert resultado.tokens_entrada == 30
     assert (repo / "b.py").read_text(encoding="utf-8") == "x"
     # El segundo pedido al modelo ya incluye el contenido leído en el primero.
-    assert _resultados_por_id(proveedor.conversaciones[1]) == {"c1": "print('hola')\n"}
+    assert _resultados_por_id(proveedor.conversaciones[1]) == {"c1": LEIDO_APP}
 
 
 def test_varias_herramientas_en_una_respuesta(repo: Path) -> None:
@@ -52,7 +54,7 @@ def test_varias_herramientas_en_una_respuesta(repo: Path) -> None:
 
     resultados = _resultados_por_id(mensajes)
     assert list(resultados) == ["a", "b", "c"]
-    assert resultados["a"] == "print('hola')\n"
+    assert resultados["a"] == LEIDO_APP
     assert resultados["b"] == "app.py"
     assert resultados["c"].startswith("Error:")
     assert [p.numero for p in pasos] == [1, 1, 1]
