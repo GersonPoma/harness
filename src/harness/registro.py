@@ -9,6 +9,7 @@ from harness.bucle import Paso
 from harness.cambios import CambiosRepo
 from harness.contexto import ContextoProyecto
 from harness.ejecucion import ResultadoEjecucion, Validacion
+from harness.plan import Plan, archivos_fuera_del_plan
 from harness.variables import ocultar_secretos
 
 CARPETA_LOGS = Path(".harness") / "logs"
@@ -77,7 +78,15 @@ class RegistroPasos:
             "creados": cambios.creados,
             "modificados": cambios.modificados,
             "eliminados": cambios.eliminados,
+            "plan_rechazado": resultado.es_plan_rechazado,
+            "fuera_del_plan": (
+                archivos_fuera_del_plan(resultado.plan, cambios) if resultado.plan else []
+            ),
         })
+
+    def registrar_plan(self, plan: Plan, es_aprobado: bool) -> None:
+        """Registra el plan propuesto y si se siguió con la implementación."""
+        self._escribir({"evento": "plan", "es_aprobado": es_aprobado, **plan.model_dump()})
 
     def registrar_aviso(self, mensaje: str) -> None:
         """Registra un aviso que no corta la ejecución (por ejemplo, una respuesta vacía)."""

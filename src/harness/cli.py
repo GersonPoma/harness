@@ -12,11 +12,13 @@ from harness.cambios import CambiosRepo, comparar, tomar_instantanea
 from harness.config import ConfigModelo, ErrorConfiguracion, cargar_config
 from harness.config_proyecto import ConfigProyecto, ErrorConfigProyecto, cargar_config_proyecto
 from harness.contexto import ContextoProyecto, cargar_agents_md
-from harness.ejecucion import ResultadoEjecucion, Validacion, ejecutar_ticket
+from harness.ejecucion import Planificacion, ResultadoEjecucion, Validacion, ejecutar_ticket
 from harness.entorno_docker import EntornoDocker, ErrorDocker
-from harness.herramientas import crear_herramientas
+from harness.herramientas import crear_herramientas, crear_herramientas_lectura
 from harness.herramientas.comandos import EjecutorComandos, validar_proyecto
 from harness.herramientas.protegidos import GuardiaProtegidos
+from harness.plan import Plan
+from harness.planificacion import ErrorPlan
 from harness.prompts import crear_mensajes_iniciales
 from harness.proveedores.base import ErrorProveedor, ProveedorLLM
 from harness.proveedores.fabrica import crear_proveedor
@@ -40,6 +42,7 @@ class _Preparacion:
     config_proyecto: ConfigProyecto | None
     variables: VariablesResueltas
     contexto: ContextoProyecto
+    es_con_plan: bool = True
 
     @property
     def secretos(self) -> list[str]:
@@ -50,8 +53,9 @@ class _Preparacion:
 class _Reporte:
     """Muestra en consola y registra en el log lo que pasa durante la ejecución."""
 
-    def __init__(self, registro: RegistroPasos) -> None:
+    def __init__(self, registro: RegistroPasos, es_aprobar_plan: bool = False) -> None:
         self.registro = registro
+        self._es_aprobar_plan = es_aprobar_plan
 
     def paso(self, paso: Paso) -> None:
         consola.mostrar_paso(paso)
@@ -64,6 +68,13 @@ class _Reporte:
     def aviso(self, mensaje: str) -> None:
         consola.mostrar_aviso(mensaje)
         self.registro.registrar_aviso(mensaje)
+
+    def plan(self, plan: Plan) -> bool:
+        """Muestra el plan y, con --aprobar-plan, pregunta si se implementa."""
+        consola.mostrar_plan(plan)
+        es_aprobado = consola.preguntar_implementar() if self._es_aprobar_plan else True
+        self.registro.registrar_plan(plan, es_aprobado)
+        return es_aprobado
 
     def validacion(self, validacion: Validacion) -> None:
         consola.mostrar_validacion(validacion)
@@ -80,9 +91,20 @@ def run(
         int | None,
         typer.Option(min=1, help="Máximo de pedidos al modelo (por defecto, el de harness.yaml)."),
     ] = None,
+    sin_plan: Annotated[
+        bool, typer.Option("--sin-plan", help="Implementar directamente, sin planificar.")
+    ] = False,
+    aprobar_plan: Annotated[
+        bool,
+        typer.Option("--aprobar-plan", help="Mostrar el plan y preguntar antes de implementar."),
+    ] = False,
 ) -> None:
     """Procesa un ticket y genera el código en el repo objetivo."""
+    if sin_plan and aprobar_plan:
+        consola.mostrar_error("--sin-plan y --aprobar-plan no se pueden usar juntos.")
+        raise typer.Exit(1)
     prep = _preparar_ejecucion(ticket, (repo or Path.cwd()).resolve())
+    prep.es_con_plan = not sin_plan
     limites = prep.config_proyecto.limites if prep.config_proyecto else None
     max_pasos = max_pasos or (limites.max_pasos if limites else MAX_PASOS_POR_DEFECTO)
     registro = RegistroPasos(prep.repo, prep.ticket, secretos=prep.secretos)
@@ -90,10 +112,10 @@ def run(
     consola.mostrar_inicio(prep.ticket, str(prep.repo), prep.config.proveedor, prep.config.modelo)
     consola.mostrar_contexto(prep.contexto)
 
-    reporte = _Reporte(registro)
+    reporte = _Reporte(registro, aprobar_plan)
     try:
         resultado, cambios = _ejecutar(prep, max_pasos, reporte)
-    except (ErrorProveedor, ErrorDocker, ErrorRespuestaVacia) as error:
+    except (ErrorProveedor, ErrorDocker, ErrorRespuestaVacia, ErrorPlan) as error:
         registro.registrar_error(str(error))
         consola.mostrar_error(str(error))
         raise typer.Exit(1) from error
@@ -146,6 +168,7 @@ def _ejecutar(
             max_pasos,
             al_paso=reporte.paso,
             al_aviso=reporte.aviso,
+            planificacion=_planificacion(prep, reporte),
         )
         return resultado, comparar(antes, tomar_instantanea(prep.repo))
     # El with garantiza que los contenedores se borran aunque algo falle o haya Ctrl+C.
@@ -188,8 +211,15 @@ def _ejecutar_con_validacion(
         al_paso=reporte.paso,
         al_validar=reporte.validacion,
         al_aviso=reporte.aviso,
+        planificacion=_planificacion(prep, reporte),
     )
     return resultado, comparar(antes, tomar_instantanea(prep.repo))
+
+
+def _planificacion(prep: _Preparacion, reporte: _Reporte) -> Planificacion | None:
+    if not prep.es_con_plan:
+        return None
+    return Planificacion(crear_herramientas_lectura(prep.repo), reporte.plan)
 
 
 @app.command()

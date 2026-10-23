@@ -14,6 +14,7 @@ _PARAMETRO_RUTA = {
     "description": "Ruta relativa a la raíz del repo, con '/' como separador.",
 }
 _SIN_PARAMETROS = {"type": "object", "properties": {}}
+NOMBRES_LECTURA = ("leer_archivo", "listar_directorio")
 
 
 def crear_herramientas(
@@ -31,6 +32,11 @@ def crear_herramientas(
     if config and ejecutor:
         herramientas += _herramientas_de_comandos(config, ejecutor)
     return herramientas
+
+
+def crear_herramientas_lectura(repo: Path) -> list[Herramienta]:
+    """Solo las herramientas que no cambian nada: para la ronda de plan y para init."""
+    return [h for h in _herramientas_de_archivos(repo, [], None) if h.nombre in NOMBRES_LECTURA]
 
 
 def _herramientas_de_archivos(

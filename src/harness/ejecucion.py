@@ -4,7 +4,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from harness.bucle import Paso, ejecutar_bucle
-from harness.prompts import crear_mensaje_validacion_fallida
+from harness.plan import Plan
+from harness.planificacion import planificar
+from harness.prompts import MENSAJE_IMPLEMENTAR, crear_mensaje_validacion_fallida
 from harness.proveedores.base import ProveedorLLM
 from harness.tipos import Herramienta, Mensaje, Rol
 
@@ -33,6 +35,18 @@ class ResultadoEjecucion:
     # None si no hubo validación (repo sin harness.yaml).
     es_validado: bool | None
     validaciones: int
+    # None si se corrió sin planificación (--sin-plan).
+    plan: Plan | None = None
+    es_plan_rechazado: bool = False
+
+
+@dataclass
+class Planificacion:
+    """Cómo se hace la ronda de plan antes de implementar."""
+
+    herramientas_lectura: list[Herramienta]
+    # Recibe el plan para mostrarlo; si devuelve False, no se implementa (--aprobar-plan).
+    al_planear: Callable[[Plan], bool] | None = None
 
 
 def ejecutar_ticket(
@@ -45,13 +59,18 @@ def ejecutar_ticket(
     al_paso: Callable[[Paso], None] | None = None,
     al_validar: Callable[[Validacion], None] | None = None,
     al_aviso: Callable[[str], None] | None = None,
+    planificacion: Planificacion | None = None,
 ) -> ResultadoEjecucion:
-    """Corre el bucle; cuando el modelo termina, valida y, si falla, le devuelve el error.
+    """Planifica (si se pide), implementa y valida; si la validación falla, el modelo corrige.
 
-    `max_pasos` es el total de todas las vueltas. Se vuelve de la validación a la
-    implementación como mucho `max_intentos_validacion` veces.
+    `max_pasos` es el total de todas las vueltas, plan incluido. Se vuelve de la validación a
+    la implementación como mucho `max_intentos_validacion` veces.
     """
     resultado = ResultadoEjecucion(None, 0, 0, 0, False, None, 0)
+    if planificacion and not _planificar(
+        resultado, proveedor, mensajes, planificacion, max_pasos, al_paso, al_aviso
+    ):
+        return resultado
     while True:
         bucle = ejecutar_bucle(
             proveedor, mensajes, herramientas, max_pasos - resultado.pasos, al_paso,
@@ -78,6 +97,31 @@ def ejecutar_ticket(
             return resultado
         texto = crear_mensaje_validacion_fallida(informe, vueltas + 1, max_intentos_validacion)
         mensajes.append(Mensaje(Rol.USUARIO, texto))
+
+
+def _planificar(
+    resultado: ResultadoEjecucion,
+    proveedor: ProveedorLLM,
+    mensajes: list[Mensaje],
+    planificacion: Planificacion,
+    max_pasos: int,
+    al_paso: Callable[[Paso], None] | None,
+    al_aviso: Callable[[str], None] | None,
+) -> bool:
+    """Corre la ronda de plan; devuelve si hay que seguir con la implementación."""
+    ronda = planificar(
+        proveedor, mensajes, planificacion.herramientas_lectura, max_pasos, al_paso, al_aviso
+    )
+    _acumular(resultado, ronda.pasos, ronda.tokens_entrada, ronda.tokens_salida)
+    resultado.plan = ronda.plan
+    if planificacion.al_planear and not planificacion.al_planear(ronda.plan):
+        resultado.es_plan_rechazado = True
+        return False
+    if resultado.pasos >= max_pasos:
+        resultado.es_limite_alcanzado = True
+        return False
+    mensajes.append(Mensaje(Rol.USUARIO, MENSAJE_IMPLEMENTAR))
+    return True
 
 
 def _acumular(resultado: ResultadoEjecucion, pasos: int, entrada: int, salida: int) -> None:

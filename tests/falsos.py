@@ -32,11 +32,14 @@ class ProveedorFalso:
     def __init__(self, respuestas: list[RespuestaModelo]) -> None:
         self._respuestas = list(respuestas)
         self.conversaciones: list[list[Mensaje]] = []
+        # Nombres de las herramientas ofrecidas en cada pedido.
+        self.herramientas: list[list[str]] = []
 
     def responder(
         self, mensajes: list[Mensaje], herramientas: list[Herramienta]
     ) -> RespuestaModelo:
         self.conversaciones.append(list(mensajes))
+        self.herramientas.append([h.nombre for h in herramientas])
         return self._respuestas.pop(0)
 
 
@@ -48,6 +51,20 @@ def pedir(*llamadas: LlamadaHerramienta) -> RespuestaModelo:
 def terminar(texto: str = "Listo") -> RespuestaModelo:
     """Respuesta del modelo que da por terminado el trabajo."""
     return RespuestaModelo(texto, [], tokens_entrada=10, tokens_salida=5)
+
+
+PLAN_SIMPLE = {
+    "resumen": "Agregar el módulo nuevo.",
+    "archivos": [{"ruta": "nuevo.py", "accion": "crear", "motivo": "Lo pide el ticket."}],
+    "pasos": ["Crear nuevo.py"],
+    "tests": [],
+}
+
+
+def proponer(plan: dict | None = None, id_llamada: str = "plan") -> RespuestaModelo:
+    """Respuesta del modelo que llama a proponer_plan (por defecto, con PLAN_SIMPLE)."""
+    llamada = LlamadaHerramienta(id_llamada, "proponer_plan", plan or PLAN_SIMPLE)
+    return pedir(llamada)
 
 
 def vacia(texto: str | None = None) -> RespuestaModelo:

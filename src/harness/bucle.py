@@ -45,12 +45,15 @@ def ejecutar_bucle(
     al_paso: Callable[[Paso], None] | None = None,
     primer_paso: int = 1,
     al_aviso: Callable[[str], None] | None = None,
+    es_fin: Callable[[], bool] | None = None,
 ) -> ResultadoBucle:
     """Llama al modelo hasta que deje de pedir herramientas o se acaben los pasos.
 
     Agrega a `mensajes` cada respuesta y cada resultado, para poder registrarlos o retomarlos.
     `primer_paso` numera los pasos cuando el bucle continúa después de una validación.
     Una respuesta vacía no cuenta como final: se le pide al modelo que continúe.
+    `es_fin` corta el bucle después de un paso aunque el modelo haya pedido herramientas
+    (la ronda de plan termina cuando el modelo llama a proponer_plan).
     """
     por_nombre = {h.nombre: h for h in herramientas}
     tokens_entrada = tokens_salida = 0
@@ -73,6 +76,9 @@ def ejecutar_bucle(
             mensajes.append(Mensaje(Rol.HERRAMIENTA, resultado, id_llamada=llamada.id))
             if al_paso:
                 al_paso(Paso(numero, llamada, resultado, es_error))
+        if es_fin and es_fin():
+            pasos = numero - primer_paso + 1
+            return ResultadoBucle(None, pasos, tokens_entrada, tokens_salida, False)
     return ResultadoBucle(None, max_pasos, tokens_entrada, tokens_salida, True)
 
 

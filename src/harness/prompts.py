@@ -62,6 +62,23 @@ MENSAJE_RESPUESTA_VACIA = (
 )
 
 
+MENSAJE_PLANIFICAR = (
+    "Antes de cambiar nada, planifica. Explora solo lo necesario con las herramientas de "
+    "lectura y llama a proponer_plan con: un resumen, los archivos que vas a crear, modificar "
+    "o eliminar (con el motivo de cada uno), los pasos en orden y los tests que vas a agregar "
+    "o cambiar. En esta etapa no puedes escribir archivos ni ejecutar comandos."
+)
+
+MENSAJE_ENTREGAR_PLAN = (
+    "Llama a proponer_plan ahora, con lo que ya sabes. No hay más herramientas en esta etapa."
+)
+
+MENSAJE_IMPLEMENTAR = (
+    "Plan registrado. Ahora impleméntalo. Si en el camino tienes que tocar archivos que no "
+    "estaban en el plan, hazlo solo si es necesario y explica por qué en tu resumen final."
+)
+
+
 def crear_mensajes_iniciales(
     ticket: str, contexto: ContextoProyecto | None = None, hay_validacion: bool = False
 ) -> list[Mensaje]:

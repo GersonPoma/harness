@@ -112,6 +112,26 @@ harness run PROJ-123
  └─ 7. PR + comentario en Jira (opcional)
 ```
 
+### Planificación (paso 3)
+
+- El harness carga `AGENTS.md` en el system prompt (recortado a 12 000 caracteres): el modelo
+  no gasta un paso en leerlo.
+- En la ronda de plan el modelo solo tiene herramientas de lectura (`leer_archivo`,
+  `listar_directorio`) y la herramienta `proponer_plan(resumen, archivos, pasos, tests)`,
+  donde cada archivo es `{ruta, accion: crear|modificar|eliminar, motivo}`. La ronda termina
+  cuando la llama con un plan válido; si el plan no cumple el formato, el error vuelve al
+  modelo para que lo corrija.
+- Tiene hasta 10 pasos, descontados de `max_pasos`. Si responde con texto o se le acaban, se
+  le pide "llama a `proponer_plan` ahora", ya sin herramientas de lectura; si aun así no hay
+  plan, la ejecución se corta con error.
+- El plan se muestra en un panel (armado desde la estructura, no desde texto libre) y queda
+  en el log como evento `plan`. Después el modelo implementa con todas las herramientas.
+- Al terminar, el harness compara el plan con los archivos que de verdad cambiaron y avisa
+  en amarillo de los que no estaban en el plan.
+- `--aprobar-plan`: muestra el plan y pregunta "¿Implementar? [s/n]"; con "n" termina sin
+  implementar (código 0). Por defecto el harness sigue solo.
+- `--sin-plan`: salta la ronda de plan (tickets triviales o para ahorrar pedidos).
+
 ---
 
 ## Entorno de ejecución en Docker

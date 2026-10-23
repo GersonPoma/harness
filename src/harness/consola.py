@@ -12,10 +12,14 @@ from harness.bucle import Paso
 from harness.cambios import CambiosRepo
 from harness.contexto import MAX_CARACTERES_AGENTS, ContextoProyecto
 from harness.ejecucion import ResultadoEjecucion, Validacion
+from harness.plan import Plan, archivos_fuera_del_plan
 
 MAX_CARACTERES_RESUMEN = 120
 MAX_CARACTERES_ARGUMENTO = 60
 LINEAS_INFORME_VALIDACION = 8
+SIMBOLOS_ACCION = {"crear": "[green]+[/]", "modificar": "[yellow]~[/]", "eliminar": "[red]-[/]"}
+RESPUESTAS_SI = ("s", "si", "sí")
+RESPUESTAS_NO = ("n", "no")
 
 consola = Console()
 
@@ -81,7 +85,9 @@ def mostrar_validacion(validacion: Validacion) -> None:
 
 def mostrar_fin(resultado: ResultadoEjecucion, cambios: CambiosRepo, ruta_log: str) -> None:
     """Muestra cómo terminó la ejecución, qué archivos cambió, los tokens y el log."""
-    if resultado.es_limite_alcanzado:
+    if resultado.es_plan_rechazado:
+        mostrar_aviso("Plan rechazado: no se implementó nada.")
+    elif resultado.es_limite_alcanzado:
         consola.print(
             f"[bold red]Se alcanzó el límite de {resultado.pasos} pasos sin terminar.[/]"
         )
@@ -91,7 +97,10 @@ def mostrar_fin(resultado: ResultadoEjecucion, cambios: CambiosRepo, ruta_log: s
         consola.print(
             f"[bold red]Los tests no pasan después de {resultado.validaciones} validaciones.[/]"
         )
-    mostrar_cambios(cambios)
+    if not resultado.es_plan_rechazado:
+        mostrar_cambios(cambios)
+        if resultado.plan:
+            mostrar_fuera_del_plan(archivos_fuera_del_plan(resultado.plan, cambios))
     consola.print(
         f"[dim]Pasos: {resultado.pasos} · Tokens: {resultado.tokens_entrada} entrada / "
         f"{resultado.tokens_salida} salida · Log: {escape(ruta_log)}[/]"
@@ -113,6 +122,45 @@ def mostrar_cambios(cambios: CambiosRepo) -> None:
             consola.print(f"[bold]{titulo}:[/]")
             for ruta in rutas:
                 consola.print(f"  [{color}]{escape(ruta)}[/]")
+
+
+def mostrar_fuera_del_plan(rutas: list[str]) -> None:
+    """Avisa de los archivos que cambiaron sin estar en el plan."""
+    if not rutas:
+        return
+    mostrar_aviso("Archivos que cambiaron y no estaban en el plan:")
+    for ruta in rutas:
+        consola.print(f"  [yellow]{escape(ruta)}[/]")
+
+
+def mostrar_plan(plan: Plan) -> None:
+    """Muestra el plan propuesto por el modelo, armado desde su estructura."""
+    lineas = [escape(plan.resumen), "", "[bold]Archivos:[/]"]
+    for archivo in plan.archivos:
+        simbolo = SIMBOLOS_ACCION[archivo.accion]
+        lineas.append(
+            f"  {simbolo} {escape(archivo.ruta)} [dim]({archivo.accion}: "
+            f"{escape(archivo.motivo)})[/]"
+        )
+    lineas += ["", "[bold]Pasos:[/]"]
+    lineas += [f"  {numero}. {escape(paso)}" for numero, paso in enumerate(plan.pasos, 1)]
+    if plan.tests:
+        lineas += ["", "[bold]Tests:[/]"]
+        lineas += [f"  - {escape(test)}" for test in plan.tests]
+    consola.print(Panel("\n".join(lineas), title="Plan"))
+
+
+def preguntar_implementar() -> bool:
+    """Pregunta si se implementa el plan; sin respuesta posible (EOF), no se implementa."""
+    while True:
+        try:
+            respuesta = consola.input(escape("¿Implementar? [s/n] ")).strip().lower()
+        except EOFError:
+            return False
+        if respuesta in RESPUESTAS_SI:
+            return True
+        if respuesta in RESPUESTAS_NO:
+            return False
 
 
 def mostrar_aviso(mensaje: str) -> None:
