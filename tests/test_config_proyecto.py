@@ -110,6 +110,21 @@ def test_tipo_incorrecto(tmp_path: Path) -> None:
     assert "limites.max_pasos" in error
 
 
+def test_max_pasos_plan_por_defecto_y_explicito(tmp_path: Path) -> None:
+    assert _cargar(tmp_path, MINIMO).limites.max_pasos_plan == 10
+    # Con max_pasos chico y sin escribir max_pasos_plan no hay error: se limita al ejecutar.
+    assert _cargar(tmp_path, MINIMO + "limites:\n  max_pasos: 5\n").limites.max_pasos == 5
+    limites = "limites:\n  max_pasos: 20\n  max_pasos_plan: 4\n"
+    assert _cargar(tmp_path, MINIMO + limites).limites.max_pasos_plan == 4
+
+
+@pytest.mark.parametrize("plan", [20, 25])
+def test_max_pasos_plan_debe_ser_menor_que_max_pasos(tmp_path: Path, plan: int) -> None:
+    limites = f"limites:\n  max_pasos: 20\n  max_pasos_plan: {plan}\n"
+    error = _error(tmp_path, MINIMO + limites)
+    assert f"limites: max_pasos_plan ({plan}) debe ser menor que max_pasos (20)" in error
+
+
 def test_version_no_soportada(tmp_path: Path) -> None:
     error = _error(tmp_path, MINIMO.replace("version: 1", "version: 2"))
     assert "version: versión de harness.yaml no soportada" in error

@@ -135,9 +135,9 @@ harness run PROJ-123
   donde cada archivo es `{ruta, accion: crear|modificar|eliminar, motivo}`. La ronda termina
   cuando la llama con un plan válido; si el plan no cumple el formato, el error vuelve al
   modelo para que lo corrija.
-- Tiene hasta 10 pasos, descontados de `max_pasos`. Si responde con texto o se le acaban, se
-  le pide "llama a `proponer_plan` ahora", ya sin herramientas de lectura; si aun así no hay
-  plan, la ejecución se corta con error.
+- Tiene hasta `limites.max_pasos_plan` pasos (10 por defecto), descontados de `max_pasos`.
+  Si responde con texto o se le acaban, se le pide "llama a `proponer_plan` ahora", ya sin
+  herramientas de lectura; si aun así no hay plan, la ejecución se corta con error.
 - El plan se muestra en un panel (armado desde la estructura, no desde texto libre) y queda
   en el log como evento `plan`. Después el modelo implementa con todas las herramientas.
 - Al terminar, el harness compara el plan con los archivos que de verdad cambiaron y avisa

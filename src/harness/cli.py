@@ -10,7 +10,12 @@ from harness import consola
 from harness.bucle import MAX_PASOS_POR_DEFECTO, ErrorRespuestaVacia, Paso
 from harness.cambios import CambiosRepo, comparar, tomar_instantanea
 from harness.config import ConfigModelo, ErrorConfiguracion, cargar_config, cargar_env
-from harness.config_proyecto import ConfigProyecto, ErrorConfigProyecto, cargar_config_proyecto
+from harness.config_proyecto import (
+    ConfigLimites,
+    ConfigProyecto,
+    ErrorConfigProyecto,
+    cargar_config_proyecto,
+)
 from harness.contexto import ContextoProyecto, cargar_agents_md
 from harness.ejecucion import Planificacion, ResultadoEjecucion, Validacion, ejecutar_ticket
 from harness.entorno_docker import EntornoDocker, ErrorDocker
@@ -234,7 +239,10 @@ def _ejecutar_con_validacion(
 def _planificacion(prep: _Preparacion, reporte: _Reporte) -> Planificacion | None:
     if not prep.es_con_plan:
         return None
-    return Planificacion(crear_herramientas_lectura(prep.repo), reporte.plan)
+    limites = prep.config_proyecto.limites if prep.config_proyecto else ConfigLimites()
+    return Planificacion(
+        crear_herramientas_lectura(prep.repo), reporte.plan, limites.max_pasos_plan
+    )
 
 
 @app.command()

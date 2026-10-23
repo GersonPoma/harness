@@ -154,6 +154,22 @@ def test_sin_requiere_agents_md_avisa_y_sigue(
     assert usos == ["docker"]
 
 
+def test_max_pasos_plan_de_harness_yaml_llega_a_la_planificacion(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    yaml = YAML_CON_DOCKER + "limites:\n  max_pasos: 20\n  max_pasos_plan: 4\n"
+    (repo_sin_yaml / "harness.yaml").write_text(yaml, encoding="utf-8")
+    recibidas: list[int] = []
+
+    def ejecutar_falso(prep, max_pasos, reporte):
+        recibidas.append(cli._planificacion(prep, reporte).max_pasos_plan)
+        raise ErrorDocker("fin de la prueba")
+
+    monkeypatch.setattr(cli, "_ejecutar", ejecutar_falso)
+    _correr(monkeypatch, repo_sin_yaml, [])
+    assert recibidas == [4]
+
+
 def _escribir(ruta: str) -> RespuestaModelo:
     argumentos = {"ruta": ruta, "contenido": "x"}
     return pedir(LlamadaHerramienta(f"e-{ruta}", "escribir_archivo", argumentos))

@@ -75,6 +75,7 @@ git:
 
 limites:
   max_pasos: 30
+  max_pasos_plan: 10
   max_intentos_validacion: 3
   timeout_comando_segundos: 120
   max_caracteres_salida: 4000
@@ -203,6 +204,7 @@ Variables que se pasan al **contenedor del proyecto** (no a los servicios).
 | Clave | Tipo | Obligatoria | Por defecto | Descripción |
 |---|---|---|---|---|
 | `max_pasos` | entero | no | `30` | Máximo de vueltas del bucle (cada respuesta del modelo es un paso). Al llegar, la ejecución se detiene y se puede retomar con `harness resume`. |
+| `max_pasos_plan` | entero | no | `10` | Máximo de pasos de la ronda de plan (explorar con herramientas de lectura antes de llamar a `proponer_plan`). Se descuentan de `max_pasos`. Si se escribe, debe ser **menor** que `max_pasos` (si no, error de validación); si no se escribe, vale `10` pero nunca más que `max_pasos`. Al agotarse, el harness le pide el plan al modelo con lo que ya sabe. |
 | `max_intentos_validacion` | entero | no | `3` | Cuántas veces se vuelve de la validación (tests + lint) a la implementación antes de rendirse. |
 | `timeout_comando_segundos` | entero | no | `120` | Tiempo máximo de cada comando dentro del contenedor. Si se pasa, se corta y el modelo recibe "tiempo agotado". |
 | `max_caracteres_salida` | entero | no | `4000` | Largo máximo de la salida de una herramienta que se le devuelve al modelo. Se conserva el **final** (donde suelen estar los errores) y se avisa cuántos caracteres se recortaron. |

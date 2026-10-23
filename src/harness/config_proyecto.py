@@ -1,15 +1,23 @@
 """Carga y validación de harness.yaml del repo objetivo (docs/harness-yaml.md)."""
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Self
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from pydantic_core import ErrorDetails
 
 NOMBRE_ARCHIVO = "harness.yaml"
 VERSION_SOPORTADA = 1
 PATRON_NOMBRE = r"^[a-z0-9-]+$"
+MAX_PASOS_PLAN_POR_DEFECTO = 10
 
 Entero = Annotated[int, Field(ge=1)]
 Nombre = Annotated[str, Field(pattern=PATRON_NOMBRE)]
@@ -68,9 +76,22 @@ class ConfigLimites(_Modelo):
     """Límites de la ejecución."""
 
     max_pasos: Entero = 30
+    max_pasos_plan: Entero = MAX_PASOS_PLAN_POR_DEFECTO
     max_intentos_validacion: Entero = 3
     timeout_comando_segundos: Entero = 120
     max_caracteres_salida: Entero = 4000
+
+    @model_validator(mode="after")
+    def _plan_menor_que_total(self) -> Self:
+        # Solo si se escribió: con max_pasos chico y el valor por defecto, la ronda de plan
+        # se limita a max_pasos al ejecutar, en vez de obligar a escribir las dos claves.
+        es_explicito = "max_pasos_plan" in self.model_fields_set
+        if es_explicito and self.max_pasos_plan >= self.max_pasos:
+            raise ValueError(
+                f"max_pasos_plan ({self.max_pasos_plan}) debe ser menor que max_pasos "
+                f"({self.max_pasos})"
+            )
+        return self
 
 
 class ConfigProyecto(_Modelo):

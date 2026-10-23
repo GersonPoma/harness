@@ -7,12 +7,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from harness.bucle import Paso, ResultadoBucle, ejecutar_bucle
+from harness.config_proyecto import MAX_PASOS_PLAN_POR_DEFECTO
 from harness.plan import Plan, crear_herramienta_plan
 from harness.prompts import MENSAJE_ENTREGAR_PLAN, MENSAJE_PLANIFICAR
 from harness.proveedores.base import ProveedorLLM
 from harness.tipos import Herramienta, Mensaje, Rol
 
-MAX_PASOS_PLAN = 10
 # Pasos para el pedido final "llama a proponer_plan ahora", con solo esa herramienta: uno, y
 # otro por si el primer intento trae argumentos inválidos.
 MAX_PASOS_ENTREGA_PLAN = 2
@@ -39,14 +39,18 @@ def planificar(
     max_pasos: int,
     al_paso: Callable[[Paso], None] | None = None,
     al_aviso: Callable[[str], None] | None = None,
+    max_pasos_plan: int = MAX_PASOS_PLAN_POR_DEFECTO,
 ) -> ResultadoPlan:
-    """Corre la ronda de plan; termina en cuanto el modelo llama a proponer_plan."""
+    """Corre la ronda de plan; termina en cuanto el modelo llama a proponer_plan.
+
+    Explora hasta `max_pasos_plan` pasos, nunca más que `max_pasos` (el total de la ejecución).
+    """
     propuestos: list[Plan] = []
     herramienta_plan = crear_herramienta_plan(propuestos.append)
     mensajes.append(Mensaje(Rol.USUARIO, MENSAJE_PLANIFICAR))
     bucle = ejecutar_bucle(
         proveedor, mensajes, [*herramientas_lectura, herramienta_plan],
-        min(MAX_PASOS_PLAN, max_pasos), al_paso, al_aviso=al_aviso,
+        min(max_pasos_plan, max_pasos), al_paso, al_aviso=al_aviso,
         es_fin=lambda: bool(propuestos),
     )
     pasos, entrada, salida = bucle.pasos, bucle.tokens_entrada, bucle.tokens_salida

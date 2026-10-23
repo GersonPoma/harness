@@ -149,6 +149,15 @@ def test_plan_rechazado_no_implementa(repo: Path) -> None:
     assert not (repo / "nuevo.py").exists()
 
 
+def test_max_pasos_plan_configurable(repo: Path) -> None:
+    # Con 3 pasos de plan, la cuarta respuesta ya es el pedido final con solo proponer_plan.
+    proveedor = ProveedorFalso([pedir(LEER)] * 3 + [proponer(), terminar()])
+    resultado, _ = _ejecutar(repo, proveedor, max_pasos=30, max_pasos_plan=3)
+    assert proveedor.herramientas[2] == [*LECTURA, "proponer_plan"]
+    assert proveedor.herramientas[3] == ["proponer_plan"]
+    assert resultado.pasos == 5
+
+
 def test_los_pasos_del_plan_cuentan_para_el_limite(repo: Path) -> None:
     proveedor = ProveedorFalso([pedir(LEER), proponer(), pedir(ESCRIBIR)])
     resultado, _ = _ejecutar(repo, proveedor, max_pasos=3)
