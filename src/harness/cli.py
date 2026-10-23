@@ -11,6 +11,7 @@ from harness.bucle import MAX_PASOS_POR_DEFECTO, ErrorRespuestaVacia, Paso
 from harness.cambios import CambiosRepo, comparar, tomar_instantanea
 from harness.config import ConfigModelo, ErrorConfiguracion, cargar_config
 from harness.config_proyecto import ConfigProyecto, ErrorConfigProyecto, cargar_config_proyecto
+from harness.contexto import ContextoProyecto, cargar_agents_md
 from harness.ejecucion import ResultadoEjecucion, Validacion, ejecutar_ticket
 from harness.entorno_docker import EntornoDocker, ErrorDocker
 from harness.herramientas import crear_herramientas
@@ -38,6 +39,7 @@ class _Preparacion:
     config: ConfigModelo
     config_proyecto: ConfigProyecto | None
     variables: VariablesResueltas
+    contexto: ContextoProyecto
 
     @property
     def secretos(self) -> list[str]:
@@ -84,8 +86,9 @@ def run(
     limites = prep.config_proyecto.limites if prep.config_proyecto else None
     max_pasos = max_pasos or (limites.max_pasos if limites else MAX_PASOS_POR_DEFECTO)
     registro = RegistroPasos(prep.repo, prep.ticket, secretos=prep.secretos)
-    registro.registrar_inicio(prep.config.proveedor, prep.config.modelo)
+    registro.registrar_inicio(prep.config.proveedor, prep.config.modelo, prep.contexto)
     consola.mostrar_inicio(prep.ticket, str(prep.repo), prep.config.proveedor, prep.config.modelo)
+    consola.mostrar_contexto(prep.contexto)
 
     reporte = _Reporte(registro)
     try:
@@ -122,11 +125,11 @@ def _preparar_ejecucion(ticket: Path, repo: Path) -> _Preparacion:
     if config_proyecto is None:
         consola.mostrar_aviso(
             "El repo no tiene harness.yaml: se trabaja sin Docker, sin tests y sin validación. "
-            "Créalo con 'harness init' (próximamente) o a mano (docs/harness-yaml.md)."
+            "Créalo con 'harness init' o a mano (docs/harness-yaml.md)."
         )
     return _Preparacion(
         repo, ticket.stem, texto_ticket, config, config_proyecto,
-        variables or VariablesResueltas(),
+        variables or VariablesResueltas(), cargar_agents_md(repo),
     )
 
 
@@ -138,7 +141,7 @@ def _ejecutar(
         antes = tomar_instantanea(prep.repo)
         resultado = ejecutar_ticket(
             proveedor,
-            crear_mensajes_iniciales(prep.texto_ticket),
+            crear_mensajes_iniciales(prep.texto_ticket, prep.contexto),
             crear_herramientas(prep.repo),
             max_pasos,
             al_paso=reporte.paso,
@@ -177,7 +180,7 @@ def _ejecutar_con_validacion(
     comandos = config_proyecto.comandos
     resultado = ejecutar_ticket(
         proveedor,
-        crear_mensajes_iniciales(prep.texto_ticket, hay_validacion=True),
+        crear_mensajes_iniciales(prep.texto_ticket, prep.contexto, hay_validacion=True),
         crear_herramientas(prep.repo, config_proyecto, ejecutor, entorno.marcar_cambio),
         max_pasos,
         validar=partial(validar_proyecto, ejecutor, comandos.tests, comandos.lint),

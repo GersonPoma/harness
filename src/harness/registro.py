@@ -7,6 +7,7 @@ from typing import Any
 
 from harness.bucle import Paso
 from harness.cambios import CambiosRepo
+from harness.contexto import ContextoProyecto
 from harness.ejecucion import ResultadoEjecucion, Validacion
 from harness.variables import ocultar_secretos
 
@@ -25,9 +26,19 @@ class RegistroPasos:
         self._secretos = [s for s in secretos if s]
         self._secretos += [json.dumps(s)[1:-1] for s in self._secretos]
 
-    def registrar_inicio(self, proveedor: str, modelo: str) -> None:
-        """Registra con qué proveedor y modelo empezó la ejecución (nunca la API key)."""
-        self._escribir({"evento": "inicio", "proveedor": proveedor, "modelo": modelo})
+    def registrar_inicio(
+        self, proveedor: str, modelo: str, contexto: ContextoProyecto | None = None
+    ) -> None:
+        """Registra con qué proveedor, modelo y AGENTS.md empezó (nunca la API key)."""
+        contexto = contexto or ContextoProyecto()
+        self._escribir({
+            "evento": "inicio",
+            "proveedor": proveedor,
+            "modelo": modelo,
+            "agents_md": contexto.existe,
+            "agents_md_caracteres": contexto.caracteres_originales,
+            "agents_md_recortado": contexto.es_recortado,
+        })
 
     def registrar_paso(self, paso: Paso) -> None:
         """Registra una herramienta llamada y su resultado recortado."""

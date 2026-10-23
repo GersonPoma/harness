@@ -10,6 +10,7 @@ from rich.status import Status
 
 from harness.bucle import Paso
 from harness.cambios import CambiosRepo
+from harness.contexto import MAX_CARACTERES_AGENTS, ContextoProyecto
 from harness.ejecucion import ResultadoEjecucion, Validacion
 
 MAX_CARACTERES_RESUMEN = 120
@@ -38,6 +39,23 @@ def mostrar_inicio(ticket: str, repo: str, proveedor: str, modelo: str) -> None:
         f"[bold green]Ticket[/] {escape(ticket)}  [bold green]Repo[/] {escape(repo)}\n"
         f"[bold green]Modelo[/] {escape(proveedor)} / {escape(modelo)}"
     )
+
+
+def mostrar_contexto(contexto: ContextoProyecto) -> None:
+    """Dice si se cargó AGENTS.md; si falta o se recortó, avisa."""
+    if not contexto.existe:
+        mostrar_aviso(
+            "El repo no tiene AGENTS.md: el modelo explorará más lento. "
+            "Créalo con 'harness init'."
+        )
+        return
+    if contexto.es_recortado:
+        mostrar_aviso(
+            f"AGENTS.md tiene {contexto.caracteres_originales} caracteres: se le pasan al "
+            f"modelo los primeros {MAX_CARACTERES_AGENTS}."
+        )
+        return
+    consola.print(f"[dim]AGENTS.md cargado ({contexto.caracteres_originales} caracteres).[/]")
 
 
 def mostrar_paso(paso: Paso) -> None:

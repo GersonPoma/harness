@@ -1,5 +1,6 @@
 """Textos que se le mandan al modelo."""
 
+from harness.contexto import MAX_CARACTERES_AGENTS, ContextoProyecto
 from harness.tipos import Mensaje, Rol
 
 PROMPT_SISTEMA = """\
@@ -8,8 +9,7 @@ Trabajas solo a través de las herramientas que se te ofrecen; todas las rutas s
 a la raíz del repo y usan '/' como separador.
 
 Antes de empezar:
-- Si existe AGENTS.md en la raíz del repo, léelo antes de empezar: describe la estructura, \
-la arquitectura y las convenciones del proyecto.
+- Lee el contexto del proyecto, al final de estas instrucciones.
 - Explora solo lo necesario para entender dónde va el cambio.
 
 Al trabajar:
@@ -39,18 +39,51 @@ Tests:
 la salida y tendrás que corregir el código."""
 
 
+# El harness lee AGENTS.md y lo pone aquí: así no depende de que el modelo lo pida.
+PROMPT_CON_AGENTS = """
+
+Contexto del proyecto (AGENTS.md de la raíz del repo; ya lo tienes, no lo vuelvas a leer):
+
+{agents_md}"""
+
+AVISO_AGENTS_RECORTADO = """
+
+[AGENTS.md se recortó: se muestran {mostrados} de {total} caracteres. Si necesitas el resto, \
+léelo con leer_archivo.]"""
+
+PROMPT_SIN_AGENTS = """
+
+Contexto del proyecto: el repo no tiene AGENTS.md. Explora con listar_directorio y \
+leer_archivo para entender la estructura y las convenciones antes de cambiar nada."""
+
+
 MENSAJE_RESPUESTA_VACIA = (
     "Tu respuesta llegó vacía. Si terminaste, explica qué hiciste; si no, sigue trabajando."
 )
 
 
-def crear_mensajes_iniciales(ticket: str, hay_validacion: bool = False) -> list[Mensaje]:
-    """Arma la conversación inicial: instrucciones y ticket."""
+def crear_mensajes_iniciales(
+    ticket: str, contexto: ContextoProyecto | None = None, hay_validacion: bool = False
+) -> list[Mensaje]:
+    """Arma la conversación inicial: instrucciones, contexto del proyecto y ticket."""
     sistema = PROMPT_SISTEMA + (PROMPT_VALIDACION if hay_validacion else "")
+    sistema += crear_seccion_contexto(contexto or ContextoProyecto())
     return [
         Mensaje(Rol.SISTEMA, sistema),
         Mensaje(Rol.USUARIO, f"Implementa el siguiente ticket:\n\n{ticket}"),
     ]
+
+
+def crear_seccion_contexto(contexto: ContextoProyecto) -> str:
+    """Texto con AGENTS.md (o el aviso de que falta) que va al final del system prompt."""
+    if contexto.agents_md is None:
+        return PROMPT_SIN_AGENTS
+    seccion = PROMPT_CON_AGENTS.format(agents_md=contexto.agents_md.strip())
+    if contexto.es_recortado:
+        seccion += AVISO_AGENTS_RECORTADO.format(
+            mostrados=MAX_CARACTERES_AGENTS, total=contexto.caracteres_originales
+        )
+    return seccion
 
 
 def crear_mensaje_validacion_fallida(informe: str, intento: int, max_intentos: int) -> str:

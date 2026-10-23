@@ -21,14 +21,18 @@ def repo_sin_yaml(tmp_path: Path) -> Path:
 
 
 def _correr(
-    monkeypatch: pytest.MonkeyPatch, repo: Path, respuestas: list[RespuestaModelo]
+    monkeypatch: pytest.MonkeyPatch,
+    repo: Path,
+    respuestas: list[RespuestaModelo] | ProveedorFalso,
+    *opciones: str,
+    entrada: str | None = None,
 ) -> tuple[int, str]:
     config = ConfigModelo("gemini", "modelo-x", None, "clave")
+    proveedor = respuestas if isinstance(respuestas, ProveedorFalso) else ProveedorFalso(respuestas)
     monkeypatch.setattr(cli, "cargar_config", lambda: config)
-    monkeypatch.setattr(cli, "crear_proveedor", lambda *_: ProveedorFalso(respuestas))
-    resultado = CliRunner().invoke(
-        cli.app, ["run", str(repo.parent / "T-1.md"), "--repo", str(repo)]
-    )
+    monkeypatch.setattr(cli, "crear_proveedor", lambda *_: proveedor)
+    argumentos = ["run", str(repo.parent / "T-1.md"), "--repo", str(repo), *opciones]
+    resultado = CliRunner().invoke(cli.app, argumentos, input=entrada)
     return resultado.exit_code, resultado.output
 
 
@@ -64,3 +68,23 @@ def test_sin_cambios_avisa(monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path)
     codigo, salida = _correr(monkeypatch, repo_sin_yaml, [terminar("No hice nada")])
     assert codigo == 0
     assert "El modelo no modificó ningún archivo." in salida
+
+
+def test_agents_md_va_al_contexto_y_al_log(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    texto = "# demo\nReglas del proyecto.\n"
+    (repo_sin_yaml / "AGENTS.md").write_text(texto, encoding="utf-8")
+    proveedor = ProveedorFalso([terminar()])
+    codigo, salida = _correr(monkeypatch, repo_sin_yaml, proveedor)
+    assert codigo == 0
+    assert f"AGENTS.md cargado ({len(texto)} caracteres)." in salida
+    assert "Reglas del proyecto." in proveedor.conversaciones[0][0].contenido
+    inicio = _eventos_del_log(repo_sin_yaml)[0]
+    assert (inicio["agents_md"], inicio["agents_md_caracteres"]) == (True, len(texto))
+
+
+def test_sin_agents_md_avisa(monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path) -> None:
+    _, salida = _correr(monkeypatch, repo_sin_yaml, [terminar()])
+    assert "El repo no tiene AGENTS.md" in salida
+    assert _eventos_del_log(repo_sin_yaml)[0]["agents_md"] is False
