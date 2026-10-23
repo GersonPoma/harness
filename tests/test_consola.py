@@ -2,10 +2,14 @@ import io
 import os
 import subprocess
 import sys
+import tomllib
+from pathlib import Path
 
 import pytest
 
-from harness import consola
+from harness import cli, consola
+
+RAIZ_PROYECTO = Path(__file__).resolve().parents[1]
 
 
 def test_forzar_salida_utf8_reconfigura_stdout_y_stderr(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -39,3 +43,17 @@ def test_salida_redirigida_con_pagina_de_codigos_cp1252() -> None:
     )
     assert proceso.returncode == 0, proceso.stderr.decode("utf-8", "replace")
     assert proceso.stdout.decode("utf-8").strip() == "→ ✓"
+
+
+def test_el_comando_harness_arranca_por_main() -> None:
+    # Si apuntara a 'app', forzar_salida_utf8 no se ejecutaría nunca en el comando real.
+    pyproject = tomllib.loads((RAIZ_PROYECTO / "pyproject.toml").read_text(encoding="utf-8"))
+    assert pyproject["project"]["scripts"]["harness"] == "harness.cli:main"
+
+
+def test_main_pasa_a_utf8_antes_de_arrancar(monkeypatch: pytest.MonkeyPatch) -> None:
+    orden: list[str] = []
+    monkeypatch.setattr(consola, "forzar_salida_utf8", lambda: orden.append("utf8"))
+    monkeypatch.setattr(cli, "app", lambda: orden.append("app"))
+    cli.main()
+    assert orden == ["utf8", "app"]
