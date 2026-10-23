@@ -513,7 +513,7 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
       pensada para varios. `servicios` y `variables_entorno` se validaban, pero si traían algo
       la ejecución se detenía hasta la fase 3. Sin `harness.yaml`, el harness avisa y trabaja
       como en la fase 1 (sin Docker ni validación)
-- [ ] **3.** Servicios en Docker: `servicios` y `variables_entorno` del `harness.yaml`, red
+- [x] **3.** Servicios en Docker: `servicios` y `variables_entorno` del `harness.yaml`, red
       privada, espera de `listo_cuando` y limpieza. Probado con notas-api (PostgreSQL)
 - [ ] **4.** Lectura automática de `AGENTS.md` al contexto inicial (+ `harness init` si no
       existen `AGENTS.md` / `harness.yaml`) + fase de planificación. (La lectura de
