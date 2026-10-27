@@ -19,6 +19,15 @@ from harness.config_proyecto import (
 from harness.contexto import ContextoProyecto, cargar_agents_md
 from harness.ejecucion import Planificacion, ResultadoEjecucion, Validacion, ejecutar_ticket
 from harness.entorno_docker import EntornoDocker, ErrorDocker
+from harness.entrega import (
+    ConfigEntrega,
+    cerrar_sin_entregar,
+    crear_config_entrega,
+    crear_mensaje_commit,
+    entregar,
+    preparar_rama,
+)
+from harness.git import ErrorGit
 from harness.herramientas import crear_herramientas, crear_herramientas_lectura
 from harness.herramientas.comandos import EjecutorComandos, validar_proyecto
 from harness.herramientas.protegidos import GuardiaProtegidos
@@ -29,7 +38,7 @@ from harness.prompts import crear_mensajes_iniciales
 from harness.proveedores.base import ErrorProveedor, ProveedorLLM
 from harness.proveedores.fabrica import crear_proveedor
 from harness.registro import RegistroPasos
-from harness.ticket import ErrorTicket, leer_ticket_local
+from harness.ticket import ErrorTicket, leer_ticket_local, titulo_ticket
 from harness.variables import (
     ErrorVariables,
     VariablesResueltas,
@@ -58,6 +67,11 @@ class _Preparacion:
     variables: VariablesResueltas
     contexto: ContextoProyecto
     es_con_plan: bool = True
+
+    @property
+    def titulo(self) -> str:
+        """Título del ticket (su primera línea), para el commit."""
+        return titulo_ticket(self.texto_ticket, self.ticket)
 
     @property
     def secretos(self) -> list[str]:
@@ -113,6 +127,9 @@ def run(
         bool,
         typer.Option("--aprobar-plan", help="Mostrar el plan y preguntar antes de implementar."),
     ] = False,
+    sin_push: Annotated[
+        bool, typer.Option("--sin-push", help="Hacer el commit en la rama, pero no el push.")
+    ] = False,
 ) -> None:
     """Procesa un ticket y genera el código en el repo objetivo."""
     if sin_plan and aprobar_plan:
@@ -129,21 +146,74 @@ def run(
 
     reporte = _Reporte(registro, aprobar_plan)
     _avisar_recorte_plan(prep, max_pasos, reporte)
+    config_entrega = _preparar_rama(prep, not sin_push, reporte)
     try:
         resultado, cambios = _ejecutar(prep, max_pasos, reporte)
     except (ErrorProveedor, ErrorDocker, ErrorRespuestaVacia, ErrorPlan) as error:
         registro.registrar_error(str(error))
         consola.mostrar_error(str(error))
+        _cerrar_rama(prep, config_entrega, reporte)
         raise typer.Exit(1) from error
     except KeyboardInterrupt as error:
         registro.registrar_error("Ejecución cancelada por el usuario.")
         consola.mostrar_error("Ejecución cancelada (los contenedores se borraron).")
+        _cerrar_rama(prep, config_entrega, reporte)
         raise typer.Exit(CODIGO_CANCELADO) from error
 
     registro.registrar_fin(resultado, cambios)
     consola.mostrar_fin(resultado, cambios, str(registro.ruta))
+    if config_entrega:
+        _entregar(prep, config_entrega, resultado, reporte)
     if resultado.es_limite_alcanzado or resultado.es_validado is False:
         raise typer.Exit(1)
+
+
+def _preparar_rama(
+    prep: _Preparacion, es_con_push: bool, reporte: _Reporte
+) -> ConfigEntrega | None:
+    """Crea la rama del ticket antes de gastar pedidos; sin harness.yaml no hay entrega."""
+    if prep.config_proyecto is None:
+        return None
+    config = crear_config_entrega(prep.config_proyecto.git, prep.ticket, es_con_push)
+    try:
+        preparar_rama(prep.repo, config, reporte.aviso)
+    except ErrorGit as error:
+        reporte.registro.registrar_error(str(error))
+        consola.mostrar_error(str(error))
+        raise typer.Exit(1) from error
+    reporte.registro.registrar_rama(config)
+    consola.mostrar_rama(config)
+    return config
+
+
+def _entregar(
+    prep: _Preparacion, config: ConfigEntrega, resultado: ResultadoEjecucion, reporte: _Reporte
+) -> None:
+    try:
+        entrega = entregar(
+            prep.repo, config, resultado, crear_mensaje_commit(prep.ticket, prep.titulo)
+        )
+    except ErrorGit as error:
+        reporte.registro.registrar_error(str(error))
+        consola.mostrar_error(str(error))
+        raise typer.Exit(1) from error
+    reporte.registro.registrar_entrega(entrega)
+    consola.mostrar_entrega(entrega, config)
+
+
+def _cerrar_rama(
+    prep: _Preparacion, config: ConfigEntrega | None, reporte: _Reporte
+) -> None:
+    """Después de un error: borra la rama si quedó vacía; si no, avisa dónde quedaron."""
+    if config is None:
+        return
+    try:
+        entrega = cerrar_sin_entregar(prep.repo, config)
+    except ErrorGit as error:
+        reporte.aviso(f"No se pudo cerrar la rama {config.rama}: {error}")
+        return
+    reporte.registro.registrar_entrega(entrega)
+    consola.mostrar_entrega(entrega, config)
 
 
 def _preparar_ejecucion(ticket: Path, repo: Path) -> _Preparacion:
@@ -162,8 +232,9 @@ def _preparar_ejecucion(ticket: Path, repo: Path) -> _Preparacion:
         raise typer.Exit(1) from error
     if config_proyecto is None:
         consola.mostrar_aviso(
-            "El repo no tiene harness.yaml: se trabaja sin Docker, sin tests y sin validación. "
-            "Créalo con 'harness init' o a mano (docs/harness-yaml.md)."
+            "El repo no tiene harness.yaml: se trabaja sin Docker, sin tests y sin validación, "
+            "y por eso sin commit ni push. Créalo con 'harness init' o a mano "
+            "(docs/harness-yaml.md)."
         )
     contexto = cargar_agents_md(repo)
     # Para ejecuciones sin nadie mirando la consola: el aviso de "falta AGENTS.md" no alcanza.

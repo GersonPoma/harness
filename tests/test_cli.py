@@ -9,7 +9,10 @@ from harness.config import ConfigModelo
 from harness.entorno_docker import ErrorDocker
 from harness.planificacion import calcular_pasos_plan
 from harness.tipos import LlamadaHerramienta, RespuestaModelo
+from harness.cambios import CambiosRepo
+from harness.ejecucion import ResultadoEjecucion
 from tests.falsos import ProveedorFalso, pedir, proponer, terminar, vacia
+from tests.git_prueba import agregar_remoto, git, iniciar_repo, ramas_remotas, requiere_git
 
 
 @pytest.fixture
@@ -113,6 +116,8 @@ def _con_requiere_agents(
     (repo / "harness.yaml").write_text(yaml, encoding="utf-8")
     if agents_md is not None:
         (repo / "AGENTS.md").write_text(agents_md, encoding="utf-8")
+    # Con harness.yaml hay entrega con Git: el repo tiene que serlo (sin remoto: --sin-push).
+    iniciar_repo(repo)
     usos: list[str] = []
 
     def docker_falso(*_args: object) -> None:
@@ -141,7 +146,7 @@ def test_requiere_agents_md_con_agents_md_sigue(
     monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
 ) -> None:
     usos = _con_requiere_agents(monkeypatch, repo_sin_yaml, "true", "# demo\n")
-    codigo, salida = _correr(monkeypatch, repo_sin_yaml, [terminar()])
+    codigo, salida = _correr(monkeypatch, repo_sin_yaml, [terminar()], "--sin-push")
     assert usos == ["docker"]
     assert "Docker falso" in salida and codigo == 1
 
@@ -150,7 +155,7 @@ def test_sin_requiere_agents_md_avisa_y_sigue(
     monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
 ) -> None:
     usos = _con_requiere_agents(monkeypatch, repo_sin_yaml, "false", None)
-    _, salida = _correr(monkeypatch, repo_sin_yaml, [terminar()])
+    _, salida = _correr(monkeypatch, repo_sin_yaml, [terminar()], "--sin-push")
     assert "El repo no tiene AGENTS.md" in salida
     assert usos == ["docker"]
 
@@ -160,6 +165,7 @@ def test_max_pasos_plan_de_harness_yaml_llega_a_la_planificacion(
 ) -> None:
     yaml = YAML_CON_DOCKER + "limites:\n  max_pasos: 20\n  max_pasos_plan: 4\n"
     (repo_sin_yaml / "harness.yaml").write_text(yaml, encoding="utf-8")
+    iniciar_repo(repo_sin_yaml)
     recibidas: list[int] = []
 
     def ejecutar_falso(prep, max_pasos, reporte):
@@ -167,7 +173,7 @@ def test_max_pasos_plan_de_harness_yaml_llega_a_la_planificacion(
         raise ErrorDocker("fin de la prueba")
 
     monkeypatch.setattr(cli, "_ejecutar", ejecutar_falso)
-    _correr(monkeypatch, repo_sin_yaml, [])
+    _correr(monkeypatch, repo_sin_yaml, [], "--sin-push")
     assert recibidas == [4]
 
 
@@ -176,6 +182,7 @@ def _correr_con_limites(
 ) -> tuple[list[int], str]:
     """Corre con harness.yaml y anota el presupuesto de plan que llega a la ejecución."""
     (repo / "harness.yaml").write_text(YAML_CON_DOCKER + limites, encoding="utf-8")
+    iniciar_repo(repo)
     presupuestos: list[int] = []
 
     def ejecutar_falso(prep, max_pasos, reporte):
@@ -185,7 +192,7 @@ def _correr_con_limites(
         raise ErrorDocker("fin de la prueba")
 
     monkeypatch.setattr(cli, "_ejecutar", ejecutar_falso)
-    _, salida = _correr(monkeypatch, repo, [], *opciones)
+    _, salida = _correr(monkeypatch, repo, [], "--sin-push", *opciones)
     return presupuestos, " ".join(salida.split())
 
 
@@ -241,6 +248,79 @@ def test_varias_llamadas_en_un_paso_se_agrupan_y_el_log_no_cambia(
         (1, "leer_archivo"), (1, "listar_directorio"),
     ]
     assert not {"indice", "total"} & set(pasos[0])
+
+
+def _correr_con_entrega(
+    monkeypatch: pytest.MonkeyPatch, repo: Path, es_validado: bool, *opciones: str
+) -> tuple[int, str, Path]:
+    """Repo Git con remoto local; la ejecución (falsa) escribe un archivo y valida o no."""
+    (repo / "harness.yaml").write_text(YAML_CON_DOCKER, encoding="utf-8")
+    (repo.parent / "T-1.md").write_text("# T-1: Crear tareas\n", encoding="utf-8")
+    iniciar_repo(repo)
+    remoto = agregar_remoto(repo, repo.parent / "remoto.git")
+
+    def ejecutar_falso(prep, max_pasos, reporte):
+        (prep.repo / "tareas.py").write_text("TAREAS = []\n", encoding="utf-8")
+        resultado = ResultadoEjecucion("Hecho", 3, 10, 5, False, es_validado, 1)
+        return resultado, CambiosRepo(creados=["tareas.py"])
+
+    monkeypatch.setattr(cli, "_ejecutar", ejecutar_falso)
+    codigo, salida = _correr(monkeypatch, repo, [], *opciones)
+    return codigo, salida, remoto
+
+
+@requiere_git
+def test_con_la_validacion_ok_hace_commit_y_push_en_la_rama(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    codigo, salida, remoto = _correr_con_entrega(monkeypatch, repo_sin_yaml, True)
+
+    assert codigo == 0
+    assert "Rama feature/T-1 creada desde main." in salida
+    assert "✓ Commit" in salida and "✓ Push de feature/T-1 a origin." in salida
+    assert "feature/T-1" in ramas_remotas(remoto)
+    assert git(repo_sin_yaml, "log", "-1", "--format=%B", "feature/T-1") == "T-1: Crear tareas"
+    eventos = {e["evento"]: e for e in _eventos_del_log(repo_sin_yaml)}
+    assert eventos["rama"] == {**eventos["rama"], "rama": "feature/T-1", "base": "main"}
+    assert eventos["entrega"]["archivos"] == ["tareas.py"]
+    assert eventos["entrega"]["es_pusheado"] is True
+
+
+@requiere_git
+def test_con_la_validacion_fallida_no_hay_commit_ni_push(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    codigo, salida, remoto = _correr_con_entrega(monkeypatch, repo_sin_yaml, False)
+
+    assert codigo == 1
+    assert "La validación no pasó: sin commit ni push." in salida
+    assert "feature/T-1" not in ramas_remotas(remoto)
+    assert git(repo_sin_yaml, "branch", "--show-current") == "feature/T-1"
+    assert (repo_sin_yaml / "tareas.py").exists()
+
+
+@requiere_git
+def test_con_cambios_sin_commitear_no_llama_al_modelo(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    (repo_sin_yaml / "harness.yaml").write_text(YAML_CON_DOCKER, encoding="utf-8")
+    iniciar_repo(repo_sin_yaml)
+    (repo_sin_yaml / "app.py").write_text("x = 2\n", encoding="utf-8")
+    proveedor = ProveedorFalso([terminar()])
+
+    codigo, salida = _correr(monkeypatch, repo_sin_yaml, proveedor, "--sin-push")
+    assert codigo == 1
+    assert "sin commitear" in salida
+    assert proveedor.conversaciones == []
+
+
+def test_sin_harness_yaml_no_hay_git(monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path) -> None:
+    # repo_sin_yaml ni siquiera es un repo Git: sin validación no hay entrega.
+    codigo, salida = _correr(monkeypatch, repo_sin_yaml, [terminar()], "--sin-plan")
+    assert codigo == 0
+    assert "sin commit ni push" in " ".join(salida.split())
+    eventos = [e["evento"] for e in _eventos_del_log(repo_sin_yaml)]
+    assert "rama" not in eventos and "entrega" not in eventos
 
 
 def _escribir(ruta: str) -> RespuestaModelo:

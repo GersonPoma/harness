@@ -9,6 +9,7 @@ from harness.bucle import Paso
 from harness.cambios import CambiosRepo
 from harness.contexto import ContextoProyecto
 from harness.ejecucion import ResultadoEjecucion, Validacion
+from harness.entrega import ConfigEntrega, ResultadoEntrega
 from harness.init import ResultadoInit
 from harness.plan import Plan, archivos_fuera_del_plan
 from harness.variables import ocultar_secretos
@@ -103,6 +104,22 @@ class RegistroPasos:
     def registrar_plan(self, plan: Plan, es_aprobado: bool) -> None:
         """Registra el plan propuesto y si se siguió con la implementación."""
         self._escribir({"evento": "plan", "es_aprobado": es_aprobado, **plan.model_dump()})
+
+    def registrar_rama(self, config: ConfigEntrega) -> None:
+        """Registra la rama del ticket creada al empezar."""
+        self._escribir({"evento": "rama", "rama": config.rama, "base": config.base})
+
+    def registrar_entrega(self, entrega: ResultadoEntrega) -> None:
+        """Registra el commit y el push (o por qué no se hicieron)."""
+        self._escribir({
+            "evento": "entrega",
+            "rama": entrega.rama,
+            "commit": entrega.hash_commit,
+            "archivos": entrega.archivos,
+            "es_pusheado": entrega.es_pusheado,
+            "es_rama_borrada": entrega.es_rama_borrada,
+            "motivo": entrega.motivo,
+        })
 
     def registrar_aviso(self, mensaje: str) -> None:
         """Registra un aviso que no corta la ejecución (por ejemplo, una respuesta vacía)."""

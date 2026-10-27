@@ -13,6 +13,7 @@ from harness.cambios import CambiosRepo
 from harness.contexto import MAX_CARACTERES_AGENTS, ContextoProyecto
 from harness.ejecucion import ResultadoEjecucion, Validacion
 from harness.entorno_docker import ResultadoComando
+from harness.entrega import ConfigEntrega, ResultadoEntrega
 from harness.init import ResultadoInit
 from harness.plan import Plan, archivos_fuera_del_plan
 
@@ -120,6 +121,26 @@ def mostrar_fin(resultado: ResultadoEjecucion, cambios: CambiosRepo, ruta_log: s
         f"[dim]Pasos: {resultado.pasos} · Tokens: {resultado.tokens_entrada} entrada / "
         f"{resultado.tokens_salida} salida · Log: {escape(ruta_log)}[/]"
     )
+
+
+def mostrar_rama(config: ConfigEntrega) -> None:
+    """Avisa en qué rama trabaja el modelo."""
+    consola.print(f"[dim]Rama {escape(config.rama)} creada desde {escape(config.base)}.[/]")
+
+
+def mostrar_entrega(entrega: ResultadoEntrega, config: ConfigEntrega) -> None:
+    """Commit y push hechos, o por qué no se hicieron."""
+    if entrega.hash_commit:
+        consola.print(
+            f"[bold green]✓ Commit {entrega.hash_commit}[/] en {escape(entrega.rama)} "
+            f"({len(entrega.archivos)} archivo(s))."
+        )
+    if entrega.es_pusheado:
+        consola.print(
+            f"[bold green]✓ Push[/] de {escape(entrega.rama)} a {escape(config.remoto)}."
+        )
+    if entrega.motivo:
+        mostrar_aviso(entrega.motivo)
 
 
 def mostrar_cambios(cambios: CambiosRepo) -> None:
