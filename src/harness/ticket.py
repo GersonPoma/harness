@@ -1,4 +1,4 @@
-"""Lectura de tickets locales (la integración con Jira llega en la fase 6)."""
+"""Lectura de tickets locales (la integración con Jira llega en la fase 7)."""
 
 from pathlib import Path
 

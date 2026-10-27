@@ -146,7 +146,7 @@ def verificar_config(
 ) -> ResultadoComando:
     """Levanta el entorno con el harness.yaml (servicios, instalación) y corre los tests.
 
-    Solo informa: no hay bucle de corrección del YAML (queda para el pulido).
+    Solo informa: no hay bucle de corrección del YAML (queda para la fase 9).
     """
     with EntornoDocker(repo, config, NOMBRE_EJECUCION_VERIFICAR, variables) as entorno:
         entorno.iniciar(al_avanzar)

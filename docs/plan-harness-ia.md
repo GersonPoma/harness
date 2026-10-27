@@ -569,28 +569,109 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
       `harness.yaml` se adelantó a la fase 2 porque Docker y los tests dependen de ella)
 - [ ] **5.** Git: rama, commit, push. **No se hace commit ni push de código que no pasó la
       validación** (tests + lint), ni de ejecuciones sin `harness.yaml` (no hubo validación)
-- [ ] **6.** Integración real con Jira (reemplaza el ticket local)
-- [ ] **7.** Memoria: manejo de contexto (recorte + resumen), `.harness/memory.md` con
-      `save_memory`, y `harness resume`
-- [ ] **8.** Pulido: PR automático, comentario en Jira, logs bonitos, `ProveedorAnthropic`
-      (preset `anthropic`, para quien elija Claude), `harness config` +
-      `~/.harness/config.toml` con el orden de prioridad (necesario para que otros lo instalen
-      y usen). `harness init --verificar` con bucle de corrección: si la instalación o los
-      tests fallan, devolverle el error al modelo para que corrija el `harness.yaml`
+  - [ ] **Pull request automático** (`create_pull_request`, API de GitHub).
+- [ ] **6.** Caché de dependencias. Va antes que el resto porque con Gradle sobre Windows cada
+      ejecución tarda varios minutos solo en descargar dependencias.
+  - [ ] **Volumen de caché para dependencias** (clave nueva, por ejemplo `docker.cache`):
+        `/root/.m2` para Maven, la caché de pip o de npm. Guarda solo librerías descargadas,
+        nunca datos de la base. En tienda-api, cada ejecución tarda ~2 minutos solo en
+        descargar dependencias.
+- [ ] **7.** Jira: integración real con Jira (reemplaza el ticket local)
+  - [ ] **Comentario en el ticket de Jira** con el link del PR.
+- [ ] **8.** Memoria y continuidad: manejo de contexto (recorte + resumen),
+      `.harness/memory.md` con `save_memory`, y `harness resume`
+  - [ ] **Cambio automático de proveedor al agotarse la cuota.** Lista de respaldo en el
+        `.env` (por ejemplo `HARNESS_RESPALDO=groq:openai/gpt-oss-120b,openrouter:<modelo>`).
+        Si se agota la cuota diaria, avisar en consola, pasar al siguiente y seguir desde el
+        mismo paso. Depende del resumen de contexto: una conversación larga de Gemini no entra
+        en los 8.000 tokens por minuto de Groq.
+  - [ ] **Distinguir los dos 429:** el límite por minuto (esperar y reintentar) y la cuota
+        diaria (no se recupera hasta medianoche, hora del Pacífico: cortar o cambiar de
+        proveedor).
+  - [ ] **`harness resume` acepta `--proveedor` y `--modelo`**, para retomar con otra IA un
+        ticket que quedó a medias. Las sesiones ya se guardan con tipos propios, así que no
+        dependen del proveedor.
+  - [ ] **"Cuota agotada" como causa de corte** que se puede retomar con `resume` (junto a
+        error, Ctrl+C, límite de tokens y sin internet).
+- [ ] **9.** Calidad de la ejecución
+  - [ ] **Paso de revisión con el modelo.** Después de que los tests pasan, mostrarle al
+        modelo el `git diff`, el `AGENTS.md` y el ticket, y pedirle que revise si se viola
+        alguna regla o falta algún criterio de aceptación. Si encuentra algo, se vuelve a
+        implementar. Configurable por proyecto en el `harness.yaml`, porque gasta pedidos.
+        Habría detectado el `ProductoRepository` usado desde ventas en TIENDA-3, aunque los
+        tests pasaban.
+  - [ ] **`harness init --verificar` con corrección:** si la verificación falla (la
+        instalación o los tests), devolverle el error al modelo para que corrija el
+        `harness.yaml` generado, con un límite de intentos. Hoy solo informa el resultado.
+  - [ ] **Recomendar reglas de arquitectura por proyecto** en `harness init` o en la
+        documentación: ArchUnit (Java), `import-linter` (Python),
+        `dependency-cruiser` / `eslint-plugin-boundaries` (Node), enganchadas en
+        `comandos.tests` o `comandos.lint` para que la validación las haga cumplir.
+  - [ ] **Detección de bucles:** si el modelo escribe el mismo contenido en el mismo
+        archivo, o recibe exactamente el mismo error de tests varias veces seguidas,
+        avisarle que replantee el enfoque (y, si sigue, cortar). En TIENDA-3 reescribió
+        VentaServiceImpl 4 veces igual, con el mismo test fallando.
+  - [ ] **`editar_archivo`**: reemplazar un fragmento exacto en vez de reescribir el archivo
+        completo. Menos tokens y menos riesgo de borrar código por error. Está en el plan,
+        pero no tenía fase asignada.
+  - [ ] **`buscar_en_codigo`** (tipo grep): encontrar dónde se usa una clase o un método sin
+        leer archivo por archivo. Está en el plan, pero no tenía fase asignada.
+  - [ ] **Campo `codigo_salida` en el log** para `ejecutar_tests`, `ejecutar_lint` y
+        `ejecutar_comando`. Hoy `es_error` significa "la herramienta no pudo ejecutarse", y
+        que los tests fallen solo se ve dentro del texto.
+- [ ] **10.** Docker
+  - [ ] **Opción `--conservar`:** no borrar los contenedores al terminar, para poder
+        conectarse a la base y depurar. Mostrar cómo conectarse y cómo borrarlos después.
+  - [ ] **Etiquetas propias en contenedores y redes** (`harness=1`, `harness.ticket=...`):
+        listar con `docker ps -a --filter label=harness=1` y limpiar cualquier resto huérfano
+        del harness, no solo los que tienen el mismo nombre.
+  - [x] **Cortar la espera de `listo_cuando` si el servicio ya murió** (`docker inspect`
+        muestra `Running=false`), en vez de esperar el timeout completo. Ejemplo: con
+        `POSTGRES_PASSWORD` vacío, PostgreSQL se cierra al instante, pero se esperan igual
+        los 60 segundos. (hecho en 10a4e96)
+  - [ ] **`--user <uid>:<gid>` en Linux**, para que los archivos creados dentro del
+        contenedor no queden con dueño root (en Windows con Docker Desktop no afecta). El
+        contenedor corre como root, así que lo que crea en el repo montado
+        (`.pytest_cache/`, `*.egg-info/`, archivos que escribe un comando del modelo) queda
+        con dueño root en la máquina del usuario. Ojo: `docker.instalar` con `pip install`
+        necesita entonces un entorno virtual o `--user`, porque no podrá escribir en el
+        Python del sistema de la imagen.
+  - [ ] **Imágenes sin el comando `timeout`:** hoy cada comando corre con
+        `timeout -s KILL` dentro del contenedor; si la imagen no lo trae, queda solo el
+        timeout del lado del host. Las imágenes basadas en Debian o Alpine lo traen; una
+        imagen mínima (distroless) no, y sus comandos fallarían con "timeout: not found".
+  - [ ] **Comando `harness limpiar`:** borra los contenedores, redes y volúmenes
+        huérfanos del harness; con `--cache`, los volúmenes de caché de dependencias;
+        con `--imagenes`, solo las imágenes usadas por los `harness.yaml`, sin tocar las
+        de otros proyectos. Las imágenes se descargan una sola vez y Docker las reutiliza;
+        lo que se repite en cada ejecución son las dependencias (ver volumen de caché).
+- [ ] **11.** Distribución y pulido
+  - [ ] **`ProveedorAnthropic`** (preset `anthropic`), para quien elija Claude.
+  - [ ] **`harness config` + `~/.harness/config.toml`**, con el orden de prioridad: opciones
+        del comando → variables de entorno / `.env` → `config.toml`. Necesario para que otros
+        lo instalen con `uv tool install git+...` y lo usen sin el repo.
+  - [ ] **Logs más legibles** (resumen por ejecución, tiempos por etapa).
+  - [ ] **Repetir el aviso de "falta AGENTS.md" en el resumen final**: hoy aparece una vez
+        al inicio y se pierde detrás de "Instalando dependencias...".
+  - [ ] **Ocultar también `.envrc`** (archivo de direnv, que suele tener secretos) en las
+        herramientas y dentro del contenedor, igual que `.env`.
+  - [ ] **`.gitattributes` con `* text=auto eol=lf`**, para unificar los finales de línea y
+        que deje de aparecer el aviso de LF/CRLF en Windows.
 
-> Con 1 y 2 ya hay algo funcional y demostrable; lo demás se suma encima.
+> Con 1 y 2 ya hay algo funcional y demostrable; lo demás se suma encima. Marcar con `[x]`
+> cada ítem al terminarlo, y la fase cuando estén todos.
 
-### Pendientes conocidos
+### Ideas fuera de alcance
 
-- **Archivos con dueño root en Linux:** el contenedor corre como root, así que lo que crea en
-  el repo montado (`.pytest_cache/`, `*.egg-info/`, archivos que escribe un comando del modelo)
-  queda con dueño root en la máquina del usuario. En Windows/macOS con Docker Desktop no pasa.
-  Se resolvería con `docker run --user <uid>:<gid>` en Linux (ojo: `docker.instalar` con
-  `pip install` necesita entonces un entorno virtual o `--user`, porque no podrá escribir en
-  el Python del sistema de la imagen).
-- **Imágenes sin `timeout`:** el límite de tiempo de cada comando usa `timeout -s KILL` dentro
-  del contenedor. Las imágenes basadas en Debian o Alpine lo traen; una imagen mínima
-  (distroless) no, y sus comandos fallarían con "timeout: not found".
+Conversadas, pero fuera de alcance por ahora:
+
+- **Modo chat** (`harness chat`), sin ticket, como Claude Code: misma conversación entre
+  mensajes, confirmaciones antes de acciones delicadas, comandos `/salir`, `/limpiar`,
+  `/modelo`, `/tests`. Reutiliza el bucle, el proveedor y las herramientas.
+- **Proyectos fullstack (frontend y móvil):** el diseño ya lo permite cambiando solo el
+  `harness.yaml` de cada proyecto. Para monorepos haría falta una sección `componentes`
+  (uno por backend, frontend y móvil) y, para stacks sin imagen lista, la opción de un
+  `Dockerfile` propio. Por ahora el proyecto se enfoca solo en backend.
 
 ### Proyectos de prueba
 
