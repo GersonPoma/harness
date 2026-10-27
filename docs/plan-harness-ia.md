@@ -564,7 +564,7 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
       como en la fase 1 (sin Docker ni validación)
 - [x] **3.** Servicios en Docker: `servicios` y `variables_entorno` del `harness.yaml`, red
       privada, espera de `listo_cuando` y limpieza. Probado con notas-api (PostgreSQL)
-- [ ] **4.** Lectura automática de `AGENTS.md` al contexto inicial (+ `harness init` si no
+- [x] **4.** Lectura automática de `AGENTS.md` al contexto inicial (+ `harness init` si no
       existen `AGENTS.md` / `harness.yaml`) + fase de planificación. (La lectura de
       `harness.yaml` se adelantó a la fase 2 porque Docker y los tests dependen de ella)
 - [ ] **5.** Git: rama, commit, push. **No se hace commit ni push de código que no pasó la
@@ -615,6 +615,11 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         recomendado** para el stack detectado. En library-api, `init` no siguió la
         recomendación de 1200 s para Gradle (escribió 600) y agregó `--no-daemon`, que hace
         más lento cada comando.
+  - [ ] **`init` avisa si un proyecto Gradle no muestra el detalle de las fallas:** si el
+        build no configura `testLogging` con `exceptionFormat` `FULL`, al terminar `init` le
+        sugiere al usuario el bloque a agregar (no modifica el build). Por defecto Gradle solo
+        muestra "AssertionError at Archivo.java:49", sin el valor esperado ni el obtenido, y
+        el modelo corrige a ciegas: pasó en LIB-2 de library-api, que tardó dos intentos.
   - [ ] **Detección de bucles:** si el modelo escribe el mismo contenido en el mismo
         archivo, o recibe exactamente el mismo error de tests varias veces seguidas,
         avisarle que replantee el enfoque (y, si sigue, cortar). En TIENDA-3 reescribió
