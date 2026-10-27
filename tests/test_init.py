@@ -254,10 +254,12 @@ def test_el_ejemplo_maven_es_el_de_tienda_api() -> None:
         "Python chico (pytest, pocas dependencias): los valores por defecto alcanzan; no "
         "escribas\n  limites.",
         # Maven y Gradle.
-        "timeout_comando_segundos: 600, max_pasos: 50,\n  max_pasos_plan: 20 y "
-        "max_caracteres_salida: 6000",
+        "max_pasos: 50, max_pasos_plan: 20,\n  max_caracteres_salida: 6000 y "
+        "timeout_comando_segundos: 600 en Maven o 1200 en Gradle",
         "mvn -B -q clean test -Dmaven.test.redirectTestOutputToFile=true",
-        "gradle clean test",
+        "instalar gradle testClasses --project-cache-dir /tmp/gradle-proyecto",
+        "gradle clean test --project-cache-dir /tmp/gradle-proyecto",
+        "sobre una carpeta montada desde Windows, Gradle no puede escribirla",
         # Spring Boot.
         "SPRING_DATASOURCE_URL (jdbc:postgresql://db:5432/<base>), SPRING_DATASOURCE_USERNAME",
         # Tests de arquitectura.

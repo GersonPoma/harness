@@ -67,6 +67,14 @@ def repo_git(tmp_path: Path) -> Path:
     return raiz
 
 
+def test_sin_git_ignora_bin_de_los_ides(repo: Path) -> None:
+    # Eclipse y VS Code (Java) compilan en bin/main y bin/test.
+    antes = tomar_instantanea(repo)
+    _escribir(repo / "bin" / "main" / "com" / "App.class")
+    _escribir(repo / "bin" / "test" / "com" / "AppTest.class")
+    assert not comparar(antes, tomar_instantanea(repo)).hay_cambios
+
+
 @requiere_git
 def test_con_git_respeta_el_gitignore(repo_git: Path) -> None:
     antes = tomar_instantanea(repo_git)

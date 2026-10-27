@@ -175,15 +175,21 @@ Recomendaciones según el stack:
 - Python chico (pytest, pocas dependencias): los valores por defecto alcanzan; no escribas
   limites.
 - Stacks compilados (Maven, Gradle): la primera instalación descarga muchas dependencias y cada
-  corrida compila. Escribe limites con timeout_comando_segundos: 600, max_pasos: 50,
-  max_pasos_plan: 20 y max_caracteres_salida: 6000.
-  - docker.instalar descarga las dependencias y compila sin correr los tests:
-    mvn -B -q -DskipTests test-compile (Gradle: gradle testClasses).
-  - comandos.tests limpia antes de compilar, porque los artefactos (target/, build/)
-    sobreviven entre ejecuciones y guardarían clases de archivos ya borrados. Maven:
+  corrida compila. Escribe limites con max_pasos: 50, max_pasos_plan: 20,
+  max_caracteres_salida: 6000 y timeout_comando_segundos: 600 en Maven o 1200 en Gradle
+  (sobre la carpeta montada desde Windows, la primera instalación de Gradle tardó 11 minutos).
+  - docker.instalar descarga las dependencias y compila sin correr los tests; comandos.tests
+    limpia antes de compilar, porque los artefactos (target/, build/) sobreviven entre
+    ejecuciones y guardarían clases de archivos ya borrados.
+  - Maven: instalar mvn -B -q -DskipTests test-compile y tests
     mvn -B -q clean test -Dmaven.test.redirectTestOutputToFile=true (la redirección manda la
     salida de cada test a target/surefire-reports/ y en la consola queda el resumen de
-    fallas). Gradle: gradle clean test, o ./gradlew clean test si el repo trae el wrapper.
+    fallas).
+  - Gradle: instalar gradle testClasses --project-cache-dir /tmp/gradle-proyecto y tests
+    gradle clean test --project-cache-dir /tmp/gradle-proyecto (con ./gradlew si el repo trae
+    el wrapper). --project-cache-dir saca la caché del proyecto (.gradle/) de la carpeta
+    montada: sobre una carpeta montada desde Windows, Gradle no puede escribirla y el build
+    falla aunque los tests pasen.
 - Spring Boot con base de datos: un servicio db y, en variables_entorno,
   SPRING_DATASOURCE_URL (jdbc:postgresql://db:5432/<base>), SPRING_DATASOURCE_USERNAME y
   SPRING_DATASOURCE_PASSWORD con los mismos valores del servicio. Spring Boot las toma por

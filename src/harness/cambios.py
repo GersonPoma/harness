@@ -19,9 +19,9 @@ CARPETAS_SIN_SEGUIMIENTO = CARPETAS_IGNORADAS | {
     ".harness", ".pytest_cache", ".mypy_cache", ".ruff_cache",
 }
 
-# Solo sin Git: salidas de compilación de Maven, Gradle, npm... Con Git manda el .gitignore,
-# que sabe cuáles son las de cada proyecto.
-CARPETAS_DE_COMPILACION = {"target", "build", "dist", "out", ".gradle"}
+# Solo sin Git: salidas de compilación de Maven, Gradle, npm y de algunos IDEs (bin/ de
+# Eclipse y VS Code). Con Git manda el .gitignore, que sabe cuáles son las de cada proyecto.
+CARPETAS_DE_COMPILACION = {"target", "build", "dist", "out", ".gradle", "bin"}
 
 # Archivos versionados y nuevos, sin los que excluye el .gitignore. Con -z las rutas salen
 # separadas por '\0' y sin comillas ni escapes, aunque tengan tildes o espacios.

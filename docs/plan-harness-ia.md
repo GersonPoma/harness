@@ -155,7 +155,8 @@ harness run PROJ-123
   en amarillo de los que no estaban en el plan. Si el repo es Git, esa foto de cambios solo
   mira los archivos que Git no ignora (`git ls-files --cached --others --exclude-standard`),
   así las salidas de compilación de cada stack quedan fuera según su `.gitignore`; si no es
-  Git, se usa una lista fija de carpetas (más `target`, `build`, `dist`, `out` y `.gradle`).
+  Git, se usa una lista fija de carpetas (más `target`, `build`, `dist`, `out`, `.gradle` y
+  `bin`, la salida de algunos IDEs).
 - `--aprobar-plan`: muestra el plan y pregunta "¿Implementar? [s/n]"; con "n" termina sin
   implementar (código 0). Por defecto el harness sigue solo.
 - `--sin-plan`: salta la ronda de plan (tickets triviales o para ahorrar pedidos).
