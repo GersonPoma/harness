@@ -607,6 +607,14 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         documentación: ArchUnit (Java), `import-linter` (Python),
         `dependency-cruiser` / `eslint-plugin-boundaries` (Node), enganchadas en
         `comandos.tests` o `comandos.lint` para que la validación las haga cumplir.
+  - [ ] **`init` le informa al modelo qué imágenes ya están descargadas** (`docker image ls`)
+        y le pide preferirlas si son compatibles. En library-api eligió `gradle:8.10-jdk21`
+        en vez de la `gradle:8.14-jdk21` ya descargada, y `--verificar` falló por el timeout
+        de descarga.
+  - [ ] **`guardar_harness_yaml` advierte cuando los límites quedan por debajo de lo
+        recomendado** para el stack detectado. En library-api, `init` no siguió la
+        recomendación de 1200 s para Gradle (escribió 600) y agregó `--no-daemon`, que hace
+        más lento cada comando.
   - [ ] **Detección de bucles:** si el modelo escribe el mismo contenido en el mismo
         archivo, o recibe exactamente el mismo error de tests varias veces seguidas,
         avisarle que replantee el enfoque (y, si sigue, cortar). En TIENDA-3 reescribió
@@ -645,6 +653,9 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         con `--imagenes`, solo las imágenes usadas por los `harness.yaml`, sin tocar las
         de otros proyectos. Las imágenes se descargan una sola vez y Docker las reutiliza;
         lo que se repite en cada ejecución son las dependencias (ver volumen de caché).
+  - [ ] **Tiempo máximo de descarga de imágenes configurable y con progreso:** hoy son 600 s
+        fijos (`TIMEOUT_DESCARGA_SEGUNDOS`) y no se ve cuánto falta; las imágenes de Gradle o
+        Maven son grandes.
 - [ ] **11.** Distribución y pulido
   - [ ] **`ProveedorAnthropic`** (preset `anthropic`), para quien elija Claude.
   - [ ] **`harness config` + `~/.harness/config.toml`**, con el orden de prioridad: opciones
