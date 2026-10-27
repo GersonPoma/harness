@@ -6,6 +6,7 @@ from typing import Protocol
 from harness.entorno_docker import ResultadoComando
 from harness.herramientas.archivos import ErrorHerramienta
 from harness.herramientas.protegidos import GuardiaProtegidos
+from harness.herramientas.recorte import recortar_salida
 from harness.variables import ocultar_secretos
 
 # Con sh -c, cualquiera de estos permite encadenar un programa no permitido detrás de uno
@@ -34,14 +35,6 @@ def validar_comando(comando: str, permitidos: Sequence[str]) -> None:
         raise ErrorHerramienta(
             f"'{palabras[0]}' no está permitido. Programas permitidos: {', '.join(permitidos)}."
         )
-
-
-def recortar_salida(salida: str, max_caracteres: int) -> str:
-    """Conserva el final de la salida, donde suelen estar los errores."""
-    if len(salida) <= max_caracteres:
-        return salida
-    recortados = len(salida) - max_caracteres
-    return f"[... se recortaron los primeros {recortados} caracteres]\n{salida[-max_caracteres:]}"
 
 
 def formatear_resultado(

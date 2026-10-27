@@ -77,10 +77,9 @@ def test_rechaza_comando_vacio() -> None:
 
 
 def test_recortar_salida_conserva_el_final() -> None:
+    # El detalle del recorte está en test_recorte.py.
     assert recortar_salida("abc", 10) == "abc"
-    recortada = recortar_salida("0123456789ERROR", 5)
-    assert recortada.endswith("\nERROR")
-    assert "10 caracteres" in recortada
+    assert recortar_salida("0123456789ERROR", 5) == "ERROR"
 
 
 def test_formatear_resultado() -> None:
