@@ -118,13 +118,19 @@ archivos_protegidos:
 
 | Clave | Tipo | Obligatoria | Por defecto | Descripción |
 |---|---|---|---|---|
-| `tests` | texto | sí | | Comando que corre los tests. Lo usa la herramienta `ejecutar_tests` y la fase de validación. |
+| `tests` | texto | sí | | Comando que corre los tests. Lo usa la herramienta `ejecutar_tests` y la fase de validación. En stacks compilados conviene que limpie antes de testear (ver la nota de abajo). |
 | `lint` | texto o `null` | no | `null` | Comando del linter. Si es `null`, la herramienta `ejecutar_lint` no se le ofrece al modelo. |
 
 - Se ejecutan con `sh -c "<comando>"` dentro de `directorio_trabajo`.
 - **Código de salida 0 = pasó**; cualquier otro = falló, y la salida (recortada) vuelve al
   modelo.
 - Los escribe una persona, así que no pasan por `comandos_permitidos`.
+- **Limpiar antes de testear en stacks compilados.** La carpeta del proyecto está montada en el
+  contenedor, así que sus artefactos de compilación (`target/` de Maven, `build/` de Gradle)
+  sobreviven entre comandos y entre ejecuciones. Si el modelo borra o renombra un archivo, o
+  se descartan los cambios de una ejecución anterior, sus `.class` viejos siguen ahí: Spring
+  puede cargarlos y los tests de arquitectura los ven. Por eso conviene que `tests` limpie
+  primero: `mvn -B -q clean test`, `gradle clean test`.
 
 ### `comandos_permitidos`
 
