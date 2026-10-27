@@ -14,7 +14,6 @@ from harness.plan import Plan, archivos_fuera_del_plan
 from harness.variables import ocultar_secretos
 
 CARPETA_LOGS = Path(".harness") / "logs"
-MAX_CARACTERES_RESULTADO_LOG = 2_000
 
 
 class RegistroPasos:
@@ -43,23 +42,28 @@ class RegistroPasos:
         })
 
     def registrar_paso(self, paso: Paso) -> None:
-        """Registra una herramienta llamada y su resultado recortado."""
+        """Registra una herramienta llamada y su resultado.
+
+        El resultado va completo, tal como lo recibió el modelo (las salidas de comandos ya
+        vienen recortadas a max_caracteres_salida): un recorte extra aquí escondería
+        justo el final, donde suelen estar los errores, y el log no serviría para diagnosticar.
+        """
         self._escribir({
             "evento": "herramienta",
             "paso": paso.numero,
             "herramienta": paso.llamada.nombre,
             "argumentos": paso.llamada.argumentos,
             "es_error": paso.es_error,
-            "resultado": paso.resultado[:MAX_CARACTERES_RESULTADO_LOG],
+            "resultado": paso.resultado,
         })
 
     def registrar_validacion(self, validacion: Validacion) -> None:
-        """Registra una corrida de tests + lint y su informe recortado."""
+        """Registra una corrida de tests + lint y su informe, el mismo que recibe el modelo."""
         self._escribir({
             "evento": "validacion",
             "intento": validacion.intento,
             "es_valido": validacion.es_valido,
-            "informe": validacion.informe[:MAX_CARACTERES_RESULTADO_LOG],
+            "informe": validacion.informe,
         })
 
     def registrar_fin(
