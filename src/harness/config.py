@@ -15,6 +15,8 @@ VAR_PROVEEDOR = "HARNESS_PROVEEDOR"
 VAR_MODELO = "HARNESS_MODELO"
 VAR_BASE_URL = "HARNESS_BASE_URL"
 VAR_API_KEY_ENV = "HARNESS_API_KEY_ENV"
+# Solo para el pull request: el push usa las credenciales de Git del usuario.
+VAR_TOKEN_GITHUB = "GITHUB_TOKEN"
 
 
 class ErrorConfiguracion(Exception):
@@ -59,6 +61,11 @@ def cargar_config(ruta_env: Path = RUTA_ENV) -> ConfigModelo:
 
     api_key = _leer_obligatoria(variable_api_key, f"la API key del proveedor '{proveedor}'")
     return ConfigModelo(proveedor, modelo, base_url, api_key)
+
+
+def leer_token_github() -> str | None:
+    """Token de GitHub del .env (ya cargado) para crear el PR; None si no está."""
+    return os.environ.get(VAR_TOKEN_GITHUB, "").strip() or None
 
 
 def _leer_obligatoria(variable: str, que_es: str) -> str:

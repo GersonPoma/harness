@@ -1,4 +1,4 @@
-"""Entrega del trabajo: rama del ticket al empezar; commit y push al terminar.
+"""Entrega del trabajo: rama del ticket al empezar; commit, push y pull request al terminar.
 
 Lo hace el harness, no el modelo, y solo si la validación pasó: así nunca se sube código con
 tests fallando. Sin harness.yaml no hay validación, así que tampoco hay entrega.
@@ -8,8 +8,9 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from harness import git
-from harness.config_proyecto import ConfigGit
+from harness import git, github
+from harness.cambios import CambiosRepo
+from harness.config_proyecto import ConfigComandos, ConfigGit
 from harness.ejecucion import ResultadoEjecucion
 from harness.git import ErrorGit
 from harness.secretos import es_archivo_de_secretos
@@ -27,28 +28,39 @@ class ConfigEntrega:
     base: str
     remoto: str
     es_con_push: bool = True
+    es_con_pr: bool = True
+
+
+# Arma el pedido del PR una vez que se sabe el repo de GitHub (sale de la URL del remoto).
+ArmarPedidoPr = Callable[[github.RepoGitHub], github.PedidoPullRequest]
 
 
 @dataclass
 class ResultadoEntrega:
-    """Qué se entregó: commit y push (o por qué no)."""
+    """Qué se entregó: commit, push y PR (o por qué no)."""
 
     rama: str
     hash_commit: str | None = None
     archivos: list[str] = field(default_factory=list)
     es_pusheado: bool = False
-    # Por qué no hubo commit o push (se muestra en consola y queda en el log).
+    pull_request: github.PullRequest | None = None
+    # Por qué no hubo commit, push o PR (se muestra en consola y queda en el log).
     motivo: str | None = None
     es_rama_borrada: bool = False
+    # El push ya se hizo; el PR falló (token sin permisos, sin red...).
+    error_pr: str | None = None
 
 
-def crear_config_entrega(config_git: ConfigGit, ticket: str, es_con_push: bool) -> ConfigEntrega:
-    """Rama <prefijo_rama><ticket> desde git.rama_base, con o sin push."""
+def crear_config_entrega(
+    config_git: ConfigGit, ticket: str, es_con_push: bool, es_con_pr: bool = True
+) -> ConfigEntrega:
+    """Rama <prefijo_rama><ticket> desde git.rama_base; el PR necesita el push."""
     return ConfigEntrega(
         rama=f"{config_git.prefijo_rama}{ticket}",
         base=config_git.rama_base,
         remoto=config_git.remoto,
         es_con_push=es_con_push,
+        es_con_pr=es_con_push and es_con_pr,
     )
 
 
@@ -72,8 +84,10 @@ def entregar(
     config: ConfigEntrega,
     resultado: ResultadoEjecucion,
     mensaje_commit: str,
+    armar_pedido_pr: ArmarPedidoPr | None = None,
+    token_github: str | None = None,
 ) -> ResultadoEntrega:
-    """Commit y push si la validación pasó; si no, deja los cambios sin commitear."""
+    """Commit, push y PR si la validación pasó; si no, deja los cambios sin commitear."""
     entrega = ResultadoEntrega(config.rama)
     if not _es_listo(resultado):
         return _sin_commit(repo, config, entrega, _motivo_no_listo(resultado))
@@ -87,6 +101,8 @@ def entregar(
         return entrega
     _pushear(repo, config)
     entrega.es_pusheado = True
+    if config.es_con_pr and armar_pedido_pr:
+        _abrir_pr(repo, config, entrega, armar_pedido_pr, token_github)
     return entrega
 
 
@@ -208,6 +224,77 @@ def _pushear(repo: Path, config: ConfigEntrega) -> None:
     if config.rama in (config.base, *RAMAS_PROTEGIDAS):
         raise ErrorGit(f"El harness nunca hace push a '{config.rama}'.")
     git.pushear(repo, config.remoto, config.rama)
+
+
+def _abrir_pr(
+    repo: Path,
+    config: ConfigEntrega,
+    entrega: ResultadoEntrega,
+    armar_pedido_pr: ArmarPedidoPr,
+    token_github: str | None,
+) -> None:
+    repo_github = github.repo_desde_remoto(git.url_remoto(repo, config.remoto))
+    if repo_github is None:
+        entrega.motivo = f"El remoto '{config.remoto}' no es de GitHub: se hizo push, sin PR."
+        return
+    if not token_github:
+        entrega.motivo = "Falta GITHUB_TOKEN en el .env: se hizo push, pero no el pull request."
+        return
+    try:
+        entrega.pull_request = github.crear_pull_request(
+            armar_pedido_pr(repo_github), token_github
+        )
+    except github.ErrorGitHub as error:
+        entrega.error_pr = str(error)
+
+
+def crear_cuerpo_pr(
+    resultado: ResultadoEjecucion, cambios: CambiosRepo, comandos: ConfigComandos, modelo: str
+) -> str:
+    """Descripción del PR en Markdown: resumen del modelo, plan, validación y cambios."""
+    resumen = (resultado.texto_final or "").strip() or "_El modelo no dejó un resumen._"
+    secciones = [
+        f"## Resumen\n\n{resumen}",
+        f"## Plan\n\n{_plan_en_markdown(resultado)}",
+        f"## Validación\n\n{_validacion_en_markdown(resultado, comandos)}",
+        f"## Cambios\n\n{_cambios_en_markdown(cambios)}",
+        f"---\n_Generado por harness con `{modelo}`. Revísalo antes de aprobarlo._",
+    ]
+    return "\n\n".join(secciones)
+
+
+def _plan_en_markdown(resultado: ResultadoEjecucion) -> str:
+    plan = resultado.plan
+    if plan is None:
+        return "_Se implementó sin plan (--sin-plan)._"
+    lineas = [plan.resumen, "", "**Archivos**"]
+    lineas += [f"- `{a.ruta}` ({a.accion}): {a.motivo}" for a in plan.archivos]
+    lineas += ["", "**Pasos**"]
+    lineas += [f"{numero}. {paso}" for numero, paso in enumerate(plan.pasos, start=1)]
+    if plan.tests:
+        lineas += ["", "**Tests previstos**", *(f"- {test}" for test in plan.tests)]
+    return "\n".join(lineas)
+
+
+def _validacion_en_markdown(resultado: ResultadoEjecucion, comandos: ConfigComandos) -> str:
+    validado = f"los tests (`{comandos.tests}`)"
+    if comandos.lint:
+        validado += f" y el lint (`{comandos.lint}`)"
+    return f"Pasaron {validado} en la validación {resultado.validaciones}."
+
+
+def _cambios_en_markdown(cambios: CambiosRepo) -> str:
+    grupos = [
+        ("Creados", cambios.creados),
+        ("Modificados", cambios.modificados),
+        ("Eliminados", cambios.eliminados),
+    ]
+    lineas = [
+        f"- {nombre}: " + ", ".join(f"`{ruta}`" for ruta in rutas)
+        for nombre, rutas in grupos
+        if rutas
+    ]
+    return "\n".join(lineas) or "_Sin cambios detectados._"
 
 
 def _commits(cantidad: int) -> str:

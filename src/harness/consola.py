@@ -14,6 +14,7 @@ from harness.contexto import MAX_CARACTERES_AGENTS, ContextoProyecto
 from harness.ejecucion import ResultadoEjecucion, Validacion
 from harness.entorno_docker import ResultadoComando
 from harness.entrega import ConfigEntrega, ResultadoEntrega
+from harness.github import PullRequest
 from harness.init import ResultadoInit
 from harness.plan import Plan, archivos_fuera_del_plan
 
@@ -129,7 +130,7 @@ def mostrar_rama(config: ConfigEntrega) -> None:
 
 
 def mostrar_entrega(entrega: ResultadoEntrega, config: ConfigEntrega) -> None:
-    """Commit y push hechos, o por qué no se hicieron."""
+    """Commit, push y PR hechos, o por qué no se hicieron."""
     if entrega.hash_commit:
         consola.print(
             f"[bold green]✓ Commit {entrega.hash_commit}[/] en {escape(entrega.rama)} "
@@ -139,8 +140,25 @@ def mostrar_entrega(entrega: ResultadoEntrega, config: ConfigEntrega) -> None:
         consola.print(
             f"[bold green]✓ Push[/] de {escape(entrega.rama)} a {escape(config.remoto)}."
         )
+    if entrega.pull_request:
+        _mostrar_pull_request(entrega.pull_request)
     if entrega.motivo:
         mostrar_aviso(entrega.motivo)
+    if entrega.error_pr:
+        mostrar_error(f"No se pudo crear el pull request (el push sí se hizo): {entrega.error_pr}")
+
+
+def _mostrar_pull_request(pr: PullRequest) -> None:
+    tipo = "en borrador" if pr.es_borrador else "listo para revisar"
+    if pr.es_existente:
+        consola.print(f"[bold green]✓ Ya había un pull request[/] {tipo}: {escape(pr.url)}")
+        return
+    consola.print(f"[bold green]✓ Pull request[/] {tipo}: {escape(pr.url)}")
+    if pr.es_borrador_rechazado:
+        mostrar_aviso(
+            "GitHub no permite PR en borrador en este repo (privado en una cuenta gratuita): "
+            "se creó como PR normal."
+        )
 
 
 def mostrar_cambios(cambios: CambiosRepo) -> None:

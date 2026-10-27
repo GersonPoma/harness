@@ -9,7 +9,13 @@ from rich import print
 from harness import consola
 from harness.bucle import MAX_PASOS_POR_DEFECTO, ErrorRespuestaVacia, Paso
 from harness.cambios import CambiosRepo, comparar, tomar_instantanea
-from harness.config import ConfigModelo, ErrorConfiguracion, cargar_config, cargar_env
+from harness.config import (
+    ConfigModelo,
+    ErrorConfiguracion,
+    cargar_config,
+    cargar_env,
+    leer_token_github,
+)
 from harness.config_proyecto import (
     ConfigLimites,
     ConfigProyecto,
@@ -23,10 +29,12 @@ from harness.entrega import (
     ConfigEntrega,
     cerrar_sin_entregar,
     crear_config_entrega,
+    crear_cuerpo_pr,
     crear_mensaje_commit,
     entregar,
     preparar_rama,
 )
+from harness.github import PedidoPullRequest, RepoGitHub
 from harness.git import ErrorGit
 from harness.herramientas import crear_herramientas, crear_herramientas_lectura
 from harness.herramientas.comandos import EjecutorComandos, validar_proyecto
@@ -67,6 +75,7 @@ class _Preparacion:
     variables: VariablesResueltas
     contexto: ContextoProyecto
     es_con_plan: bool = True
+    token_github: str | None = None
 
     @property
     def titulo(self) -> str:
@@ -76,7 +85,8 @@ class _Preparacion:
     @property
     def secretos(self) -> list[str]:
         """Lo que nunca se escribe en el log ni se le muestra al modelo."""
-        return [self.config.api_key, *self.variables.secretos]
+        token = [self.token_github] if self.token_github else []
+        return [self.config.api_key, *self.variables.secretos, *token]
 
 
 class _Reporte:
@@ -128,7 +138,11 @@ def run(
         typer.Option("--aprobar-plan", help="Mostrar el plan y preguntar antes de implementar."),
     ] = False,
     sin_push: Annotated[
-        bool, typer.Option("--sin-push", help="Hacer el commit en la rama, pero no el push.")
+        bool,
+        typer.Option("--sin-push", help="Hacer el commit en la rama, pero no el push ni el PR."),
+    ] = False,
+    sin_pr: Annotated[
+        bool, typer.Option("--sin-pr", help="Hacer commit y push, pero no el pull request.")
     ] = False,
 ) -> None:
     """Procesa un ticket y genera el código en el repo objetivo."""
@@ -146,7 +160,7 @@ def run(
 
     reporte = _Reporte(registro, aprobar_plan)
     _avisar_recorte_plan(prep, max_pasos, reporte)
-    config_entrega = _preparar_rama(prep, not sin_push, reporte)
+    config_entrega = _preparar_rama(prep, not sin_push, not sin_pr, reporte)
     try:
         resultado, cambios = _ejecutar(prep, max_pasos, reporte)
     except (ErrorProveedor, ErrorDocker, ErrorRespuestaVacia, ErrorPlan) as error:
@@ -162,19 +176,22 @@ def run(
 
     registro.registrar_fin(resultado, cambios)
     consola.mostrar_fin(resultado, cambios, str(registro.ruta))
+    es_entrega_ok = True
     if config_entrega:
-        _entregar(prep, config_entrega, resultado, reporte)
-    if resultado.es_limite_alcanzado or resultado.es_validado is False:
+        es_entrega_ok = _entregar(prep, config_entrega, resultado, cambios, reporte)
+    if resultado.es_limite_alcanzado or resultado.es_validado is False or not es_entrega_ok:
         raise typer.Exit(1)
 
 
 def _preparar_rama(
-    prep: _Preparacion, es_con_push: bool, reporte: _Reporte
+    prep: _Preparacion, es_con_push: bool, es_con_pr: bool, reporte: _Reporte
 ) -> ConfigEntrega | None:
     """Crea la rama del ticket antes de gastar pedidos; sin harness.yaml no hay entrega."""
     if prep.config_proyecto is None:
         return None
-    config = crear_config_entrega(prep.config_proyecto.git, prep.ticket, es_con_push)
+    config = crear_config_entrega(
+        prep.config_proyecto.git, prep.ticket, es_con_push, es_con_pr
+    )
     try:
         preparar_rama(prep.repo, config, reporte.aviso)
     except ErrorGit as error:
@@ -187,11 +204,27 @@ def _preparar_rama(
 
 
 def _entregar(
-    prep: _Preparacion, config: ConfigEntrega, resultado: ResultadoEjecucion, reporte: _Reporte
-) -> None:
+    prep: _Preparacion,
+    config: ConfigEntrega,
+    resultado: ResultadoEjecucion,
+    cambios: CambiosRepo,
+    reporte: _Reporte,
+) -> bool:
+    """Commit, push y PR; devuelve False si el PR falló (el push sí se hizo)."""
+    mensaje = crear_mensaje_commit(prep.ticket, prep.titulo)
+
+    def armar_pedido_pr(repo_github: RepoGitHub) -> PedidoPullRequest:
+        comandos = prep.config_proyecto.comandos
+        modelo = f"{prep.config.proveedor}/{prep.config.modelo}"
+        # El resumen lo escribió el modelo: podría repetir un secreto que vio en una salida.
+        cuerpo = ocultar_secretos(
+            crear_cuerpo_pr(resultado, cambios, comandos, modelo), prep.secretos
+        )
+        return PedidoPullRequest(repo_github, config.rama, config.base, mensaje, cuerpo)
+
     try:
         entrega = entregar(
-            prep.repo, config, resultado, crear_mensaje_commit(prep.ticket, prep.titulo)
+            prep.repo, config, resultado, mensaje, armar_pedido_pr, prep.token_github
         )
     except ErrorGit as error:
         reporte.registro.registrar_error(str(error))
@@ -199,6 +232,7 @@ def _entregar(
         raise typer.Exit(1) from error
     reporte.registro.registrar_entrega(entrega)
     consola.mostrar_entrega(entrega, config)
+    return entrega.error_pr is None
 
 
 def _cerrar_rama(
@@ -243,7 +277,7 @@ def _preparar_ejecucion(ticket: Path, repo: Path) -> _Preparacion:
         raise typer.Exit(1)
     return _Preparacion(
         repo, ticket.stem, texto_ticket, config, config_proyecto,
-        variables or VariablesResueltas(), contexto,
+        variables or VariablesResueltas(), contexto, token_github=leer_token_github(),
     )
 
 

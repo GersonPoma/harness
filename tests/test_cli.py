@@ -11,6 +11,7 @@ from harness.planificacion import calcular_pasos_plan
 from harness.tipos import LlamadaHerramienta, RespuestaModelo
 from harness.cambios import CambiosRepo
 from harness.ejecucion import ResultadoEjecucion
+from harness.github import ErrorGitHub, PedidoPullRequest, PullRequest
 from tests.falsos import ProveedorFalso, pedir, proponer, terminar, vacia
 from tests.git_prueba import agregar_remoto, git, iniciar_repo, ramas_remotas, requiere_git
 
@@ -251,7 +252,12 @@ def test_varias_llamadas_en_un_paso_se_agrupan_y_el_log_no_cambia(
 
 
 def _correr_con_entrega(
-    monkeypatch: pytest.MonkeyPatch, repo: Path, es_validado: bool, *opciones: str
+    monkeypatch: pytest.MonkeyPatch,
+    repo: Path,
+    es_validado: bool,
+    *opciones: str,
+    texto_final: str = "Hecho",
+    url_github: str | None = None,
 ) -> tuple[int, str, Path]:
     """Repo Git con remoto local; la ejecución (falsa) escribe un archivo y valida o no."""
     (repo / "harness.yaml").write_text(YAML_CON_DOCKER, encoding="utf-8")
@@ -260,8 +266,12 @@ def _correr_con_entrega(
     remoto = agregar_remoto(repo, repo.parent / "remoto.git")
 
     def ejecutar_falso(prep, max_pasos, reporte):
+        if url_github:
+            # Después del fetch inicial: la URL dice GitHub y el push sigue yendo al local.
+            git(prep.repo, "remote", "set-url", "origin", url_github)
+            git(prep.repo, "remote", "set-url", "--push", "origin", str(remoto))
         (prep.repo / "tareas.py").write_text("TAREAS = []\n", encoding="utf-8")
-        resultado = ResultadoEjecucion("Hecho", 3, 10, 5, False, es_validado, 1)
+        resultado = ResultadoEjecucion(texto_final, 3, 10, 5, False, es_validado, 1)
         return resultado, CambiosRepo(creados=["tareas.py"])
 
     monkeypatch.setattr(cli, "_ejecutar", ejecutar_falso)
@@ -284,6 +294,54 @@ def test_con_la_validacion_ok_hace_commit_y_push_en_la_rama(
     assert eventos["rama"] == {**eventos["rama"], "rama": "feature/T-1", "base": "main"}
     assert eventos["entrega"]["archivos"] == ["tareas.py"]
     assert eventos["entrega"]["es_pusheado"] is True
+
+
+@requiere_git
+def test_abre_el_pr_y_oculta_el_token_en_la_descripcion(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "tok-secreto-123")
+    pedidos: list[PedidoPullRequest] = []
+
+    def crear_falso(pedido: PedidoPullRequest, token: str) -> PullRequest:
+        pedidos.append(pedido)
+        return PullRequest("https://github.com/gerson/demo/pull/3", es_borrador=True)
+
+    monkeypatch.setattr("harness.entrega.github.crear_pull_request", crear_falso)
+    codigo, salida, _ = _correr_con_entrega(
+        monkeypatch, repo_sin_yaml, True,
+        texto_final="Usé tok-secreto-123 para probar.",
+        url_github="https://github.com/gerson/demo.git",
+    )
+
+    assert codigo == 0
+    assert "✓ Pull request en borrador: https://github.com/gerson/demo/pull/3" in salida
+    (pedido,) = pedidos
+    assert pedido.titulo == "T-1: Crear tareas" and pedido.base == "main"
+    assert "Usé **** para probar." in pedido.cuerpo
+    assert "Pasaron los tests (`pytest -q`) en la validación 1." in pedido.cuerpo
+    (entrega,) = [e for e in _eventos_del_log(repo_sin_yaml) if e["evento"] == "entrega"]
+    assert entrega["pull_request"] == "https://github.com/gerson/demo/pull/3"
+    (log,) = (repo_sin_yaml / ".harness" / "logs").glob("*.jsonl")
+    assert "tok-secreto-123" not in log.read_text(encoding="utf-8")
+
+
+@requiere_git
+def test_si_el_pr_falla_termina_con_codigo_1(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "tok")
+
+    def falla(pedido: PedidoPullRequest, token: str) -> PullRequest:
+        raise ErrorGitHub("GitHub no creó el pull request: 401 Bad credentials")
+
+    monkeypatch.setattr("harness.entrega.github.crear_pull_request", falla)
+    codigo, salida, remoto = _correr_con_entrega(
+        monkeypatch, repo_sin_yaml, True, url_github="https://github.com/gerson/demo.git"
+    )
+    assert codigo == 1
+    assert "No se pudo crear el pull request (el push sí se hizo)" in salida
+    assert "feature/T-1" in ramas_remotas(remoto)
 
 
 @requiere_git

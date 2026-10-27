@@ -2,18 +2,24 @@ from pathlib import Path
 
 import pytest
 
-from harness.config_proyecto import ConfigGit
+from harness import entrega as modulo_entrega
+from harness.cambios import CambiosRepo
+from harness.config_proyecto import ConfigComandos, ConfigGit
 from harness.ejecucion import ResultadoEjecucion
 from harness.entrega import (
     ConfigEntrega,
     cerrar_sin_entregar,
     crear_config_entrega,
+    crear_cuerpo_pr,
     crear_mensaje_commit,
     entregar,
     preparar_rama,
 )
 from harness.git import ErrorGit
+from harness.github import ErrorGitHub, PedidoPullRequest, PullRequest, RepoGitHub
+from harness.plan import Plan
 from harness.ticket import titulo_ticket
+from tests.falsos import PLAN_SIMPLE
 from tests.git_prueba import (
     RAMA_BASE,
     agregar_remoto,
@@ -249,6 +255,124 @@ def test_despues_de_un_error_con_cambios_la_rama_queda(proyecto: Path) -> None:
     entrega = cerrar_sin_entregar(proyecto, config)
     assert not entrega.es_rama_borrada and _rama_actual(proyecto) == RAMA
     assert entrega.motivo.startswith("La ejecución no terminó. Los cambios quedaron")
+
+
+# --- Pull request ------------------------------------------------------------------------
+
+URL_GITHUB = "https://github.com/gerson/tareas-api.git"
+URL_PR = "https://github.com/gerson/tareas-api/pull/7"
+
+
+def _con_remoto_de_github(proyecto: Path, tmp_path: Path) -> None:
+    # La URL dice GitHub, pero el push sigue yendo al remoto local.
+    git(proyecto, "remote", "set-url", "origin", URL_GITHUB)
+    git(proyecto, "remote", "set-url", "--push", "origin", str(tmp_path / "remoto.git"))
+
+
+def _armar_pedido(repo_github: RepoGitHub) -> PedidoPullRequest:
+    return PedidoPullRequest(repo_github, RAMA, RAMA_BASE, MENSAJE, "cuerpo")
+
+
+@pytest.fixture
+def pedidos_pr(monkeypatch: pytest.MonkeyPatch) -> list[tuple[PedidoPullRequest, str]]:
+    """Reemplaza la API de GitHub: anota cada pedido y devuelve un PR en borrador."""
+    pedidos: list[tuple[PedidoPullRequest, str]] = []
+
+    def crear_falso(pedido: PedidoPullRequest, token: str) -> PullRequest:
+        pedidos.append((pedido, token))
+        return PullRequest(URL_PR, es_borrador=True)
+
+    monkeypatch.setattr(modulo_entrega.github, "crear_pull_request", crear_falso)
+    return pedidos
+
+
+def test_despues_del_push_abre_el_pr(
+    proyecto: Path, tmp_path: Path, pedidos_pr: list
+) -> None:
+    config = _preparar_y_cambiar(proyecto)
+    _con_remoto_de_github(proyecto, tmp_path)
+    entrega = entregar(proyecto, config, _resultado(), MENSAJE, _armar_pedido, "token")
+
+    assert entrega.es_pusheado and entrega.pull_request == PullRequest(URL_PR, True)
+    ((pedido, token),) = pedidos_pr
+    assert pedido.repo == RepoGitHub("gerson", "tareas-api") and token == "token"
+    assert (pedido.rama, pedido.base, pedido.titulo) == (RAMA, RAMA_BASE, MENSAJE)
+
+
+def test_sin_token_hace_push_pero_no_pr(
+    proyecto: Path, tmp_path: Path, pedidos_pr: list
+) -> None:
+    config = _preparar_y_cambiar(proyecto)
+    _con_remoto_de_github(proyecto, tmp_path)
+    entrega = entregar(proyecto, config, _resultado(), MENSAJE, _armar_pedido, None)
+
+    assert entrega.es_pusheado and entrega.pull_request is None
+    assert entrega.motivo == "Falta GITHUB_TOKEN en el .env: se hizo push, pero no el pull request."
+    assert pedidos_pr == []
+
+
+def test_con_un_remoto_que_no_es_de_github_no_hay_pr(proyecto: Path, pedidos_pr: list) -> None:
+    config = _preparar_y_cambiar(proyecto)
+    entrega = entregar(proyecto, config, _resultado(), MENSAJE, _armar_pedido, "token")
+    assert entrega.es_pusheado and "no es de GitHub" in entrega.motivo
+    assert pedidos_pr == []
+
+
+def test_sin_pr_no_llama_a_github(proyecto: Path, tmp_path: Path, pedidos_pr: list) -> None:
+    config = crear_config_entrega(ConfigGit(), TICKET, es_con_push=True, es_con_pr=False)
+    _preparar_y_cambiar(proyecto, config)
+    _con_remoto_de_github(proyecto, tmp_path)
+    entrega = entregar(proyecto, config, _resultado(), MENSAJE, _armar_pedido, "token")
+    assert entrega.es_pusheado and entrega.pull_request is None and pedidos_pr == []
+
+
+def test_sin_push_tampoco_hay_pr() -> None:
+    config = crear_config_entrega(ConfigGit(), TICKET, es_con_push=False, es_con_pr=True)
+    assert not config.es_con_pr
+
+
+def test_si_github_falla_el_push_queda_hecho(
+    proyecto: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def falla(pedido: PedidoPullRequest, token: str) -> PullRequest:
+        raise ErrorGitHub("GitHub no creó el pull request: 401 Bad credentials")
+
+    monkeypatch.setattr(modulo_entrega.github, "crear_pull_request", falla)
+    config = _preparar_y_cambiar(proyecto)
+    _con_remoto_de_github(proyecto, tmp_path)
+    entrega = entregar(proyecto, config, _resultado(), MENSAJE, _armar_pedido, "token")
+
+    assert entrega.es_pusheado and entrega.pull_request is None
+    assert entrega.error_pr == "GitHub no creó el pull request: 401 Bad credentials"
+    assert RAMA in ramas_remotas(tmp_path / "remoto.git")
+
+
+def test_cuerpo_del_pr() -> None:
+    resultado = ResultadoEjecucion(
+        "Agregué el endpoint.", 9, 100, 50, False, True, 2, plan=Plan.model_validate(PLAN_SIMPLE)
+    )
+    cambios = CambiosRepo(creados=["nuevo.py"], modificados=["app.py"])
+    comandos = ConfigComandos(tests="pytest -q", lint="ruff check .")
+
+    cuerpo = crear_cuerpo_pr(resultado, cambios, comandos, "gemini/modelo-x")
+
+    assert cuerpo == (
+        "## Resumen\n\nAgregué el endpoint.\n\n"
+        "## Plan\n\nAgregar el módulo nuevo.\n\n**Archivos**\n"
+        "- `nuevo.py` (crear): Lo pide el ticket.\n\n**Pasos**\n1. Crear nuevo.py\n\n"
+        "## Validación\n\nPasaron los tests (`pytest -q`) y el lint (`ruff check .`) en la "
+        "validación 2.\n\n"
+        "## Cambios\n\n- Creados: `nuevo.py`\n- Modificados: `app.py`\n\n"
+        "---\n_Generado por harness con `gemini/modelo-x`. Revísalo antes de aprobarlo._"
+    )
+
+
+def test_cuerpo_del_pr_sin_plan_ni_resumen() -> None:
+    resultado = ResultadoEjecucion(None, 3, 10, 5, False, True, 1)
+    cuerpo = crear_cuerpo_pr(resultado, CambiosRepo(), ConfigComandos(tests="mvn test"), "m")
+    assert "_El modelo no dejó un resumen._" in cuerpo
+    assert "_Se implementó sin plan (--sin-plan)._" in cuerpo
+    assert "Pasaron los tests (`mvn test`) en la validación 1." in cuerpo
 
 
 # --- Mensaje del commit ------------------------------------------------------------------

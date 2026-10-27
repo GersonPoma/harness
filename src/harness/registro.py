@@ -110,13 +110,16 @@ class RegistroPasos:
         self._escribir({"evento": "rama", "rama": config.rama, "base": config.base})
 
     def registrar_entrega(self, entrega: ResultadoEntrega) -> None:
-        """Registra el commit y el push (o por qué no se hicieron)."""
+        """Registra el commit, el push y el PR (o por qué no se hicieron)."""
         self._escribir({
             "evento": "entrega",
             "rama": entrega.rama,
             "commit": entrega.hash_commit,
             "archivos": entrega.archivos,
             "es_pusheado": entrega.es_pusheado,
+            "pull_request": entrega.pull_request.url if entrega.pull_request else None,
+            "es_borrador": entrega.pull_request.es_borrador if entrega.pull_request else None,
+            "error_pr": entrega.error_pr,
             "es_rama_borrada": entrega.es_rama_borrada,
             "motivo": entrega.motivo,
         })
