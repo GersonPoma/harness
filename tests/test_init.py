@@ -8,6 +8,13 @@ from harness.config import ConfigModelo
 from harness.entorno_docker import ResultadoComando
 from harness.config_proyecto import validar_texto_config
 from harness.init import LINEA_REQUIERE_AGENTS, ErrorInit, archivos_faltantes, ejecutar_init
+from harness.prompts import (
+    EJEMPLO_HARNESS_MAVEN,
+    PLANTILLA_HARNESS_YAML,
+    PROMPT_INIT,
+    RECOMENDACIONES_POR_STACK,
+    crear_mensajes_init,
+)
 from harness.tipos import LlamadaHerramienta, RespuestaModelo
 from tests.falsos import ProveedorFalso, pedir, terminar
 
@@ -210,3 +217,60 @@ def test_cli_init_verificar_falla_y_oculta_secretos(
     assert codigo == 1
     assert "✗ Verificación: los tests no pasan" in salida
     assert "con clave ****" in salida and "s3creta" not in salida
+
+
+# --- Prompt ---------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("ejemplo", [PLANTILLA_HARNESS_YAML, EJEMPLO_HARNESS_MAVEN])
+def test_los_ejemplos_del_prompt_son_harness_yaml_validos(ejemplo: str) -> None:
+    # El modelo los copia: si no validan, guardar_harness_yaml se los rechazaría.
+    config = validar_texto_config(ejemplo)
+    assert config.limites.max_pasos_plan <= config.limites.max_pasos // 2
+
+
+def test_el_ejemplo_maven_es_el_de_tienda_api() -> None:
+    config = validar_texto_config(EJEMPLO_HARNESS_MAVEN)
+    assert config.comandos.tests == (
+        "mvn -B -q clean test -Dmaven.test.redirectTestOutputToFile=true"
+    )
+    assert config.limites.model_dump(include={
+        "max_pasos", "max_pasos_plan", "timeout_comando_segundos", "max_caracteres_salida",
+    }) == {
+        "max_pasos": 50, "max_pasos_plan": 20,
+        "timeout_comando_segundos": 600, "max_caracteres_salida": 6000,
+    }
+    assert set(config.variables_entorno) == {
+        "SPRING_DATASOURCE_URL", "SPRING_DATASOURCE_USERNAME", "SPRING_DATASOURCE_PASSWORD",
+    }
+    assert config.variables_entorno["SPRING_DATASOURCE_URL"].startswith("jdbc:postgresql://db:")
+    assert any("ArquitecturaTest" in glob for glob in config.archivos_protegidos)
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        # Python chico: sin limites.
+        "Python chico (pytest, pocas dependencias): los valores por defecto alcanzan; no "
+        "escribas\n  limites.",
+        # Maven y Gradle.
+        "timeout_comando_segundos: 600, max_pasos: 50,\n  max_pasos_plan: 20 y "
+        "max_caracteres_salida: 6000",
+        "mvn -B -q clean test -Dmaven.test.redirectTestOutputToFile=true",
+        "gradle clean test",
+        # Spring Boot.
+        "SPRING_DATASOURCE_URL (jdbc:postgresql://db:5432/<base>), SPRING_DATASOURCE_USERNAME",
+        # Tests de arquitectura.
+        "ArchUnit en Java, import-linter en Python",
+        "archivos_protegidos sus archivos de test o de configuración",
+    ],
+)
+def test_el_prompt_de_init_recomienda_segun_el_stack(texto: str) -> None:
+    assert texto in PROMPT_INIT
+
+
+def test_el_prompt_de_init_incluye_la_plantilla_y_el_ejemplo() -> None:
+    assert PLANTILLA_HARNESS_YAML in PROMPT_INIT
+    assert EJEMPLO_HARNESS_MAVEN in PROMPT_INIT
+    assert RECOMENDACIONES_POR_STACK in PROMPT_INIT
+    assert crear_mensajes_init(["harness.yaml"], {})[0].contenido == PROMPT_INIT

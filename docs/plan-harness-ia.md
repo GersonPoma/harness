@@ -85,6 +85,11 @@ for paso in range(MAX_PASOS):
     `guardar_harness_yaml`. La segunda valida el YAML con las mismas reglas que
     `harness run` antes de escribirlo; si no cumple, el error vuelve al modelo para que lo
     corrija, así que no puede quedar un `harness.yaml` inválido.
+  - El prompt trae recomendaciones por stack: en Maven/Gradle, `limites` más amplios
+    (timeout 600 s, 50 pasos, 20 de plan, 6000 caracteres de salida) y tests con `clean` y la
+    salida redirigida a archivos; en Python chico, los valores por defecto; en Spring Boot,
+    las variables `SPRING_DATASOURCE_*`; y los tests de arquitectura en
+    `archivos_protegidos`. Usa como ejemplo el `harness.yaml` de tienda-api.
   - Al terminar recuerda revisarlos: `harness.yaml` define qué se ejecuta (`instalar`,
     `comandos_permitidos`).
   - `--verificar`: levanta el entorno con el `harness.yaml` (servicios incluidos), instala y

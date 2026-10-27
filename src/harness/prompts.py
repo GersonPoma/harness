@@ -92,31 +92,9 @@ MENSAJE_IMPLEMENTAR = (
 )
 
 
-PROMPT_INIT = """\
-Eres un agente que prepara un repositorio de código para que lo use un harness de IA que
-implementa tickets. Tu tarea es analizar el proyecto y escribir los archivos que faltan en la
-raíz del repo, con las herramientas guardar_agents_md y guardar_harness_yaml.
-
-Cómo trabajar:
-- Explora lo necesario con listar_directorio y leer_archivo: README, archivos de dependencias
-  (pyproject.toml, requirements*.txt, package.json, pom.xml...), la estructura de carpetas,
-  algunos archivos de código y de tests, y la configuración de tests y lint.
-- No inventes: escribe solo lo que puedas comprobar en el repo.
-- Los archivos .env no se pueden leer (pueden tener secretos); .env.example sí.
-- Cuando hayas guardado todos los archivos que faltan, termina con un resumen breve.
-
-AGENTS.md (lo lee el modelo que implementa los tickets), en español y en Markdown, conciso
-(máximo unas 150 líneas):
-- Qué es el proyecto y su stack, en una o dos líneas.
-- Estructura de carpetas: un árbol corto con una línea por carpeta o archivo importante.
-- Arquitectura: las capas, qué va en cada una y qué puede usar a qué.
-- Convenciones de código que se ven en el repo: nombres, idioma, estilo, type hints, docstrings.
-- Tests: dónde van, cómo se nombran, qué fixtures hay y cómo se corren.
-- Lo que no se debe hacer (agregar dependencias, tocar ciertas carpetas...).
-
-harness.yaml (lo lee el harness, no el modelo). Usa exactamente estas claves; las que no
-necesites, omítelas (toman su valor por defecto). Ninguna otra clave es válida:
-
+# Las claves válidas de harness.yaml, con un ejemplo de Python. Es YAML válido (lo comprueba
+# un test), para que el modelo pueda copiarlo y ajustarlo.
+PLANTILLA_HARNESS_YAML = """\
 version: 1
 proyecto: nombre-del-proyecto      # solo minúsculas, números y guiones
 requiere_agents_md: false  # true = harness run se detiene si falta AGENTS.md
@@ -144,8 +122,102 @@ servicios:                          # solo si los tests necesitan base de datos 
     timeout_listo_segundos: 60
 variables_entorno:                  # variables que necesitan los tests, con valores de prueba
   DATABASE_URL: postgresql://postgres:test@db:5432/app_test
+limites:                            # solo si el stack lo necesita (ver recomendaciones)
+  max_pasos: 30
+  max_pasos_plan: 10                # como máximo max_pasos // 2
+  timeout_comando_segundos: 120
+  max_caracteres_salida: 4000
 archivos_protegidos:                # globs que el modelo no debe tocar
+  - tickets/**"""
+
+# Referencia para stacks compilados: el harness.yaml de tienda-api (Maven, Spring Boot y
+# PostgreSQL), probado con tickets reales.
+EJEMPLO_HARNESS_MAVEN = """\
+version: 1
+proyecto: tienda-api
+requiere_agents_md: false  # true = harness run se detiene si falta AGENTS.md
+docker:
+  imagen: maven:3.9-eclipse-temurin-21
+  instalar: mvn -B -q -DskipTests test-compile
+  reinstalar_si_cambia:
+    - pom.xml
+comandos:
+  tests: mvn -B -q clean test -Dmaven.test.redirectTestOutputToFile=true
+  lint: null
+comandos_permitidos:
+  - mvn
+  - ls
+  - cat
+servicios:
+  - nombre: db
+    imagen: postgres:16
+    variables:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: tienda_test
+    listo_cuando: pg_isready -h 127.0.0.1 -U postgres -d tienda_test
+    timeout_listo_segundos: 60
+variables_entorno:
+  SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/tienda_test
+  SPRING_DATASOURCE_USERNAME: postgres
+  SPRING_DATASOURCE_PASSWORD: test
+limites:
+  max_pasos: 50
+  max_pasos_plan: 20
+  timeout_comando_segundos: 600
+  max_caracteres_salida: 6000
+archivos_protegidos:
   - tickets/**
+  - src/test/java/com/tienda/ArquitecturaTest.java"""
+
+RECOMENDACIONES_POR_STACK = """\
+Recomendaciones según el stack:
+- Python chico (pytest, pocas dependencias): los valores por defecto alcanzan; no escribas
+  limites.
+- Stacks compilados (Maven, Gradle): la primera instalación descarga muchas dependencias y cada
+  corrida compila. Escribe limites con timeout_comando_segundos: 600, max_pasos: 50,
+  max_pasos_plan: 20 y max_caracteres_salida: 6000.
+  - docker.instalar descarga las dependencias y compila sin correr los tests:
+    mvn -B -q -DskipTests test-compile (Gradle: gradle testClasses).
+  - comandos.tests limpia antes de compilar, porque los artefactos (target/, build/)
+    sobreviven entre ejecuciones y guardarían clases de archivos ya borrados. Maven:
+    mvn -B -q clean test -Dmaven.test.redirectTestOutputToFile=true (la redirección manda la
+    salida de cada test a target/surefire-reports/ y en la consola queda el resumen de
+    fallas). Gradle: gradle clean test, o ./gradlew clean test si el repo trae el wrapper.
+- Spring Boot con base de datos: un servicio db y, en variables_entorno,
+  SPRING_DATASOURCE_URL (jdbc:postgresql://db:5432/<base>), SPRING_DATASOURCE_USERNAME y
+  SPRING_DATASOURCE_PASSWORD con los mismos valores del servicio. Spring Boot las toma por
+  encima de application.properties.
+- Tests de arquitectura (ArchUnit en Java, import-linter en Python u otros): agrega a
+  archivos_protegidos sus archivos de test o de configuración (por ejemplo .importlinter),
+  para que el modelo corrija el código y no las reglas."""
+
+PROMPT_INIT = f"""\
+Eres un agente que prepara un repositorio de código para que lo use un harness de IA que
+implementa tickets. Tu tarea es analizar el proyecto y escribir los archivos que faltan en la
+raíz del repo, con las herramientas guardar_agents_md y guardar_harness_yaml.
+
+Cómo trabajar:
+- Explora lo necesario con listar_directorio y leer_archivo: README, archivos de dependencias
+  (pyproject.toml, requirements*.txt, package.json, pom.xml...), la estructura de carpetas,
+  algunos archivos de código y de tests, y la configuración de tests y lint.
+- No inventes: escribe solo lo que puedas comprobar en el repo.
+- Los archivos .env no se pueden leer (pueden tener secretos); .env.example sí.
+- Cuando hayas guardado todos los archivos que faltan, termina con un resumen breve.
+
+AGENTS.md (lo lee el modelo que implementa los tickets), en español y en Markdown, conciso
+(máximo unas 150 líneas):
+- Qué es el proyecto y su stack, en una o dos líneas.
+- Estructura de carpetas: un árbol corto con una línea por carpeta o archivo importante.
+- Arquitectura: las capas, qué va en cada una y qué puede usar a qué.
+- Convenciones de código que se ven en el repo: nombres, idioma, estilo, type hints, docstrings.
+- Tests: dónde van, cómo se nombran, qué fixtures hay y cómo se corren.
+- Lo que no se debe hacer (agregar dependencias, tocar ciertas carpetas...).
+
+harness.yaml (lo lee el harness, no el modelo). Usa exactamente estas claves; las que no
+necesites, omítelas (toman su valor por defecto). Ninguna otra clave es válida:
+
+{PLANTILLA_HARNESS_YAML}
 
 Reglas de harness.yaml:
 - docker.instalar debe dejar el proyecto listo para correr sus tests dentro de la imagen
@@ -157,7 +229,13 @@ Reglas de harness.yaml:
   leen DATABASE_URL). Usa valores de prueba, nunca secretos reales.
 - requiere_agents_md: escríbela siempre así, en false y con su comentario; la cambia una
   persona si la necesita.
-- Si guardar_harness_yaml devuelve errores, corrige el YAML y vuelve a llamarla."""
+- Si guardar_harness_yaml devuelve errores, corrige el YAML y vuelve a llamarla.
+
+{RECOMENDACIONES_POR_STACK}
+
+Ejemplo de un proyecto Maven con Spring Boot y PostgreSQL:
+
+{EJEMPLO_HARNESS_MAVEN}"""
 
 
 def crear_mensajes_init(faltantes: list[str], existentes: dict[str, str]) -> list[Mensaje]:
