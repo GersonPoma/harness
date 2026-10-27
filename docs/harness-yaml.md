@@ -201,9 +201,16 @@ Variables que se pasan al **contenedor del proyecto** (no a los servicios).
 
 | Clave | Tipo | Obligatoria | Por defecto | Descripción |
 |---|---|---|---|---|
-| `rama_base` | texto | no | `main` | Rama desde la que se crea la rama de trabajo. El harness **nunca** hace push a esta rama. |
-| `prefijo_rama` | texto | no | `feature/` | La rama de trabajo se llama `<prefijo_rama><ticket>`, por ejemplo `feature/TAREAS-1`. |
-| `remoto` | texto | no | `origin` | Remoto de Git al que se hace push. |
+| `rama_base` | texto | no | `main` | Rama desde la que se crea la rama de trabajo (la **local**: después de un `git fetch`, el harness avisa si está atrasada o adelantada respecto del remoto). Es la base del pull request. El harness **nunca** hace push a esta rama, ni a `main` o `master`. |
+| `prefijo_rama` | texto | no | `feature/` | La rama de trabajo se llama `<prefijo_rama><ticket>`, por ejemplo `feature/TAREAS-1`. Si ya existe (local o en el remoto), `harness run` se detiene antes de empezar. |
+| `remoto` | texto | no | `origin` | Remoto de Git al que se hace push. Si su URL es de GitHub, ahí se abre el pull request. |
+
+- La rama se crea al empezar, con el árbol de trabajo limpio; el commit, el push y el PR (en
+  borrador) se hacen **solo si la validación pasó**. Si no, los cambios quedan sin commitear
+  en la rama.
+- El commit es de una línea: `<TICKET>: <título del ticket>` (la primera línea del ticket).
+- `harness run --sin-push` hace solo el commit local; `--sin-pr`, commit y push sin PR.
+- Sin `harness.yaml` no hay validación, y por eso tampoco rama, commit ni push.
 
 ### `limites`
 

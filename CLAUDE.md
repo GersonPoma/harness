@@ -18,7 +18,7 @@ Si la tarea toca la lectura o el uso de `harness.yaml`, sigue al pie de la letra
 ## Comandos del harness
 
 ```
-harness run <TICKET>      # procesar un ticket desde cero (clave de Jira o ruta a ticket local)
+harness run <TICKET>      # procesar un ticket: rama, código, tests, commit, push y PR
 harness resume <TICKET>   # continuar una ejecución que se cortó
 harness init              # generar AGENTS.md / harness.yaml en un repo objetivo
 harness config            # guardar credenciales la primera vez

@@ -112,9 +112,33 @@ for paso in range(MAX_PASOS):
 
 ### Entrega
 
-- **`git_create_branch`**, **`git_commit`**, **`git_push`**
-- *(opcional)* **`create_pull_request`**: API de GitHub.
-- *(opcional)* **`comment_jira`**: deja el link del PR en el ticket.
+La entrega **no son herramientas del modelo**: la hace el harness (`entrega.py`, `git.py`,
+`github.py`), solo si la validación pasó. Así es imposible subir código con tests fallando.
+Git corre en el host (en el contenedor `.git` es de solo lectura) y el push usa las
+credenciales de Git del usuario.
+
+- **Al empezar**, antes de gastar pedidos (solo con `harness.yaml`):
+  - el repo tiene que ser Git, con el árbol limpio (sin contar `.harness/logs` ni
+    `.harness/sessions`), con la rama base, `user.name` y `user.email`;
+  - `git fetch` de la rama base: avisa si la local está **atrasada** (sugiere `git pull`) o
+    **adelantada** (sus commits entrarían en el PR: sugiere hacer push antes), con cuántos
+    commits;
+  - la rama `<prefijo_rama><TICKET>` no puede existir (ni local ni en el remoto);
+  - se crea esa rama desde la base **local** y el modelo trabaja ahí.
+- **Al terminar con la validación OK:** `git add -A` (sin los logs del harness; frena si entre
+  los cambios hay un `.env`), commit de una línea `<TICKET>: <título del ticket>`, push con
+  `-u` (con una guarda que nunca deja hacerlo a la rama base, `main` ni `master`) y **pull
+  request en borrador** con la API de GitHub. La descripción del PR lleva el resumen del
+  modelo, el plan, la validación y los archivos cambiados (con los secretos ocultos). Si el
+  repo no admite borradores (privado en una cuenta gratuita), crea un PR normal y lo avisa.
+- **Si la validación falla, se acaban los pasos o se rechaza el plan:** sin commit ni push;
+  los cambios quedan sin commitear en la rama para revisarlos. Si la rama quedó vacía (sin
+  cambios, o por un error antes de tocar nada), el harness vuelve a la base y la borra.
+- **El PR necesita `GITHUB_TOKEN`** en el `.env`: token *fine-grained* con acceso a los repos
+  objetivo y el permiso **Pull requests: Read and write** (Metadata: Read-only lo agrega
+  GitHub). Sin token, o si el remoto no es de GitHub, se hace push y se avisa que no hubo PR.
+- Opciones de `run`: `--sin-push` (commit local, sin push ni PR) y `--sin-pr` (push sin PR).
+- *(fase 7)* **`comment_jira`**: deja el link del PR en el ticket.
 
 ---
 
@@ -124,11 +148,12 @@ for paso in range(MAX_PASOS):
 harness run PROJ-123
  ├─ 1. Leer ticket de Jira
  ├─ 2. Repo objetivo = carpeta actual (o --repo <ruta>) + leer AGENTS.md / harness.yaml
+ │     + crear la rama feature/PROJ-123 desde la base (repo limpio, fetch, avisos)
  ├─ 3. Planificación: el modelo propone un plan (archivos a tocar, pasos)
  ├─ 4. Implementación: bucle de herramientas
  ├─ 5. Validación: tests + lint ── si fallan → volver a 4 (máx. N intentos)
- ├─ 6. Commit en rama feature/PROJ-123 + push
- └─ 7. PR + comentario en Jira (opcional)
+ ├─ 6. Commit en la rama + push (solo si la validación pasó)
+ └─ 7. PR en borrador + comentario en Jira (fase 7)
 ```
 
 ### Planificación (paso 3)
