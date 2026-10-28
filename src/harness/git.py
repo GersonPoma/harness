@@ -14,7 +14,10 @@ TIMEOUT_LOCAL_SEGUNDOS = 30
 TIMEOUT_RED_SEGUNDOS = 120
 # Lo que escribe el harness en el repo: nunca va al commit ni cuenta como "árbol sucio",
 # aunque el .gitignore del proyecto no lo excluya.
-EXCLUIDOS = (":(exclude).harness/logs", ":(exclude).harness/sessions")
+RUTAS_DEL_HARNESS = (".harness/logs", ".harness/sessions")
+EXCLUIDOS = tuple(f":(exclude){ruta}" for ruta in RUTAS_DEL_HARNESS)
+# Avisos que git escribe en stderr aunque el comando funcione (por ejemplo LF/CRLF).
+PREFIJO_AVISO = "warning:"
 # Sin terminal donde preguntar: si git necesita usuario y contraseña, que falle en vez de
 # quedarse esperando para siempre.
 ENTORNO_SIN_PREGUNTAS = {"GIT_TERMINAL_PROMPT": "0"}
@@ -47,11 +50,18 @@ def ejecutar_git(repo: Path, *argumentos: str, timeout: int = TIMEOUT_LOCAL_SEGU
         raise ErrorGit("No se encontró el comando 'git': instala Git.") from error
     except subprocess.TimeoutExpired as error:
         raise ErrorGit(f"'git {argumentos[0]}' tardó más de {timeout} s.") from error
+    # Solo el código de salida decide si falló: stderr trae avisos aunque el comando ande.
     if proceso.returncode != 0:
-        detalle = (proceso.stderr or proceso.stdout).strip()
+        detalle = _detalle_error(proceso.stderr or proceso.stdout)
         raise ErrorGit(f"'git {' '.join(argumentos)}' falló: {detalle}")
     # Solo a la derecha: en 'git status --porcelain' el espacio inicial es parte del estado.
     return proceso.stdout.rstrip()
+
+
+def _detalle_error(salida: str) -> str:
+    """La salida de git sin los avisos (LF/CRLF y similares), que no son la causa del error."""
+    lineas = [linea for linea in salida.splitlines() if not linea.startswith(PREFIJO_AVISO)]
+    return "\n".join(lineas).strip() or salida.strip()
 
 
 def es_repo_git(repo: Path) -> bool:
@@ -132,7 +142,10 @@ def volver_y_borrar_rama(repo: Path, rama: str, base: str) -> None:
 
 def preparar_commit(repo: Path) -> list[str]:
     """git add de todo lo que cambió (sin los logs del harness); devuelve lo agregado."""
-    ejecutar_git(repo, "add", "-A", "--", ".", *EXCLUIDOS)
+    # No se excluyen en el pathspec de 'add': si el .gitignore ya ignora esas carpetas,
+    # nombrarlas hace que git add termine con error. Se agrega todo y después se sacan.
+    ejecutar_git(repo, "add", "-A", "--", ".")
+    ejecutar_git(repo, "reset", "--quiet", "--", *RUTAS_DEL_HARNESS)
     salida = ejecutar_git(repo, "diff", "--cached", "--name-only", "-z")
     return [ruta for ruta in salida.split("\0") if ruta]
 

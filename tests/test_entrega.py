@@ -183,6 +183,34 @@ def test_con_la_validacion_ok_hace_commit_y_push(proyecto: Path, tmp_path: Path)
     assert ".harness/logs/T-1.jsonl" not in git(proyecto, "show", "--name-only", "HEAD")
 
 
+@pytest.mark.parametrize("es_ignorado", [True, False])
+def test_los_logs_del_harness_no_entran_al_commit_esten_o_no_ignorados(
+    tmp_path: Path, es_ignorado: bool
+) -> None:
+    # Lo normal es que el .gitignore del proyecto ya los ignore: git add no debe fallar.
+    repo = tmp_path / "proyecto"
+    repo.mkdir()
+    (repo / "app.py").write_text("x = 1\n", encoding="utf-8")
+    if es_ignorado:
+        (repo / ".gitignore").write_text(
+            ".harness/logs/\n.harness/sessions/\n", encoding="utf-8"
+        )
+    iniciar_repo(repo)
+    config = _preparar_y_cambiar(repo, _config(es_con_push=False))
+    for carpeta in ("logs", "sessions"):
+        (repo / ".harness" / carpeta).mkdir(parents=True)
+        (repo / ".harness" / carpeta / "T-1.json").write_text("{}", encoding="utf-8")
+
+    entrega = entregar(repo, config, _resultado(), MENSAJE)
+
+    assert entrega.hash_commit is not None
+    assert entrega.archivos == ["app.py", "tareas.py"]
+    assert git(repo, "show", "--name-only", "--format=", "HEAD").splitlines() == [
+        "app.py",
+        "tareas.py",
+    ]
+
+
 def test_sin_push_el_commit_queda_local(proyecto: Path, tmp_path: Path) -> None:
     config = _preparar_y_cambiar(proyecto, _config(es_con_push=False))
     entrega = entregar(proyecto, config, _resultado(), MENSAJE)
