@@ -605,11 +605,11 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
   - [ ] **Comentario en el ticket de Jira** con el link del PR.
 - [ ] **8.** Memoria y continuidad: manejo de contexto (recorte + resumen),
       `.harness/memory.md` con `save_memory`, y `harness resume`
-  - [ ] **Cambio automático de proveedor al agotarse la cuota.** Lista de respaldo en el
-        `.env` (por ejemplo `HARNESS_RESPALDO=groq:openai/gpt-oss-120b,openrouter:<modelo>`).
-        Si se agota la cuota diaria, avisar en consola, pasar al siguiente y seguir desde el
-        mismo paso. Depende del resumen de contexto: una conversación larga de Gemini no entra
-        en los 8.000 tokens por minuto de Groq.
+  - [ ] **Cambio automático de proveedor al agotarse la cuota.** Lista de respaldo de
+        perfiles en `config.toml` (por ejemplo `respaldo = ["fuerte", "groq"]`, ver perfiles en
+        la fase 11). Si se agota la cuota diaria, avisar en consola, pasar al siguiente y
+        seguir desde el mismo paso. Depende del resumen de contexto: una conversación larga de
+        Gemini no entra en los 8.000 tokens por minuto de Groq.
   - [ ] **Distinguir los dos 429:** el límite por minuto (esperar y reintentar) y la cuota
         diaria (no se recupera hasta medianoche, hora del Pacífico: cortar o cambiar de
         proveedor).
@@ -691,6 +691,20 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
   - [ ] **`harness config` + `~/.harness/config.toml`**, con el orden de prioridad: opciones
         del comando → variables de entorno / `.env` → `config.toml`. Necesario para que otros
         lo instalen con `uv tool install git+...` y lo usen sin el repo.
+  - [ ] **Perfiles de modelo** en `~/.harness/config.toml`: cada perfil tiene un nombre, un
+        proveedor (preset) y un modelo, y uno es el predeterminado. Las API keys se guardan
+        una sola vez por proveedor, en `[credenciales]`, y las comparten los perfiles.
+        - Comandos, al estilo de `/model` de Claude Code:
+          - `harness perfiles`: lista los perfiles y marca el predeterminado.
+          - `harness perfil usar <nombre>`: cambia el predeterminado y queda guardado. Sin
+            nombre, muestra un menú para elegir con las flechas.
+          - `harness perfil agregar <nombre>`, `editar <nombre>` y `borrar <nombre>`.
+          - `harness perfil probar <nombre>`: hace un pedido de prueba para comprobar la key
+            y que el modelo soporte tool calling.
+        - `harness run --perfil <nombre>` usa ese perfil solo en esa ejecución.
+        - Orden de prioridad: `--proveedor`/`--modelo` > `--perfil` > variables de entorno o
+          `.env` > perfil predeterminado.
+        - La consola muestra al inicio el perfil usado ("Perfil fuerte: openrouter / ...").
   - [ ] **Logs más legibles** (resumen por ejecución, tiempos por etapa).
   - [ ] **Repetir el aviso de "falta AGENTS.md" en el resumen final**: hoy aparece una vez
         al inicio y se pierde detrás de "Instalando dependencias...".
