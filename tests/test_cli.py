@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -258,12 +259,15 @@ def _correr_con_entrega(
     *opciones: str,
     texto_final: str = "Hecho",
     url_github: str | None = None,
+    antes_de_correr: Callable[[Path, Path], None] | None = None,
 ) -> tuple[int, str, Path]:
     """Repo Git con remoto local; la ejecución (falsa) escribe un archivo y valida o no."""
     (repo / "harness.yaml").write_text(YAML_CON_DOCKER, encoding="utf-8")
     (repo.parent / "T-1.md").write_text("# T-1: Crear tareas\n", encoding="utf-8")
     iniciar_repo(repo)
     remoto = agregar_remoto(repo, repo.parent / "remoto.git")
+    if antes_de_correr:
+        antes_de_correr(repo, remoto)
 
     def ejecutar_falso(prep, max_pasos, reporte):
         if url_github:
@@ -294,6 +298,44 @@ def test_con_la_validacion_ok_hace_commit_y_push_en_la_rama(
     assert eventos["rama"] == {**eventos["rama"], "rama": "feature/T-1", "base": "main"}
     assert eventos["entrega"]["archivos"] == ["tareas.py"]
     assert eventos["entrega"]["es_pusheado"] is True
+
+
+def _commit_local(repo: Path, remoto: Path) -> None:
+    git(repo, "commit", "--quiet", "--allow-empty", "-m", "sin subir")
+
+
+def _commit_en_el_remoto(repo: Path, remoto: Path) -> None:
+    otro = repo.parent / "otro"
+    git(repo.parent, "clone", "--quiet", str(remoto), str(otro))
+    git(otro, "-c", "user.name=Otro", "-c", "user.email=o@example.com",
+        "commit", "--quiet", "--allow-empty", "-m", "de otro")
+    git(otro, "push", "--quiet", "origin", "main")
+
+
+@requiere_git
+@pytest.mark.parametrize("opciones", [(), ("--sin-push",)])
+@pytest.mark.parametrize(
+    ("cambiar_base", "conteo"),
+    [
+        (_commit_local, "1 commit adelante y 0 commits atrás"),
+        (_commit_en_el_remoto, "0 commits adelante y 1 commit atrás"),
+    ],
+)
+def test_avisa_en_consola_si_la_base_esta_desactualizada_antes_de_crear_la_rama(
+    monkeypatch: pytest.MonkeyPatch,
+    repo_sin_yaml: Path,
+    opciones: tuple[str, ...],
+    cambiar_base: Callable[[Path, Path], None],
+    conteo: str,
+) -> None:
+    _, salida, _ = _correr_con_entrega(
+        monkeypatch, repo_sin_yaml, True, *opciones, antes_de_correr=cambiar_base
+    )
+    aviso = f"La rama main local está {conteo} de origin/main."
+    # La consola parte las líneas largas: se compara sin los saltos.
+    salida_plana = " ".join(salida.split())
+    assert aviso in salida_plana
+    assert salida_plana.index(aviso) < salida_plana.index("Rama feature/T-1 creada desde main.")
 
 
 @requiere_git

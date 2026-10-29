@@ -132,27 +132,52 @@ def test_la_rama_de_trabajo_nunca_es_main(proyecto: Path) -> None:
         _avisos_al_preparar(proyecto, config)
 
 
-def test_avisa_si_la_base_tiene_commits_sin_subir(proyecto: Path) -> None:
-    git(proyecto, "commit", "--quiet", "--allow-empty", "-m", "uno")
-    git(proyecto, "commit", "--quiet", "--allow-empty", "-m", "dos")
-    (aviso,) = _avisos_al_preparar(proyecto)
-    assert aviso == (
-        "La rama main local tiene 2 commits sin subir a origin/main: entrarían en la rama del "
-        "ticket y aparecerían en el PR. Conviene hacer push de main antes."
-    )
-
-
-def test_avisa_si_la_base_esta_atrasada(proyecto: Path, tmp_path: Path) -> None:
-    # Otro clon sube un commit: el main local queda 1 atrás después del fetch.
+def _subir_commit_desde_otro_clon(tmp_path: Path) -> None:
+    """Otro clon sube un commit: el main local queda 1 atrás después del fetch."""
     otro = tmp_path / "otro"
     git(tmp_path, "clone", "--quiet", str(tmp_path / "remoto.git"), str(otro))
     git(otro, "-c", "user.name=Otro", "-c", "user.email=o@example.com",
         "commit", "--quiet", "--allow-empty", "-m", "de otro")
     git(otro, "push", "--quiet", "origin", RAMA_BASE)
 
+
+@pytest.mark.parametrize("es_con_push", [True, False])
+def test_avisa_si_la_base_tiene_commits_sin_subir(proyecto: Path, es_con_push: bool) -> None:
+    git(proyecto, "commit", "--quiet", "--allow-empty", "-m", "uno")
+    git(proyecto, "commit", "--quiet", "--allow-empty", "-m", "dos")
+    (aviso,) = _avisos_al_preparar(proyecto, _config(es_con_push))
+    assert aviso == (
+        "La rama main local está 2 commits adelante y 0 commits atrás de origin/main. Los de "
+        "adelante entrarían en la rama del ticket y aparecerían en el PR: conviene hacer push "
+        "de main antes."
+    )
+
+
+@pytest.mark.parametrize("es_con_push", [True, False])
+def test_avisa_si_la_base_esta_atrasada(
+    proyecto: Path, tmp_path: Path, es_con_push: bool
+) -> None:
+    _subir_commit_desde_otro_clon(tmp_path)
+    (aviso,) = _avisos_al_preparar(proyecto, _config(es_con_push))
+    assert aviso == (
+        "La rama main local está 0 commits adelante y 1 commit atrás de origin/main. La rama "
+        "del ticket sale sin los de atrás: conviene actualizarla (git pull) antes."
+    )
+
+
+def test_avisa_adelante_y_atras_en_un_solo_aviso(proyecto: Path, tmp_path: Path) -> None:
+    _subir_commit_desde_otro_clon(tmp_path)
+    git(proyecto, "commit", "--quiet", "--allow-empty", "-m", "local")
     (aviso,) = _avisos_al_preparar(proyecto)
-    assert "está 1 commit atrasada respecto de origin/main" in aviso
-    assert "(git pull)" in aviso
+    assert aviso.startswith("La rama main local está 1 commit adelante y 1 commit atrás")
+    assert "hacer push de main" in aviso and "(git pull)" in aviso
+
+
+def test_sin_push_y_sin_poder_comparar_avisa_y_sigue(proyecto: Path, tmp_path: Path) -> None:
+    git(proyecto, "remote", "set-url", "origin", str(tmp_path / "no-existe.git"))
+    (aviso,) = _avisos_al_preparar(proyecto, _config(es_con_push=False))
+    assert aviso.startswith("No se pudo comparar main con el remoto: 'git fetch")
+    assert _rama_actual(proyecto) == RAMA
 
 
 # --- Al terminar -------------------------------------------------------------------------

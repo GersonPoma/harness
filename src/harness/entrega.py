@@ -76,6 +76,14 @@ def preparar_rama(
     _verificar_repo(repo, config)
     if config.es_con_push:
         _verificar_remoto(repo, config, al_aviso)
+    elif git.existe_remoto(repo, config.remoto):
+        # Sin push el remoto no es obligatorio, pero la base desactualizada importa igual:
+        # si no se puede comparar (sin red, sin la rama en el remoto), se avisa y se sigue.
+        try:
+            _avisar_divergencia(repo, config, al_aviso)
+        except ErrorGit as error:
+            al_aviso(f"No se pudo comparar {config.base} con el remoto: {error}")
+    # Siempre después de comparar: la rama del ticket sale de la base tal como está.
     git.crear_rama(repo, config.rama, config.base)
 
 
@@ -148,10 +156,7 @@ def _verificar_remoto(
             f"No existe el remoto '{config.remoto}' (git.remoto en harness.yaml). Usa "
             "--sin-push para trabajar sin remoto."
         )
-    git.traer(repo, config.remoto, config.base)
-    divergencia = git.comparar_con_remoto(repo, config.remoto, config.base)
-    for aviso in _avisos_divergencia(config, divergencia):
-        al_aviso(aviso)
+    _avisar_divergencia(repo, config, al_aviso)
     if git.existe_rama_remota(repo, config.remoto, config.rama):
         raise ErrorGit(
             f"La rama '{config.rama}' ya existe en '{config.remoto}'. Bórrala allá para "
@@ -159,22 +164,34 @@ def _verificar_remoto(
         )
 
 
-def _avisos_divergencia(config: ConfigEntrega, divergencia: git.Divergencia) -> list[str]:
-    base_remota = f"{config.remoto}/{config.base}"
-    avisos = []
+def _avisar_divergencia(
+    repo: Path, config: ConfigEntrega, al_aviso: Callable[[str], None]
+) -> None:
+    """git fetch de la base y un aviso si la local está adelantada o atrasada."""
+    git.traer(repo, config.remoto, config.base)
+    divergencia = git.comparar_con_remoto(repo, config.remoto, config.base)
+    aviso = _aviso_divergencia(config, divergencia)
+    if aviso:
+        al_aviso(aviso)
+
+
+def _aviso_divergencia(config: ConfigEntrega, divergencia: git.Divergencia) -> str | None:
+    if not divergencia.adelantados and not divergencia.atrasados:
+        return None
+    partes = [
+        f"La rama {config.base} local está {_commits(divergencia.adelantados)} adelante y "
+        f"{_commits(divergencia.atrasados)} atrás de {config.remoto}/{config.base}."
+    ]
     if divergencia.adelantados:
-        avisos.append(
-            f"La rama {config.base} local tiene {_commits(divergencia.adelantados)} sin subir a "
-            f"{base_remota}: entrarían en la rama del ticket y aparecerían en el PR. Conviene "
+        partes.append(
+            "Los de adelante entrarían en la rama del ticket y aparecerían en el PR: conviene "
             f"hacer push de {config.base} antes."
         )
     if divergencia.atrasados:
-        avisos.append(
-            f"La rama {config.base} local está {_commits(divergencia.atrasados)} atrasada "
-            f"respecto de {base_remota}: la rama del ticket sale sin esos cambios. Conviene "
-            f"actualizarla (git pull) antes."
+        partes.append(
+            "La rama del ticket sale sin los de atrás: conviene actualizarla (git pull) antes."
         )
-    return avisos
+    return " ".join(partes)
 
 
 def _es_listo(resultado: ResultadoEjecucion) -> bool:
