@@ -718,6 +718,10 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
   - [ ] **`harness config` + `~/.harness/config.toml`**, con el orden de prioridad: opciones
         del comando → variables de entorno / `.env` → `config.toml`. Necesario para que otros
         lo instalen con `uv tool install git+...` y lo usen sin el repo.
+        - Ajustar el mensaje "Falta GITHUB_TOKEN en el .env" (en `github.verificar_acceso` y
+          en `entrega._abrir_pr`): el token también puede venir de una variable de entorno o
+          de `config.toml`. Por ejemplo: "Falta el token de GitHub (GITHUB_TOKEN en el entorno
+          o en ~/.harness/config.toml)".
   - [ ] **Perfiles de modelo** en `~/.harness/config.toml`: cada perfil tiene un nombre, un
         proveedor (preset) y un modelo, y uno es el predeterminado. Las API keys se guardan
         una sola vez por proveedor, en `[credenciales]`, y las comparten los perfiles.
