@@ -125,6 +125,14 @@ credenciales de Git del usuario.
     commits adelante y atrás. También con `--sin-push` si hay remoto; ahí, si no se puede
     comparar (sin red), solo avisa y sigue;
   - la rama `<prefijo_rama><TICKET>` no puede existir (ni local ni en el remoto);
+  - si habrá PR (sin `--sin-push` ni `--sin-pr`) y el remoto es de GitHub, se verifica el
+    token con pedidos de solo lectura: `GET /user` (token válido), `GET /repos/{dueño}/{repo}`
+    (ve el repo), `GET .../branches/<rama_base>` (permiso Contents) y `GET .../pulls?per_page=1`
+    (permiso Pull requests). Dueño y repo salen de la URL del remoto (HTTPS o SSH). El permiso
+    de **escritura** en PRs no se puede comprobar sin crear uno, y la consola lo aclara;
+  - si el token falla, dice qué permiso falta y pregunta "¿Continuar sin PR (solo commit y
+    push)? [s/N]": con `s` sigue como `--sin-pr`; con `N` o Enter se detiene sin crear la
+    rama. Sin terminal interactiva no pregunta: se detiene con código 1 y sugiere `--sin-pr`;
   - se crea esa rama desde la base **local** y el modelo trabaja ahí.
 - **Al terminar con la validación OK:** `git add -A` (sin los logs del harness; frena si entre
   los cambios hay un `.env`), commit de una línea `<TICKET>: <título del ticket>`, push con
@@ -132,12 +140,23 @@ credenciales de Git del usuario.
   request en borrador** con la API de GitHub. La descripción del PR lleva el resumen del
   modelo, el plan, la validación y los archivos cambiados (con los secretos ocultos). Si el
   repo no admite borradores (privado en una cuenta gratuita), crea un PR normal y lo avisa.
+- **Si el PR igual falla al final** (el push ya está hecho): guarda el título y la descripción
+  en `.harness/logs/<TICKET>-pr.md` y muestra el link para crearlo a mano
+  (`https://github.com/<dueño>/<repo>/compare/<rama_base>...<rama>?expand=1`). Si GitHub
+  respondió 422 (por ejemplo "not all refs are readable"), agrega la pista de permisos. El
+  código de salida es 1.
 - **Si la validación falla, se acaban los pasos o se rechaza el plan:** sin commit ni push;
   los cambios quedan sin commitear en la rama para revisarlos. Si la rama quedó vacía (sin
   cambios, o por un error antes de tocar nada), el harness vuelve a la base y la borra.
-- **El PR necesita `GITHUB_TOKEN`** en el `.env`: token *fine-grained* con acceso a los repos
-  objetivo y el permiso **Pull requests: Read and write** (Metadata: Read-only lo agrega
-  GitHub). Sin token, o si el remoto no es de GitHub, se hace push y se avisa que no hubo PR.
+- **El PR necesita `GITHUB_TOKEN`** en el `.env`: token *fine-grained* (GitHub → Settings →
+  Developer settings → Fine-grained tokens) con estos permisos exactos:
+  - **Repository access:** *Only select repositories*, con los repos objetivo.
+  - **Contents: Read-only**: sin él, GitHub rechaza el PR con 422 "not all refs are readable".
+  - **Pull requests: Read and write**: para crear el PR (y leer si ya existe uno).
+  - **Metadata: Read-only**: lo agrega GitHub solo.
+  - Nada más: el push no usa el token, va con las credenciales de Git del usuario.
+
+  Si el remoto no es de GitHub, se hace push y se avisa que no hubo PR.
 - Opciones de `run`: `--sin-push` (commit local, sin push ni PR) y `--sin-pr` (push sin PR).
 - *(fase 7)* **`comment_jira`**: deja el link del PR en el ticket.
 
@@ -604,6 +623,10 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         descargar dependencias.
 - [ ] **7.** Jira: integración real con Jira (reemplaza el ticket local)
   - [ ] **Comentario en el ticket de Jira** con el link del PR.
+  - [ ] **Verificar Jira en el preflight**, igual que el token de GitHub: `GET
+        /rest/api/3/myself` (credenciales válidas) y la lectura del ticket, antes de crear la
+        rama y de llamar al modelo. Si falla, decir qué falta (URL, usuario, token o permiso
+        sobre el proyecto) y detenerse.
 - [ ] **8.** Memoria y continuidad: manejo de contexto (recorte + resumen),
       `.harness/memory.md` con `save_memory`, y `harness resume`
   - [ ] **Cambio automático de proveedor al agotarse la cuota.** Lista de respaldo de
@@ -619,6 +642,9 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         dependen del proveedor.
   - [ ] **"Cuota agotada" como causa de corte** que se puede retomar con `resume` (junto a
         error, Ctrl+C, límite de tokens y sin internet).
+  - [ ] **PR pendiente en `harness resume <TICKET>`:** si la ejecución anterior terminó con
+        el push hecho y sin PR (el PR falló), crear solo el PR con la descripción guardada en
+        `.harness/logs/<TICKET>-pr.md`, sin volver a correr el modelo.
 - [ ] **9.** Calidad de la ejecución
   - [ ] **Paso de revisión con el modelo.** Después de que los tests pasan, mostrarle al
         modelo el `git diff`, el `AGENTS.md` y el ticket, y pedirle que revise si se viola
