@@ -693,6 +693,24 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
   - [ ] **Prefijo "Aviso:" en los avisos de consola**, además del color amarillo, para que
         se distingan cuando la salida se copia, se redirige a un archivo o no va a una
         terminal (rich no pone colores en esos casos).
+  - [ ] **Plan con correcciones del usuario.** Hoy, con `--aprobar-plan`, solo se puede
+        responder s o n. Cambiar la pregunta a "¿Aprobar el plan? [s/n, o escribe qué
+        cambiar]":
+        - `s`: sigue como ahora.
+        - `n` o Enter: se detiene (hoy Enter vuelve a preguntar).
+        - Cualquier otro texto es una corrección: se le manda al modelo como mensaje del
+          usuario ("El usuario pidió este cambio al plan: <texto>"), vuelve a la ronda de
+          planificación con las herramientas de solo lectura y propone un plan nuevo, que se
+          muestra y se pregunta otra vez.
+        - Sin límite de correcciones: decide el usuario, que siempre puede cortar con `n`.
+        - Cada plan nuevo tiene su propio presupuesto de `max_pasos_plan` para explorar.
+          `max_pasos` cuenta recién desde que el plan se aprueba, para que corregir el plan no
+          le quite pasos a la implementación.
+        - Junto a la pregunta se muestran los tokens gastados hasta ese momento.
+        - Las correcciones quedan en el log y en la descripción del PR, en una sección
+          "Indicaciones del usuario".
+        - Sin terminal interactiva no se pregunta y se detiene, igual que el preflight de
+          GitHub (hoy la pregunta se hace igual y, al no haber respuesta, no se implementa).
 - [ ] **10.** Docker
   - [ ] **Opción `--conservar`:** no borrar los contenedores al terminar, para poder
         conectarse a la base y depurar. Mostrar cómo conectarse y cómo borrarlos después.
