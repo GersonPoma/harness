@@ -684,6 +684,15 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
   - [ ] **Campo `codigo_salida` en el log** para `ejecutar_tests`, `ejecutar_lint` y
         `ejecutar_comando`. Hoy `es_error` significa "la herramienta no pudo ejecutarse", y
         que los tests fallen solo se ve dentro del texto.
+  - [ ] **Cuántos tests pasaron, en la descripción del PR.** La sección Validación dice
+        "Pasaron los tests (`pytest -q`)" pero no cuántos: agregar la última línea útil de la
+        salida de los tests (por ejemplo "5 passed in 0.8s"), recortada a una línea.
+  - [ ] **Plan plegado en la descripción del PR.** Resumen y Plan repiten casi lo mismo:
+        dejar el plan dentro de `<details><summary>Plan</summary> … </details>` para que el
+        PR se lea más corto.
+  - [ ] **Prefijo "Aviso:" en los avisos de consola**, además del color amarillo, para que
+        se distingan cuando la salida se copia, se redirige a un archivo o no va a una
+        terminal (rich no pone colores en esos casos).
 - [ ] **10.** Docker
   - [ ] **Opción `--conservar`:** no borrar los contenedores al terminar, para poder
         conectarse a la base y depurar. Mostrar cómo conectarse y cómo borrarlos después.
