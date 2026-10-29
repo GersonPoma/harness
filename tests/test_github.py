@@ -4,12 +4,14 @@ import httpx
 import pytest
 
 from harness.github import (
+    PISTA_PERMISOS,
     ErrorGitHub,
     PedidoPullRequest,
     PullRequest,
     RepoGitHub,
     crear_pull_request,
     repo_desde_remoto,
+    verificar_acceso,
 )
 
 REPO = RepoGitHub("gerson", "tareas-api")
@@ -138,3 +140,79 @@ def test_sin_conexion() -> None:
 
     with pytest.raises(ErrorGitHub, match="No se pudo conectar con GitHub"):
         crear_pull_request(PEDIDO, TOKEN, httpx.MockTransport(sin_red))
+
+
+# --- Verificación del token al empezar ---------------------------------------------------
+
+OK = httpx.Response(200, json={})
+
+
+def test_verificar_acceso_con_un_token_que_sirve() -> None:
+    github = GitHubFalso(OK, OK, OK, httpx.Response(200, json=[]))
+    verificar_acceso(REPO, "main", TOKEN, github.transporte)
+
+    assert [p.method for p in github.pedidos] == ["GET"] * 4
+    assert [p.url.path for p in github.pedidos] == [
+        "/user",
+        "/repos/gerson/tareas-api",
+        "/repos/gerson/tareas-api/branches/main",
+        RUTA_PULLS,
+    ]
+    assert github.pedidos[3].url.params["per_page"] == "1"
+    assert github.pedidos[0].headers["Authorization"] == f"Bearer {TOKEN}"
+
+
+def test_verificar_acceso_sin_token_no_llama_a_github() -> None:
+    github = GitHubFalso()
+    with pytest.raises(ErrorGitHub, match="Falta GITHUB_TOKEN en el .env") as error:
+        verificar_acceso(REPO, "main", None, github.transporte)
+    assert PISTA_PERMISOS in str(error.value)
+    assert github.pedidos == []
+
+
+@pytest.mark.parametrize(
+    ("respuestas", "problema", "codigo"),
+    [
+        (
+            [httpx.Response(401, json={"message": "Bad credentials"})],
+            "GitHub rechazó el token",
+            401,
+        ),
+        (
+            [OK, httpx.Response(404, json={"message": "Not Found"})],
+            "El token no ve el repo gerson/tareas-api",
+            404,
+        ),
+        (
+            [OK, OK, httpx.Response(403, json={"message": "Resource not accessible"})],
+            "El token no puede leer la rama main de gerson/tareas-api: le falta el permiso "
+            "Contents",
+            403,
+        ),
+        (
+            [OK, OK, _error_422("not all refs are readable")],
+            "El token no puede leer la rama main",
+            422,
+        ),
+        (
+            [OK, OK, OK, httpx.Response(403, json={"message": "Resource not accessible"})],
+            "El token no puede leer los pull requests de gerson/tareas-api: le falta el "
+            "permiso Pull requests",
+            403,
+        ),
+    ],
+)
+def test_verificar_acceso_dice_que_falta(
+    respuestas: list[httpx.Response], problema: str, codigo: int
+) -> None:
+    github = GitHubFalso(*respuestas)
+    with pytest.raises(ErrorGitHub) as error:
+        verificar_acceso(REPO, "main", TOKEN, github.transporte)
+
+    mensaje = str(error.value)
+    assert mensaje.startswith(problema)
+    assert f"GitHub respondió {codigo}" in mensaje
+    assert mensaje.endswith(PISTA_PERMISOS)
+    assert error.value.codigo == codigo
+    # Se detiene en la primera comprobación que falla.
+    assert len(github.pedidos) == len(respuestas)

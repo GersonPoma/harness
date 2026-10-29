@@ -14,6 +14,7 @@ from harness.entrega import (
     crear_mensaje_commit,
     entregar,
     preparar_rama,
+    verificar_github,
 )
 from harness.git import ErrorGit
 from harness.github import ErrorGitHub, PedidoPullRequest, PullRequest, RepoGitHub
@@ -448,3 +449,30 @@ def test_titulo_del_ticket(texto: str, titulo: str) -> None:
 def test_mensaje_del_commit() -> None:
     assert crear_mensaje_commit(TICKET, "Crear tareas") == MENSAJE
     assert crear_mensaje_commit(TICKET, "") == TICKET
+
+
+# --- Verificación de GitHub al empezar ---------------------------------------------------
+
+
+def test_verificar_github_con_un_remoto_que_no_es_de_github_no_pide_nada(
+    proyecto: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    llamadas: list = []
+    monkeypatch.setattr(
+        modulo_entrega.github, "verificar_acceso", lambda *argumentos: llamadas.append(argumentos)
+    )
+    assert verificar_github(proyecto, _config(), "tok") is None
+    assert llamadas == []
+
+
+def test_verificar_github_usa_el_repo_del_remoto_y_la_base(
+    proyecto: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    llamadas: list = []
+    git(proyecto, "remote", "set-url", "origin", "git@github.com:gerson/tareas-api.git")
+    monkeypatch.setattr(
+        modulo_entrega.github, "verificar_acceso", lambda *argumentos: llamadas.append(argumentos)
+    )
+    repo_github = verificar_github(proyecto, _config(), "tok")
+    assert repo_github == RepoGitHub("gerson", "tareas-api")
+    assert llamadas == [(repo_github, "main", "tok")]

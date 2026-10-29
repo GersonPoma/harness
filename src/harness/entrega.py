@@ -73,6 +73,14 @@ def preparar_rama(
     repo: Path, config: ConfigEntrega, al_aviso: Callable[[str], None]
 ) -> None:
     """Comprueba que el repo esté listo y crea la rama del ticket. Lanza ErrorGit si no."""
+    verificar_repo_para_entrega(repo, config, al_aviso)
+    crear_rama_del_ticket(repo, config)
+
+
+def verificar_repo_para_entrega(
+    repo: Path, config: ConfigEntrega, al_aviso: Callable[[str], None]
+) -> None:
+    """Todo lo de Git antes de crear la rama (árbol limpio, remoto, base al día...)."""
     _verificar_repo(repo, config)
     if config.es_con_push:
         _verificar_remoto(repo, config, al_aviso)
@@ -83,8 +91,24 @@ def preparar_rama(
             _avisar_divergencia(repo, config, al_aviso)
         except ErrorGit as error:
             al_aviso(f"No se pudo comparar {config.base} con el remoto: {error}")
-    # Siempre después de comparar: la rama del ticket sale de la base tal como está.
+
+
+def crear_rama_del_ticket(repo: Path, config: ConfigEntrega) -> None:
+    """Crea la rama desde la base local (después de verificar y avisar)."""
     git.crear_rama(repo, config.rama, config.base)
+
+
+def verificar_github(
+    repo: Path, config: ConfigEntrega, token: str | None
+) -> github.RepoGitHub | None:
+    """Comprueba el token antes de empezar; None si el remoto no es de GitHub (no hay PR).
+
+    Lanza github.ErrorGitHub con lo que falta.
+    """
+    repo_github = github.repo_desde_remoto(git.url_remoto(repo, config.remoto))
+    if repo_github is not None:
+        github.verificar_acceso(repo_github, config.base, token)
+    return repo_github
 
 
 def entregar(

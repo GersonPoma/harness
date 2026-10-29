@@ -260,6 +260,7 @@ def _correr_con_entrega(
     texto_final: str = "Hecho",
     url_github: str | None = None,
     antes_de_correr: Callable[[Path, Path], None] | None = None,
+    entrada: str | None = None,
 ) -> tuple[int, str, Path]:
     """Repo Git con remoto local; la ejecución (falsa) escribe un archivo y valida o no."""
     (repo / "harness.yaml").write_text(YAML_CON_DOCKER, encoding="utf-8")
@@ -279,7 +280,7 @@ def _correr_con_entrega(
         return resultado, CambiosRepo(creados=["tareas.py"])
 
     monkeypatch.setattr(cli, "_ejecutar", ejecutar_falso)
-    codigo, salida = _correr(monkeypatch, repo, [], *opciones)
+    codigo, salida = _correr(monkeypatch, repo, [], *opciones, entrada=entrada)
     return codigo, salida, remoto
 
 
@@ -366,6 +367,121 @@ def test_abre_el_pr_y_oculta_el_token_en_la_descripcion(
     assert entrega["pull_request"] == "https://github.com/gerson/demo/pull/3"
     (log,) = (repo_sin_yaml / ".harness" / "logs").glob("*.jsonl")
     assert "tok-secreto-123" not in log.read_text(encoding="utf-8")
+
+
+PROBLEMA_TOKEN = (
+    "El token no puede leer la rama main de gerson/demo: le falta el permiso Contents."
+)
+
+
+def _con_github_al_empezar(
+    monkeypatch: pytest.MonkeyPatch, problema: str | None = None, es_interactiva: bool = False
+) -> list[str]:
+    """El remoto parece de GitHub (el push sigue yendo al bare local) y el token falla o no.
+
+    Devuelve las ramas base con las que se verificó el token.
+    """
+    verificaciones: list[str] = []
+
+    def verificar_falso(repo_github, base: str, token: str | None) -> None:
+        verificaciones.append(base)
+        if problema:
+            raise ErrorGitHub(problema, 403)
+
+    monkeypatch.setattr("harness.git.url_remoto", lambda *_: "https://github.com/gerson/demo.git")
+    monkeypatch.setattr("harness.entrega.github.verificar_acceso", verificar_falso)
+    monkeypatch.setattr(cli.consola, "es_terminal_interactiva", lambda: es_interactiva)
+    return verificaciones
+
+
+def _prs_pedidos(monkeypatch: pytest.MonkeyPatch) -> list[PedidoPullRequest]:
+    pedidos: list[PedidoPullRequest] = []
+
+    def crear_falso(pedido: PedidoPullRequest, token: str) -> PullRequest:
+        pedidos.append(pedido)
+        return PullRequest("https://github.com/gerson/demo/pull/3", es_borrador=True)
+
+    monkeypatch.setattr("harness.entrega.github.crear_pull_request", crear_falso)
+    return pedidos
+
+
+@requiere_git
+def test_con_el_token_ok_lo_avisa_antes_de_crear_la_rama(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "tok")
+    verificaciones = _con_github_al_empezar(monkeypatch)
+    pedidos = _prs_pedidos(monkeypatch)
+    codigo, salida, _ = _correr_con_entrega(monkeypatch, repo_sin_yaml, True)
+
+    assert codigo == 0 and verificaciones == ["main"]
+    salida_plana = " ".join(salida.split())
+    verificado = "✓ Token de GitHub con acceso a gerson/demo."
+    assert verificado in salida_plana
+    assert "no se puede comprobar sin crear uno" in salida_plana
+    assert salida_plana.index(verificado) < salida_plana.index("Rama feature/T-1 creada")
+    assert len(pedidos) == 1
+
+
+@requiere_git
+def test_si_el_token_falla_sin_terminal_se_detiene_sin_crear_la_rama(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    _con_github_al_empezar(monkeypatch, PROBLEMA_TOKEN)
+    codigo, salida, remoto = _correr_con_entrega(monkeypatch, repo_sin_yaml, True)
+
+    assert codigo == 1
+    salida_plana = " ".join(salida.split())
+    assert PROBLEMA_TOKEN in salida_plana
+    assert "usa --sin-pr para seguir sin PR" in salida_plana
+    assert "¿Continuar sin PR" not in salida_plana
+    assert git(repo_sin_yaml, "branch", "--list", "feature/T-1") == ""
+    # No se llegó a ejecutar el modelo.
+    assert not (repo_sin_yaml / "tareas.py").exists()
+
+
+@requiere_git
+@pytest.mark.parametrize("respuesta", ["n\n", "\n"])
+def test_si_el_token_falla_y_responde_que_no_se_detiene(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path, respuesta: str
+) -> None:
+    _con_github_al_empezar(monkeypatch, PROBLEMA_TOKEN, es_interactiva=True)
+    codigo, salida, _ = _correr_con_entrega(
+        monkeypatch, repo_sin_yaml, True, entrada=respuesta
+    )
+
+    assert codigo == 1
+    salida_plana = " ".join(salida.split())
+    assert "¿Continuar sin PR (solo commit y push)? [s/N]" in salida_plana
+    assert "Detenido antes de crear la rama" in salida_plana
+    assert git(repo_sin_yaml, "branch", "--list", "feature/T-1") == ""
+    assert not (repo_sin_yaml / "tareas.py").exists()
+
+
+@requiere_git
+def test_si_el_token_falla_y_responde_que_si_sigue_sin_pr(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    _con_github_al_empezar(monkeypatch, PROBLEMA_TOKEN, es_interactiva=True)
+    pedidos = _prs_pedidos(monkeypatch)
+    codigo, salida, remoto = _correr_con_entrega(monkeypatch, repo_sin_yaml, True, entrada="s\n")
+
+    assert codigo == 0
+    assert "Se sigue sin PR, como con --sin-pr" in " ".join(salida.split())
+    assert "feature/T-1" in ramas_remotas(remoto)
+    assert pedidos == []
+    eventos = [e["evento"] for e in _eventos_del_log(repo_sin_yaml)]
+    assert eventos.index("aviso") < eventos.index("rama")
+
+
+@requiere_git
+@pytest.mark.parametrize("opcion", ["--sin-pr", "--sin-push"])
+def test_sin_pr_no_verifica_el_token(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path, opcion: str
+) -> None:
+    verificaciones = _con_github_al_empezar(monkeypatch, PROBLEMA_TOKEN)
+    codigo, _, _ = _correr_con_entrega(monkeypatch, repo_sin_yaml, True, opcion)
+    assert codigo == 0 and verificaciones == []
 
 
 @requiere_git

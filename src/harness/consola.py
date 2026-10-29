@@ -217,6 +217,34 @@ def preguntar_implementar() -> bool:
             return False
 
 
+def es_terminal_interactiva() -> bool:
+    """True si hay alguien en la consola para responder una pregunta."""
+    return sys.stdin.isatty()
+
+
+def preguntar_continuar_sin_pr() -> bool:
+    """Pregunta si se sigue sin PR; Enter o sin respuesta posible (EOF) es que no."""
+    while True:
+        try:
+            respuesta = consola.input(
+                escape("¿Continuar sin PR (solo commit y push)? [s/N] ")
+            ).strip().lower()
+        except EOFError:
+            return False
+        if respuesta in RESPUESTAS_SI:
+            return True
+        if not respuesta or respuesta in RESPUESTAS_NO:
+            return False
+
+
+def mostrar_github_verificado(repo: str) -> None:
+    """El token pasó la verificación (y lo que no se puede comprobar todavía)."""
+    consola.print(
+        f"[bold green]✓ Token de GitHub[/] con acceso a {escape(repo)}. El permiso de escritura "
+        "en pull requests no se puede comprobar sin crear uno: si falta, el PR fallará al final."
+    )
+
+
 def mostrar_inicio_init(repo: str, proveedor: str, modelo: str, faltantes: list[str]) -> None:
     """Muestra qué va a generar harness init y con qué modelo."""
     consola.print(

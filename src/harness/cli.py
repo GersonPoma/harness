@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
 from typing import Annotated
@@ -31,10 +31,12 @@ from harness.entrega import (
     crear_config_entrega,
     crear_cuerpo_pr,
     crear_mensaje_commit,
+    crear_rama_del_ticket,
     entregar,
-    preparar_rama,
+    verificar_github,
+    verificar_repo_para_entrega,
 )
-from harness.github import PedidoPullRequest, RepoGitHub
+from harness.github import ErrorGitHub, PedidoPullRequest, RepoGitHub
 from harness.git import ErrorGit
 from harness.herramientas import crear_herramientas, crear_herramientas_lectura
 from harness.herramientas.comandos import EjecutorComandos, validar_proyecto
@@ -193,7 +195,9 @@ def _preparar_rama(
         prep.config_proyecto.git, prep.ticket, es_con_push, es_con_pr
     )
     try:
-        preparar_rama(prep.repo, config, reporte.aviso)
+        verificar_repo_para_entrega(prep.repo, config, reporte.aviso)
+        config = _verificar_github(prep, config, reporte)
+        crear_rama_del_ticket(prep.repo, config)
     except ErrorGit as error:
         reporte.registro.registrar_error(str(error))
         consola.mostrar_error(str(error))
@@ -201,6 +205,38 @@ def _preparar_rama(
     reporte.registro.registrar_rama(config)
     consola.mostrar_rama(config)
     return config
+
+
+def _verificar_github(
+    prep: _Preparacion, config: ConfigEntrega, reporte: _Reporte
+) -> ConfigEntrega:
+    """Antes de gastar pedidos: si el token no sirve para el PR, sigue sin PR o se detiene."""
+    if not config.es_con_pr:
+        return config
+    try:
+        repo_github = verificar_github(prep.repo, config, prep.token_github)
+    except ErrorGitHub as error:
+        return _decidir_sin_pr(config, str(error), reporte)
+    if repo_github is not None:
+        consola.mostrar_github_verificado(str(repo_github))
+    return config
+
+
+def _decidir_sin_pr(config: ConfigEntrega, problema: str, reporte: _Reporte) -> ConfigEntrega:
+    """Pregunta si se sigue como --sin-pr; sin terminal o con un no, se detiene sin rama."""
+    if not consola.es_terminal_interactiva():
+        mensaje = f"{problema} Sin terminal para preguntar: usa --sin-pr para seguir sin PR."
+        reporte.registro.registrar_error(mensaje)
+        consola.mostrar_error(mensaje)
+        raise typer.Exit(1)
+    reporte.aviso(problema)
+    if not consola.preguntar_continuar_sin_pr():
+        mensaje = "Detenido antes de crear la rama: arregla el token o usa --sin-pr."
+        reporte.registro.registrar_error(mensaje)
+        consola.mostrar_error(mensaje)
+        raise typer.Exit(1)
+    reporte.aviso("Se sigue sin PR, como con --sin-pr: al terminar, solo commit y push.")
+    return replace(config, es_con_pr=False)
 
 
 def _entregar(

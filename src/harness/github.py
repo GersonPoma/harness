@@ -1,7 +1,7 @@
 """Pull requests en GitHub, con su API REST.
 
-Necesita un token fine-grained con "Pull requests: Read and write" sobre el repo (en GITHUB_TOKEN
-del .env). El push no lo usa: va con las credenciales de Git del usuario.
+Necesita un token fine-grained sobre el repo con "Contents: Read-only" y "Pull requests: Read and
+write" (en GITHUB_TOKEN del .env). El push no lo usa: va con las credenciales de Git del usuario.
 """
 
 import re
@@ -22,10 +22,18 @@ PATRON_REMOTO = re.compile(
 # Lo que responde GitHub (422) en un repo privado de una cuenta gratuita.
 TEXTO_SIN_BORRADORES = "draft pull requests are not supported"
 TEXTO_YA_EXISTE = "a pull request already exists"
+PISTA_PERMISOS = (
+    "El token necesita Contents: Read-only y Pull requests: Read and write en este repo."
+)
 
 
 class ErrorGitHub(Exception):
     """La API de GitHub rechazó el pedido."""
+
+    def __init__(self, mensaje: str, codigo: int | None = None) -> None:
+        super().__init__(mensaje)
+        # Código HTTP de la respuesta; None si ni siquiera hubo respuesta.
+        self.codigo = codigo
 
 
 @dataclass(frozen=True)
@@ -34,6 +42,9 @@ class RepoGitHub:
 
     duenio: str
     nombre: str
+
+    def __str__(self) -> str:
+        return f"{self.duenio}/{self.nombre}"
 
 
 @dataclass(frozen=True)
@@ -64,6 +75,46 @@ def repo_desde_remoto(url: str) -> RepoGitHub | None:
     if coincidencia is None:
         return None
     return RepoGitHub(coincidencia["duenio"], coincidencia["repo"])
+
+
+def verificar_acceso(
+    repo: RepoGitHub, base: str, token: str | None, transporte: httpx.BaseTransport | None = None
+) -> None:
+    """Comprueba con pedidos de solo lectura que el token sirva para abrir el PR.
+
+    Lanza ErrorGitHub diciendo qué falta. El permiso de escritura en PRs no se puede comprobar
+    sin crear uno: si falta, el PR falla recién al final.
+    """
+    if not token:
+        raise ErrorGitHub(f"Falta GITHUB_TOKEN en el .env. {PISTA_PERMISOS}")
+    ruta_repo = f"/repos/{repo.duenio}/{repo.nombre}"
+    comprobaciones = [
+        ("/user", {}, "GitHub rechazó el token: está vencido, revocado o mal copiado."),
+        (ruta_repo, {}, f"El token no ve el repo {repo}: agrégalo en 'Repository access'."),
+        (
+            f"{ruta_repo}/branches/{base}",
+            {},
+            f"El token no puede leer la rama {base} de {repo}: le falta el permiso Contents "
+            "(o la rama no está en GitHub).",
+        ),
+        (
+            f"{ruta_repo}/pulls",
+            {"per_page": 1},
+            f"El token no puede leer los pull requests de {repo}: le falta el permiso "
+            "Pull requests.",
+        ),
+    ]
+    try:
+        with _crear_cliente(token, transporte) as http:
+            for ruta, parametros, problema in comprobaciones:
+                respuesta = http.get(ruta, params=parametros)
+                if not respuesta.is_success:
+                    raise ErrorGitHub(
+                        f"{problema} GitHub respondió {_describir(respuesta)}. {PISTA_PERMISOS}",
+                        respuesta.status_code,
+                    )
+    except httpx.HTTPError as error:
+        raise ErrorGitHub(f"No se pudo conectar con GitHub: {error}") from error
 
 
 def crear_pull_request(
@@ -125,7 +176,9 @@ def _resultado(
         )
     if _es_error(respuesta, TEXTO_YA_EXISTE):
         return _pr_existente(http, pedido)
-    raise ErrorGitHub(f"GitHub no creó el pull request: {_describir(respuesta)}")
+    raise ErrorGitHub(
+        f"GitHub no creó el pull request: {_describir(respuesta)}", respuesta.status_code
+    )
 
 
 def _pr_existente(http: httpx.Client, pedido: PedidoPullRequest) -> PullRequest:
