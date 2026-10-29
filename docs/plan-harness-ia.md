@@ -122,7 +122,8 @@ credenciales de Git del usuario.
     `.harness/sessions`), con la rama base, `user.name` y `user.email`;
   - `git fetch` de la rama base: avisa si la local está **atrasada** (sugiere `git pull`) o
     **adelantada** (sus commits entrarían en el PR: sugiere hacer push antes), con cuántos
-    commits;
+    commits adelante y atrás. También con `--sin-push` si hay remoto; ahí, si no se puede
+    comparar (sin red), solo avisa y sigue;
   - la rama `<prefijo_rama><TICKET>` no puede existir (ni local ni en el remoto);
   - se crea esa rama desde la base **local** y el modelo trabaja ahí.
 - **Al terminar con la validación OK:** `git add -A` (sin los logs del harness; frena si entre
