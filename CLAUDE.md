@@ -34,7 +34,7 @@ Cada subcomando es una función con `@app.command()` en `src/harness/cli.py`.
 - CLI con `typer` y `rich`
 - SDK oficiales de los proveedores de modelos (`anthropic`, `openai`)
 - Docker para ejecutar el código generado
-- API REST de Jira y API de GitHub
+- MCP (SDK oficial `mcp`) para GitHub y Jira, con sus API REST de respaldo
 
 ## Estructura
 

@@ -58,9 +58,9 @@ for paso in range(MAX_PASOS):
 
 ### Entrada
 
-- **`get_jira_ticket(id)`**: API REST de Jira (`/rest/api/3/issue/{id}`). Obtiene resumen,
-  descripción y criterios de aceptación. Al inicio, aceptar también un ticket local
-  (`.json` / `.md`).
+- **`get_jira_ticket(id)`**: por un servidor MCP de Jira o, si no hay, por la API REST v3
+  (`/rest/api/3/issue/{id}`) (fase 7). Obtiene resumen, descripción y criterios de
+  aceptación. Al inicio, aceptar también un ticket local (`.json` / `.md`).
 
 ### Entender el proyecto
 
@@ -158,7 +158,9 @@ credenciales de Git del usuario.
 
   Si el remoto no es de GitHub, se hace push y se avisa que no hubo PR.
 - Opciones de `run`: `--sin-push` (commit local, sin push ni PR) y `--sin-pr` (push sin PR).
-- *(fase 7)* **`comment_jira`**: deja el link del PR en el ticket.
+- *(fase 6)* El PR pasa a crearse con `create_pull_request` del servidor MCP de GitHub, y la
+  API REST queda de respaldo (ver [Cómo se conectan los MCP](#cómo-se-conectan-los-mcp)).
+- *(fase 7)* **`comment_jira`**: deja el link del PR en el ticket (por MCP o REST).
 
 ---
 
@@ -335,6 +337,75 @@ variables_entorno:                  # se pasan al contenedor del proyecto
 - **Logs:** guardar cada paso (herramienta llamada + resultado) en un archivo por ejecución.
   Sirve para depurar y para la presentación.
 
+## Cómo se conectan los MCP
+
+*(Se implementa en las fases 6 y 7.)* MCP (Model Context Protocol) es un protocolo abierto
+para que una aplicación de IA use herramientas y datos de otros programas con un formato común.
+
+### Cliente y servidor
+
+- El **servidor MCP** expone herramientas: por ejemplo, el servidor oficial de GitHub
+  (`github/github-mcp-server`) ofrece `search_code`, `get_file_contents` o
+  `create_pull_request`, y un servidor de Jira ofrece leer un ticket o comentarlo.
+- El **cliente MCP** es el harness: se conecta al servidor, pregunta qué herramientas tiene y
+  las llama. Se usa el SDK oficial de MCP para Python (`mcp`), que solo implementa el
+  protocolo: no es un framework de agentes, el bucle de tool calling sigue siendo nuestro.
+- Los servidores se configuran **por usuario** (`~/.harness/config.toml`, o `.env` en
+  desarrollo), nunca en `harness.yaml`: dependen de credenciales y programas de cada máquina.
+
+### Transportes
+
+- **stdio:** el harness lanza el servidor como proceso hijo (por ejemplo un contenedor con
+  `docker run -i --rm ...`) y le habla por la entrada y la salida estándar. Las credenciales
+  van como variables de entorno del proceso.
+- **HTTP:** el servidor ya está corriendo (local o remoto) y el harness se conecta a una URL,
+  con un token en la cabecera `Authorization`.
+
+Por cualquiera de los dos viajan los mismos mensajes JSON-RPC 2.0.
+
+### Mensajes
+
+1. **`initialize`**: el cliente manda su versión del protocolo y sus capacidades; el servidor
+   responde con las suyas. Después el cliente manda `notifications/initialized`.
+2. **`tools/list`**: el servidor devuelve sus herramientas, cada una con `name`,
+   `description` e `inputSchema` (un JSON Schema de los argumentos).
+3. **`tools/call`**: el cliente llama una herramienta con `name` y `arguments`; el servidor
+   devuelve `content` (bloques de texto, casi siempre) e `isError`.
+
+### De herramienta MCP a `Herramienta` del harness
+
+Al iniciar, por cada herramienta de `tools/list` que esté en la **lista permitida** se arma una
+`Herramienta` propia, así el bucle y los proveedores no saben que existe MCP:
+
+| `Herramienta` | Sale de |
+|---|---|
+| `nombre` | `<servidor>__<name>`, por ejemplo `github__search_code` (evita choques entre servidores y con las herramientas propias) |
+| `descripcion` | `description` |
+| `parametros` | `inputSchema` (ya es JSON Schema, el mismo formato que usan los proveedores) |
+| `funcion` | llama `tools/call` y junta los bloques de texto del `content`; con `isError`, devuelve el error como resultado, igual que una herramienta propia |
+
+- La lista permitida tiene **solo herramientas de lectura**. Las escrituras (crear el PR,
+  comentar en Jira) nunca se le ofrecen al modelo: las llama el harness con `tools/call`
+  después de la validación, igual que hoy hace el PR con la API REST.
+- Las salidas pasan por el mismo recorte y enmascarado de secretos que el resto.
+
+### Por qué el push sigue siendo con `git`
+
+- El servidor MCP de GitHub trabaja con la API: puede crear archivos o commits remotos, pero no
+  sabe nada del repo local ni de su historia. El código ya está en el disco y validado, y
+  `git push` lo sube tal cual, con las credenciales de Git del usuario.
+- Así la entrega no depende de que haya un servidor MCP, y las guardas (nunca a la rama base,
+  `main` ni `master`, nunca un `.env`) siguen en un solo lugar.
+
+### MCP preferido, REST de respaldo
+
+- Si el usuario configuró un servidor MCP (de GitHub o de Jira), el harness lo usa.
+- Si no, usa el cliente REST propio (`github.py`, y uno para Jira en la fase 7).
+- La consola dice qué camino se usó ("PR creado por MCP (github)" / "por la API REST"), y el
+  log también.
+- Los dos caminos devuelven los mismos tipos propios (el PR creado, el ticket con título,
+  descripción y criterios), así el resto del harness no cambia según el camino.
+
 ---
 
 ## Proveedores de modelo
@@ -406,7 +477,7 @@ Nunca en `harness.yaml`. Hay dos lugares, según el momento:
 
 | Archivo | Cuándo | Dónde está |
 |---|---|---|
-| `.env` | **Mientras se desarrolla el harness** (fases 1 a 7) | Raíz del repo del harness (en `.gitignore`) |
+| `.env` | **Mientras se desarrolla el harness** (hasta `harness config`, fase 12) | Raíz del repo del harness (en `.gitignore`) |
 | `config.toml` | Cuando otros lo instalan con `uv tool install` (no tienen el repo ni el `.env`) | `C:\Users\<usuario>\.harness\config.toml` / `~/.harness/config.toml` |
 
 **`.env` en desarrollo:**
@@ -615,23 +686,49 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
 - [x] **5.** Git: rama, commit, push. **No se hace commit ni push de código que no pasó la
       validación** (tests + lint), ni de ejecuciones sin `harness.yaml` (no hubo validación)
   - [x] **Pull request automático** (`create_pull_request`, API de GitHub).
-- [ ] **6.** Caché de dependencias. Va antes que el resto porque con Gradle sobre Windows cada
-      ejecución tarda varios minutos solo en descargar dependencias.
-  - [ ] **Volumen de caché para dependencias** (clave nueva, por ejemplo `docker.cache`):
-        `/root/.m2` para Maven, la caché de pip o de npm. Guarda solo librerías descargadas,
-        nunca datos de la base. En tienda-api, cada ejecución tarda ~2 minutos solo en
-        descargar dependencias.
-- [ ] **7.** Jira: integración real con Jira (reemplaza el ticket local)
-  - [ ] **Comentario en el ticket de Jira** con el link del PR.
+- [ ] **6.** Cliente MCP y GitHub por MCP
+      (ver [Cómo se conectan los MCP](#cómo-se-conectan-los-mcp))
+  - [ ] **Servidores MCP configurados por usuario** (no en `harness.yaml`: son credenciales
+        y herramientas de la máquina de cada uno), por stdio o HTTP. Con el SDK oficial de
+        MCP para Python (`mcp`).
+  - [ ] **Al iniciar: `initialize` y `tools/list`.** Cada herramienta MCP se convierte en una
+        `Herramienta` del harness con el prefijo del servidor (por ejemplo
+        `github__search_code`).
+  - [ ] **El modelo solo ve una lista permitida de herramientas de solo lectura.** Las
+        escrituras (crear el PR, comentar) las hace el harness después de la validación, nunca
+        el modelo.
+  - [ ] **Las salidas MCP pasan por el mismo recorte y enmascarado de secretos** que el
+        resto de las herramientas.
+  - [ ] **El PR se crea con `create_pull_request` del servidor MCP oficial de GitHub**,
+        ejecutado por el harness. Si no hay servidor MCP configurado, se usa el cliente REST
+        actual (`github.py`), con un aviso en consola de qué camino se usó.
+  - [ ] Rama, commit y push siguen siendo con `git`.
+  - [ ] **Pruebas:** con el servidor MCP de GitHub real en Docker, y del respaldo REST sin él.
+- [ ] **7.** Jira por MCP con respaldo REST (reemplaza el ticket local)
+  - [ ] **Leer el ticket y comentar el link del PR** a través de un servidor MCP de Jira.
+  - [ ] **Respaldo REST:** si no hay servidor MCP de Jira configurado, usar la API REST v3
+        de Jira directamente (email y API token), con un aviso en consola de qué camino se
+        usó.
+  - [ ] **ADF (Atlassian Document Format):** en la API REST v3 la descripción y los
+        comentarios usan ADF. Convertir la descripción a Markdown para el modelo y armar el
+        comentario en ADF.
+  - [ ] **Mismo formato por los dos caminos:** el ticket llega al harness igual que un
+        ticket local `.md` (título, descripción y criterios).
   - [ ] **Verificar Jira en el preflight**, igual que el token de GitHub: `GET
         /rest/api/3/myself` (credenciales válidas) y la lectura del ticket, antes de crear la
         rama y de llamar al modelo. Si falla, decir qué falta (URL, usuario, token o permiso
         sobre el proyecto) y detenerse.
-- [ ] **8.** Memoria y continuidad: manejo de contexto (recorte + resumen),
+- [ ] **8.** Caché de dependencias. Con Gradle sobre Windows cada ejecución tarda varios
+      minutos solo en descargar dependencias.
+  - [ ] **Volumen de caché para dependencias** (clave nueva, por ejemplo `docker.cache`):
+        `/root/.m2` para Maven, la caché de pip o de npm. Guarda solo librerías descargadas,
+        nunca datos de la base. En tienda-api, cada ejecución tarda ~2 minutos solo en
+        descargar dependencias.
+- [ ] **9.** Memoria y continuidad: manejo de contexto (recorte + resumen),
       `.harness/memory.md` con `save_memory`, y `harness resume`
   - [ ] **Cambio automático de proveedor al agotarse la cuota.** Lista de respaldo de
         perfiles en `config.toml` (por ejemplo `respaldo = ["fuerte", "groq"]`, ver perfiles en
-        la fase 11). Si se agota la cuota diaria, avisar en consola, pasar al siguiente y
+        la fase 12). Si se agota la cuota diaria, avisar en consola, pasar al siguiente y
         seguir desde el mismo paso. Depende del resumen de contexto: una conversación larga de
         Gemini no entra en los 8.000 tokens por minuto de Groq.
   - [ ] **Distinguir los dos 429:** el límite por minuto (esperar y reintentar) y la cuota
@@ -645,7 +742,12 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
   - [ ] **PR pendiente en `harness resume <TICKET>`:** si la ejecución anterior terminó con
         el push hecho y sin PR (el PR falló), crear solo el PR con la descripción guardada en
         `.harness/logs/<TICKET>-pr.md`, sin volver a correr el modelo.
-- [ ] **9.** Calidad de la ejecución
+  - [ ] **Retomar una ejecución cortada por límite de pasos o de tokens.** Hoy los cambios
+        quedan sin commitear en `feature/<TICKET>`. `harness resume <TICKET>` debe aceptar ese
+        estado (la rama ya existe y el árbol está sucio: no crea rama nueva ni lo trata como
+        error), y el mensaje final de la ejecución cortada debe sugerir
+        `harness resume <TICKET>`.
+- [ ] **10.** Calidad de la ejecución
   - [ ] **Paso de revisión con el modelo.** Después de que los tests pasan, mostrarle al
         modelo el `git diff`, el `AGENTS.md` y el ticket, y pedirle que revise si se viola
         alguna regla o falta algún criterio de aceptación. Si encuentra algo, se vuelve a
@@ -711,7 +813,7 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
           "Indicaciones del usuario".
         - Sin terminal interactiva no se pregunta y se detiene, igual que el preflight de
           GitHub (hoy la pregunta se hace igual y, al no haber respuesta, no se implementa).
-- [ ] **10.** Docker
+- [ ] **11.** Docker
   - [ ] **Opción `--conservar`:** no borrar los contenedores al terminar, para poder
         conectarse a la base y depurar. Mostrar cómo conectarse y cómo borrarlos después.
   - [ ] **Etiquetas propias en contenedores y redes** (`harness=1`, `harness.ticket=...`):
@@ -740,7 +842,7 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
   - [ ] **Tiempo máximo de descarga de imágenes configurable y con progreso:** hoy son 600 s
         fijos (`TIMEOUT_DESCARGA_SEGUNDOS`) y no se ve cuánto falta; las imágenes de Gradle o
         Maven son grandes.
-- [ ] **11.** Distribución y pulido
+- [ ] **12.** Distribución y pulido
   - [ ] **`ProveedorAnthropic`** (preset `anthropic`), para quien elija Claude.
   - [ ] **`harness config` + `~/.harness/config.toml`**, con el orden de prioridad: opciones
         del comando → variables de entorno / `.env` → `config.toml`. Necesario para que otros

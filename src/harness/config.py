@@ -1,4 +1,4 @@
-"""Configuración del modelo, leída del .env del repo del harness (fases 1 a 7)."""
+"""Configuración del modelo, leída del .env del repo del harness (hasta harness config)."""
 
 import os
 from dataclasses import dataclass, field
