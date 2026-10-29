@@ -612,9 +612,9 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
 - [x] **4.** Lectura automática de `AGENTS.md` al contexto inicial (+ `harness init` si no
       existen `AGENTS.md` / `harness.yaml`) + fase de planificación. (La lectura de
       `harness.yaml` se adelantó a la fase 2 porque Docker y los tests dependen de ella)
-- [ ] **5.** Git: rama, commit, push. **No se hace commit ni push de código que no pasó la
+- [x] **5.** Git: rama, commit, push. **No se hace commit ni push de código que no pasó la
       validación** (tests + lint), ni de ejecuciones sin `harness.yaml` (no hubo validación)
-  - [ ] **Pull request automático** (`create_pull_request`, API de GitHub).
+  - [x] **Pull request automático** (`create_pull_request`, API de GitHub).
 - [ ] **6.** Caché de dependencias. Va antes que el resto porque con Gradle sobre Windows cada
       ejecución tarda varios minutos solo en descargar dependencias.
   - [ ] **Volumen de caché para dependencias** (clave nueva, por ejemplo `docker.cache`):
