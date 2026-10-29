@@ -470,6 +470,7 @@ def test_si_el_token_falla_y_responde_que_si_sigue_sin_pr(
     assert "Se sigue sin PR, como con --sin-pr" in " ".join(salida.split())
     assert "feature/T-1" in ramas_remotas(remoto)
     assert pedidos == []
+    _assert_aviso_sin_pr(salida)
     eventos = [e["evento"] for e in _eventos_del_log(repo_sin_yaml)]
     assert eventos.index("aviso") < eventos.index("rama")
 
@@ -482,6 +483,27 @@ def test_sin_pr_no_verifica_el_token(
     verificaciones = _con_github_al_empezar(monkeypatch, PROBLEMA_TOKEN)
     codigo, _, _ = _correr_con_entrega(monkeypatch, repo_sin_yaml, True, opcion)
     assert codigo == 0 and verificaciones == []
+
+
+def _assert_aviso_sin_pr(salida: str) -> None:
+    """Al final, después del push: que no hubo PR y el link para crearlo a mano."""
+    url = "https://github.com/gerson/demo/compare/main...feature/T-1?expand=1"
+    salida_plana = " ".join(salida.split())
+    aviso = "Sin PR (--sin-pr): se hizo el push, pero no el pull request."
+    assert aviso in salida_plana
+    assert f"Créalo a mano: {url}\n" in salida
+    assert salida_plana.index("✓ Push") < salida_plana.index(aviso)
+
+
+@requiere_git
+def test_con_sin_pr_avisa_al_final_con_el_link(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    _con_github_al_empezar(monkeypatch)
+    pedidos = _prs_pedidos(monkeypatch)
+    codigo, salida, _ = _correr_con_entrega(monkeypatch, repo_sin_yaml, True, "--sin-pr")
+    assert codigo == 0 and pedidos == []
+    _assert_aviso_sin_pr(salida)
 
 
 @requiere_git

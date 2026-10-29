@@ -139,7 +139,9 @@ def entregar(
         return entrega
     _pushear(repo, config)
     entrega.es_pusheado = True
-    if config.es_con_pr and armar_pedido_pr:
+    if not config.es_con_pr:
+        _avisar_sin_pr(repo, config, entrega)
+    elif armar_pedido_pr:
         _abrir_pr(repo, config, entrega, armar_pedido_pr, token_github)
     return entrega
 
@@ -271,6 +273,14 @@ def _pushear(repo: Path, config: ConfigEntrega) -> None:
     if config.rama in (config.base, *RAMAS_PROTEGIDAS):
         raise ErrorGit(f"El harness nunca hace push a '{config.rama}'.")
     git.pushear(repo, config.remoto, config.rama)
+
+
+def _avisar_sin_pr(repo: Path, config: ConfigEntrega, entrega: ResultadoEntrega) -> None:
+    """Con --sin-pr (o si se eligió seguir sin PR): lo dice y deja el link para crearlo."""
+    entrega.motivo = "Sin PR (--sin-pr): se hizo el push, pero no el pull request."
+    repo_github = github.repo_desde_remoto(git.url_remoto(repo, config.remoto))
+    if repo_github is not None:
+        entrega.url_pr_a_mano = github.url_crear_pr_a_mano(repo_github, config.base, config.rama)
 
 
 def _abrir_pr(

@@ -384,6 +384,18 @@ def test_sin_pr_no_llama_a_github(proyecto: Path, tmp_path: Path, pedidos_pr: li
     _con_remoto_de_github(proyecto, tmp_path)
     entrega = entregar(proyecto, config, _resultado(), MENSAJE, _armar_pedido, "token")
     assert entrega.es_pusheado and entrega.pull_request is None and pedidos_pr == []
+    assert entrega.motivo == "Sin PR (--sin-pr): se hizo el push, pero no el pull request."
+    assert entrega.url_pr_a_mano == (
+        "https://github.com/gerson/tareas-api/compare/main...feature/T-1?expand=1"
+    )
+
+
+def test_sin_pr_y_sin_github_avisa_sin_link(proyecto: Path) -> None:
+    config = crear_config_entrega(ConfigGit(), TICKET, es_con_push=True, es_con_pr=False)
+    _preparar_y_cambiar(proyecto, config)
+    entrega = entregar(proyecto, config, _resultado(), MENSAJE, _armar_pedido, "token")
+    assert entrega.motivo.startswith("Sin PR (--sin-pr)")
+    assert entrega.url_pr_a_mano is None
 
 
 def test_sin_push_tampoco_hay_pr() -> None:
