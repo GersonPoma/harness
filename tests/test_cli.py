@@ -470,7 +470,7 @@ def test_si_el_token_falla_y_responde_que_si_sigue_sin_pr(
     assert "Se sigue sin PR, como con --sin-pr" in " ".join(salida.split())
     assert "feature/T-1" in ramas_remotas(remoto)
     assert pedidos == []
-    _assert_aviso_sin_pr(salida)
+    _assert_aviso_sin_pr(salida, repo_sin_yaml)
     eventos = [e["evento"] for e in _eventos_del_log(repo_sin_yaml)]
     assert eventos.index("aviso") < eventos.index("rama")
 
@@ -485,14 +485,17 @@ def test_sin_pr_no_verifica_el_token(
     assert codigo == 0 and verificaciones == []
 
 
-def _assert_aviso_sin_pr(salida: str) -> None:
-    """Al final, después del push: que no hubo PR y el link para crearlo a mano."""
+def _assert_aviso_sin_pr(salida: str, repo: Path) -> None:
+    """Al final, después del push: que no hubo PR, el link y la descripción para crearlo."""
     url = "https://github.com/gerson/demo/compare/main...feature/T-1?expand=1"
     salida_plana = " ".join(salida.split())
     aviso = "Sin PR (--sin-pr): se hizo el push, pero no el pull request."
     assert aviso in salida_plana
     assert f"Créalo a mano: {url}\n" in salida
     assert salida_plana.index("✓ Push") < salida_plana.index(aviso)
+    ruta = repo / ".harness" / "logs" / "T-1-pr.md"
+    assert f"Título y descripción para pegar: {ruta}" in salida
+    assert ruta.read_text(encoding="utf-8").startswith("# T-1: Crear tareas\n\n## Resumen")
 
 
 @requiere_git
@@ -503,7 +506,7 @@ def test_con_sin_pr_avisa_al_final_con_el_link(
     pedidos = _prs_pedidos(monkeypatch)
     codigo, salida, _ = _correr_con_entrega(monkeypatch, repo_sin_yaml, True, "--sin-pr")
     assert codigo == 0 and pedidos == []
-    _assert_aviso_sin_pr(salida)
+    _assert_aviso_sin_pr(salida, repo_sin_yaml)
 
 
 @requiere_git

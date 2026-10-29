@@ -388,6 +388,8 @@ def test_sin_pr_no_llama_a_github(proyecto: Path, tmp_path: Path, pedidos_pr: li
     assert entrega.url_pr_a_mano == (
         "https://github.com/gerson/tareas-api/compare/main...feature/T-1?expand=1"
     )
+    assert entrega.ruta_pr_pendiente == proyecto / ".harness" / "logs" / "T-1-pr.md"
+    assert entrega.ruta_pr_pendiente.read_text(encoding="utf-8") == f"# {MENSAJE}\n\ncuerpo\n"
 
 
 def test_sin_pr_y_sin_github_avisa_sin_link(proyecto: Path) -> None:
@@ -395,7 +397,7 @@ def test_sin_pr_y_sin_github_avisa_sin_link(proyecto: Path) -> None:
     _preparar_y_cambiar(proyecto, config)
     entrega = entregar(proyecto, config, _resultado(), MENSAJE, _armar_pedido, "token")
     assert entrega.motivo.startswith("Sin PR (--sin-pr)")
-    assert entrega.url_pr_a_mano is None
+    assert entrega.url_pr_a_mano is None and entrega.ruta_pr_pendiente is None
 
 
 def test_sin_push_tampoco_hay_pr() -> None:

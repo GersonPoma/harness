@@ -140,7 +140,7 @@ def entregar(
     _pushear(repo, config)
     entrega.es_pusheado = True
     if not config.es_con_pr:
-        _avisar_sin_pr(repo, config, entrega)
+        _avisar_sin_pr(repo, config, entrega, armar_pedido_pr)
     elif armar_pedido_pr:
         _abrir_pr(repo, config, entrega, armar_pedido_pr, token_github)
     return entrega
@@ -275,12 +275,17 @@ def _pushear(repo: Path, config: ConfigEntrega) -> None:
     git.pushear(repo, config.remoto, config.rama)
 
 
-def _avisar_sin_pr(repo: Path, config: ConfigEntrega, entrega: ResultadoEntrega) -> None:
-    """Con --sin-pr (o si se eligió seguir sin PR): lo dice y deja el link para crearlo."""
+def _avisar_sin_pr(
+    repo: Path,
+    config: ConfigEntrega,
+    entrega: ResultadoEntrega,
+    armar_pedido_pr: ArmarPedidoPr | None,
+) -> None:
+    """Con --sin-pr (o si se eligió seguir sin PR): lo dice y deja todo para crearlo a mano."""
     entrega.motivo = "Sin PR (--sin-pr): se hizo el push, pero no el pull request."
     repo_github = github.repo_desde_remoto(git.url_remoto(repo, config.remoto))
-    if repo_github is not None:
-        entrega.url_pr_a_mano = github.url_crear_pr_a_mano(repo_github, config.base, config.rama)
+    if repo_github is not None and armar_pedido_pr:
+        _dejar_pr_a_mano(repo, config, entrega, armar_pedido_pr(repo_github))
 
 
 def _abrir_pr(
@@ -301,21 +306,17 @@ def _abrir_pr(
     try:
         entrega.pull_request = github.crear_pull_request(pedido, token_github)
     except github.ErrorGitHub as error:
-        _dejar_pr_a_mano(repo, config, entrega, pedido, error)
+        entrega.error_pr = str(error)
+        # Por ejemplo "not all refs are readable": al token le falta el permiso Contents.
+        if error.codigo == github.CODIGO_NO_PROCESABLE:
+            entrega.error_pr += f" {github.PISTA_PERMISOS}"
+        _dejar_pr_a_mano(repo, config, entrega, pedido)
 
 
 def _dejar_pr_a_mano(
-    repo: Path,
-    config: ConfigEntrega,
-    entrega: ResultadoEntrega,
-    pedido: github.PedidoPullRequest,
-    error: github.ErrorGitHub,
+    repo: Path, config: ConfigEntrega, entrega: ResultadoEntrega, pedido: github.PedidoPullRequest
 ) -> None:
     """El push ya está hecho: deja el link y la descripción para abrir el PR en el navegador."""
-    entrega.error_pr = str(error)
-    # Por ejemplo "not all refs are readable": al token le falta el permiso Contents.
-    if error.codigo == github.CODIGO_NO_PROCESABLE:
-        entrega.error_pr += f" {github.PISTA_PERMISOS}"
     entrega.url_pr_a_mano = github.url_crear_pr_a_mano(pedido.repo, pedido.base, pedido.rama)
     ruta = repo / CARPETA_LOGS / f"{config.ticket}-pr.md"
     try:
