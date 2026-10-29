@@ -17,7 +17,13 @@ from harness.entrega import (
     verificar_github,
 )
 from harness.git import ErrorGit
-from harness.github import ErrorGitHub, PedidoPullRequest, PullRequest, RepoGitHub
+from harness.github import (
+    PISTA_PERMISOS,
+    ErrorGitHub,
+    PedidoPullRequest,
+    PullRequest,
+    RepoGitHub,
+)
 from harness.plan import Plan
 from harness.ticket import titulo_ticket
 from tests.falsos import PLAN_SIMPLE
@@ -317,9 +323,9 @@ URL_GITHUB = "https://github.com/gerson/tareas-api.git"
 URL_PR = "https://github.com/gerson/tareas-api/pull/7"
 
 
-def _con_remoto_de_github(proyecto: Path, tmp_path: Path) -> None:
+def _con_remoto_de_github(proyecto: Path, tmp_path: Path, url: str = URL_GITHUB) -> None:
     # La URL dice GitHub, pero el push sigue yendo al remoto local.
-    git(proyecto, "remote", "set-url", "origin", URL_GITHUB)
+    git(proyecto, "remote", "set-url", "origin", url)
     git(proyecto, "remote", "set-url", "--push", "origin", str(tmp_path / "remoto.git"))
 
 
@@ -385,20 +391,57 @@ def test_sin_push_tampoco_hay_pr() -> None:
     assert not config.es_con_pr
 
 
-def test_si_github_falla_el_push_queda_hecho(
-    proyecto: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def _falla_el_pr(monkeypatch: pytest.MonkeyPatch, mensaje: str, codigo: int) -> None:
     def falla(pedido: PedidoPullRequest, token: str) -> PullRequest:
-        raise ErrorGitHub("GitHub no creó el pull request: 401 Bad credentials")
+        raise ErrorGitHub(mensaje, codigo)
 
     monkeypatch.setattr(modulo_entrega.github, "crear_pull_request", falla)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [URL_GITHUB, "git@github.com:gerson/tareas-api.git", "ssh://git@github.com/gerson/tareas-api"],
+)
+def test_si_github_falla_deja_el_link_y_la_descripcion_para_crearlo_a_mano(
+    proyecto: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, url: str
+) -> None:
+    _falla_el_pr(monkeypatch, "GitHub no creó el pull request: 401 Bad credentials", 401)
+    config = _preparar_y_cambiar(proyecto)
+    _con_remoto_de_github(proyecto, tmp_path, url)
+    entrega = entregar(proyecto, config, _resultado(), MENSAJE, _armar_pedido, "token")
+
+    assert entrega.es_pusheado and entrega.pull_request is None
+    assert RAMA in ramas_remotas(tmp_path / "remoto.git")
+    # Sin la pista de permisos: un 401 es el token, no sus permisos.
+    assert entrega.error_pr == "GitHub no creó el pull request: 401 Bad credentials"
+    assert entrega.url_pr_a_mano == (
+        "https://github.com/gerson/tareas-api/compare/main...feature/T-1?expand=1"
+    )
+    assert entrega.ruta_pr_pendiente == proyecto / ".harness" / "logs" / "T-1-pr.md"
+    assert entrega.ruta_pr_pendiente.read_text(encoding="utf-8") == f"# {MENSAJE}\n\ncuerpo\n"
+
+
+def test_si_el_pr_falla_con_422_agrega_la_pista_de_permisos(
+    proyecto: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    error = "GitHub no creó el pull request: 422 Validation Failed; not all refs are readable"
+    _falla_el_pr(monkeypatch, error, 422)
     config = _preparar_y_cambiar(proyecto)
     _con_remoto_de_github(proyecto, tmp_path)
     entrega = entregar(proyecto, config, _resultado(), MENSAJE, _armar_pedido, "token")
 
-    assert entrega.es_pusheado and entrega.pull_request is None
-    assert entrega.error_pr == "GitHub no creó el pull request: 401 Bad credentials"
-    assert RAMA in ramas_remotas(tmp_path / "remoto.git")
+    assert entrega.error_pr == f"{error} {PISTA_PERMISOS}"
+    assert entrega.url_pr_a_mano and entrega.ruta_pr_pendiente.exists()
+
+
+def test_con_el_pr_creado_no_queda_descripcion_pendiente(
+    proyecto: Path, tmp_path: Path, pedidos_pr: list
+) -> None:
+    config = _preparar_y_cambiar(proyecto)
+    _con_remoto_de_github(proyecto, tmp_path)
+    entrega = entregar(proyecto, config, _resultado(), MENSAJE, _armar_pedido, "token")
+    assert entrega.url_pr_a_mano is None and entrega.ruta_pr_pendiente is None
+    assert not (proyecto / ".harness" / "logs" / "T-1-pr.md").exists()
 
 
 def test_cuerpo_del_pr() -> None:

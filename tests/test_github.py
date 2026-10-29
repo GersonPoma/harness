@@ -11,6 +11,7 @@ from harness.github import (
     RepoGitHub,
     crear_pull_request,
     repo_desde_remoto,
+    url_crear_pr_a_mano,
     verificar_acceso,
 )
 
@@ -71,6 +72,12 @@ def test_repo_desde_remoto_de_github(url: str) -> None:
 )
 def test_remotos_que_no_son_de_github(url: str) -> None:
     assert repo_desde_remoto(url) is None
+
+
+def test_url_para_crear_el_pr_a_mano() -> None:
+    assert url_crear_pr_a_mano(REPO, "main", "feature/T-1") == (
+        "https://github.com/gerson/tareas-api/compare/main...feature/T-1?expand=1"
+    )
 
 
 def test_crea_el_pr_en_borrador() -> None:

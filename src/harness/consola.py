@@ -146,6 +146,14 @@ def mostrar_entrega(entrega: ResultadoEntrega, config: ConfigEntrega) -> None:
         mostrar_aviso(entrega.motivo)
     if entrega.error_pr:
         mostrar_error(f"No se pudo crear el pull request (el push sí se hizo): {entrega.error_pr}")
+    # soft_wrap: el link y la ruta no se parten en dos líneas (siguen siendo clicables).
+    if entrega.url_pr_a_mano:
+        consola.print(f"Créalo a mano: {escape(entrega.url_pr_a_mano)}", soft_wrap=True)
+    if entrega.ruta_pr_pendiente:
+        consola.print(
+            f"Título y descripción para pegar: {escape(str(entrega.ruta_pr_pendiente))}",
+            soft_wrap=True,
+        )
 
 
 def _mostrar_pull_request(pr: PullRequest) -> None:

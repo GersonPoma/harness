@@ -7,14 +7,13 @@ from typing import Any
 
 from harness.bucle import Paso
 from harness.cambios import CambiosRepo
+from harness.carpetas import CARPETA_LOGS
 from harness.contexto import ContextoProyecto
 from harness.ejecucion import ResultadoEjecucion, Validacion
 from harness.entrega import ConfigEntrega, ResultadoEntrega
 from harness.init import ResultadoInit
 from harness.plan import Plan, archivos_fuera_del_plan
 from harness.variables import ocultar_secretos
-
-CARPETA_LOGS = Path(".harness") / "logs"
 
 
 class RegistroPasos:
@@ -120,6 +119,8 @@ class RegistroPasos:
             "pull_request": entrega.pull_request.url if entrega.pull_request else None,
             "es_borrador": entrega.pull_request.es_borrador if entrega.pull_request else None,
             "error_pr": entrega.error_pr,
+            "url_pr_a_mano": entrega.url_pr_a_mano,
+            "pr_pendiente": str(entrega.ruta_pr_pendiente) if entrega.ruta_pr_pendiente else None,
             "es_rama_borrada": entrega.es_rama_borrada,
             "motivo": entrega.motivo,
         })

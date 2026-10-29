@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import httpx
 
 URL_API = "https://api.github.com"
+URL_WEB = "https://github.com"
 VERSION_API = "2022-11-28"
 TIMEOUT_SEGUNDOS = 30
 CODIGO_CREADO = 201
@@ -75,6 +76,11 @@ def repo_desde_remoto(url: str) -> RepoGitHub | None:
     if coincidencia is None:
         return None
     return RepoGitHub(coincidencia["duenio"], coincidencia["repo"])
+
+
+def url_crear_pr_a_mano(repo: RepoGitHub, base: str, rama: str) -> str:
+    """Página de GitHub para abrir el PR desde el navegador, con el formulario ya abierto."""
+    return f"{URL_WEB}/{repo.duenio}/{repo.nombre}/compare/{base}...{rama}?expand=1"
 
 
 def verificar_acceso(

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from harness import git, github
 from harness.cambios import CambiosRepo
+from harness.carpetas import CARPETA_LOGS
 from harness.config_proyecto import ConfigComandos, ConfigGit
 from harness.ejecucion import ResultadoEjecucion
 from harness.git import ErrorGit
@@ -24,6 +25,7 @@ MAX_ARCHIVOS_EN_ERROR = 5
 class ConfigEntrega:
     """Rama de trabajo y qué se hace al terminar."""
 
+    ticket: str
     rama: str
     base: str
     remoto: str
@@ -49,6 +51,9 @@ class ResultadoEntrega:
     es_rama_borrada: bool = False
     # El push ya se hizo; el PR falló (token sin permisos, sin red...).
     error_pr: str | None = None
+    # Si el PR falló: dónde abrirlo a mano y el archivo con su título y descripción.
+    url_pr_a_mano: str | None = None
+    ruta_pr_pendiente: Path | None = None
 
 
 def crear_config_entrega(
@@ -56,6 +61,7 @@ def crear_config_entrega(
 ) -> ConfigEntrega:
     """Rama <prefijo_rama><ticket> desde git.rama_base; el PR necesita el push."""
     return ConfigEntrega(
+        ticket=ticket,
         rama=f"{config_git.prefijo_rama}{ticket}",
         base=config_git.rama_base,
         remoto=config_git.remoto,
@@ -281,12 +287,33 @@ def _abrir_pr(
     if not token_github:
         entrega.motivo = "Falta GITHUB_TOKEN en el .env: se hizo push, pero no el pull request."
         return
+    pedido = armar_pedido_pr(repo_github)
     try:
-        entrega.pull_request = github.crear_pull_request(
-            armar_pedido_pr(repo_github), token_github
-        )
+        entrega.pull_request = github.crear_pull_request(pedido, token_github)
     except github.ErrorGitHub as error:
-        entrega.error_pr = str(error)
+        _dejar_pr_a_mano(repo, config, entrega, pedido, error)
+
+
+def _dejar_pr_a_mano(
+    repo: Path,
+    config: ConfigEntrega,
+    entrega: ResultadoEntrega,
+    pedido: github.PedidoPullRequest,
+    error: github.ErrorGitHub,
+) -> None:
+    """El push ya está hecho: deja el link y la descripción para abrir el PR en el navegador."""
+    entrega.error_pr = str(error)
+    # Por ejemplo "not all refs are readable": al token le falta el permiso Contents.
+    if error.codigo == github.CODIGO_NO_PROCESABLE:
+        entrega.error_pr += f" {github.PISTA_PERMISOS}"
+    entrega.url_pr_a_mano = github.url_crear_pr_a_mano(pedido.repo, pedido.base, pedido.rama)
+    ruta = repo / CARPETA_LOGS / f"{config.ticket}-pr.md"
+    try:
+        ruta.parent.mkdir(parents=True, exist_ok=True)
+        ruta.write_text(f"# {pedido.titulo}\n\n{pedido.cuerpo}\n", encoding="utf-8")
+    except OSError:
+        return
+    entrega.ruta_pr_pendiente = ruta
 
 
 def crear_cuerpo_pr(

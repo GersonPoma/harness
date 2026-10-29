@@ -491,15 +491,28 @@ def test_si_el_pr_falla_termina_con_codigo_1(
     monkeypatch.setenv("GITHUB_TOKEN", "tok")
 
     def falla(pedido: PedidoPullRequest, token: str) -> PullRequest:
-        raise ErrorGitHub("GitHub no creó el pull request: 401 Bad credentials")
+        raise ErrorGitHub(
+            "GitHub no creó el pull request: 422 Validation Failed; not all refs are readable",
+            422,
+        )
 
     monkeypatch.setattr("harness.entrega.github.crear_pull_request", falla)
     codigo, salida, remoto = _correr_con_entrega(
         monkeypatch, repo_sin_yaml, True, url_github="https://github.com/gerson/demo.git"
     )
     assert codigo == 1
-    assert "No se pudo crear el pull request (el push sí se hizo)" in salida
+    salida_plana = " ".join(salida.split())
+    assert "No se pudo crear el pull request (el push sí se hizo)" in salida_plana
+    assert "El token necesita Contents: Read-only y Pull requests: Read and write" in salida_plana
+    # El link entero en una línea, para poder abrirlo con un clic.
+    url = "https://github.com/gerson/demo/compare/main...feature/T-1?expand=1"
+    assert f"Créalo a mano: {url}\n" in salida
+    ruta = repo_sin_yaml / ".harness" / "logs" / "T-1-pr.md"
+    assert f"Título y descripción para pegar: {ruta}" in salida
+    assert ruta.read_text(encoding="utf-8").startswith("# T-1: Crear tareas\n\n## Resumen")
     assert "feature/T-1" in ramas_remotas(remoto)
+    (entrega,) = [e for e in _eventos_del_log(repo_sin_yaml) if e["evento"] == "entrega"]
+    assert entrega["url_pr_a_mano"] == url and entrega["pr_pendiente"] == str(ruta)
 
 
 @requiere_git
