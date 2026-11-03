@@ -358,7 +358,8 @@ def test_abre_el_pr_y_oculta_el_token_en_la_descripcion(
     )
 
     assert codigo == 0
-    assert "✓ Pull request en borrador: https://github.com/gerson/demo/pull/3" in salida
+    url = "https://github.com/gerson/demo/pull/3"
+    assert f"✓ Pull request en borrador (por la API REST): {url}" in salida
     (pedido,) = pedidos
     assert pedido.titulo == "T-1: Crear tareas" and pedido.base == "main"
     assert "Usé **** para probar." in pedido.cuerpo

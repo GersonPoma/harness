@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from contextlib import ExitStack
 from dataclasses import dataclass, field, replace
 from functools import partial
@@ -7,7 +8,7 @@ from typing import Annotated
 import typer
 from rich import print
 
-from harness import consola
+from harness import consola, github
 from harness.bucle import MAX_PASOS_POR_DEFECTO, ErrorRespuestaVacia, Paso
 from harness.cambios import CambiosRepo, comparar, tomar_instantanea
 from harness.cliente_mcp import ErrorMCP, SesionMCP
@@ -26,6 +27,7 @@ from harness.config_mcp import (
     cargar_config_mcp,
     elegir_servidor_github,
 )
+from harness.github_mcp import crear_pull_request_mcp, puede_crear_pull_request
 from harness.config_proyecto import (
     ConfigLimites,
     ConfigProyecto,
@@ -37,6 +39,7 @@ from harness.ejecucion import Planificacion, ResultadoEjecucion, Validacion, eje
 from harness.entorno_docker import EntornoDocker, ErrorDocker
 from harness.entrega import (
     ConfigEntrega,
+    CrearPr,
     cerrar_sin_entregar,
     crear_config_entrega,
     crear_cuerpo_pr,
@@ -46,7 +49,7 @@ from harness.entrega import (
     verificar_github,
     verificar_repo_para_entrega,
 )
-from harness.github import ErrorGitHub, PedidoPullRequest, RepoGitHub
+from harness.github import ErrorGitHub, PedidoPullRequest, PullRequest, RepoGitHub
 from harness.git import ErrorGit
 from harness.herramientas import crear_herramientas, crear_herramientas_lectura
 from harness.herramientas.comandos import EjecutorComandos, validar_proyecto
@@ -97,6 +100,8 @@ class _Preparacion:
     # Servidor MCP de GitHub de mcp.json (None: no hay) y sus herramientas para el modelo.
     servidor_github: ServidorMCP | None = None
     herramientas_github: list[Herramienta] = field(default_factory=list)
+    # Abierta solo si el PR se crea por MCP (el servidor tiene create_pull_request).
+    sesion_github: SesionMCP | None = None
 
     @property
     def titulo(self) -> str:
@@ -189,12 +194,13 @@ def run(
 
     reporte = _Reporte(registro, aprobar_plan)
     _avisar_recorte_plan(prep, max_pasos, reporte)
-    config_entrega = _preparar_rama(prep, not sin_push, not sin_pr, reporte)
     es_herramientas_github = not sin_herramientas_github and leer_herramientas_github_modelo()
-    # El servidor MCP se cierra al salir del with: también con error o Ctrl+C.
+    # El servidor MCP se abre en el preflight y se cierra al salir del with: también con
+    # error o Ctrl+C.
     with ExitStack() as pila:
+        conectar = partial(_conectar_github_mcp, prep, pila, reporte, es_herramientas_github)
+        config_entrega = _preparar_rama(prep, not sin_push, not sin_pr, reporte, conectar)
         try:
-            _conectar_github_mcp(prep, pila, reporte, es_herramientas_github)
             resultado, cambios = _ejecutar(prep, max_pasos, reporte)
         except (ErrorProveedor, ErrorDocker, ErrorRespuestaVacia, ErrorPlan) as error:
             registro.registrar_error(str(error))
@@ -217,44 +223,86 @@ def run(
 
 
 def _conectar_github_mcp(
-    prep: _Preparacion, pila: ExitStack, reporte: _Reporte, es_herramientas: bool
+    prep: _Preparacion,
+    pila: ExitStack,
+    reporte: _Reporte,
+    es_herramientas: bool,
+    es_con_pr: bool,
 ) -> None:
-    """Abre la sesión con el servidor MCP de GitHub, si hay uno, y arma sus herramientas.
+    """Decide por dónde va GitHub: MCP (herramientas del modelo y/o el PR) o la API REST.
 
-    Si no conecta, se avisa y se sigue: nada de lo que hace el harness depende de MCP.
+    Si el servidor no conecta, se avisa y se sigue: la API REST alcanza para el PR.
     """
     servidor = prep.servidor_github
     if servidor is None:
+        if es_con_pr:
+            consola.mostrar_github_rest("no hay servidor MCP de GitHub en mcp.json")
         return
-    if not es_herramientas:
-        consola.mostrar_github_mcp_sin_herramientas()
+    if not es_herramientas and not es_con_pr:
+        consola.mostrar_github_mcp_sin_uso()
         return
     ruta_log = reporte.registro.ruta.parent / f"{prep.ticket}-mcp-{servidor.nombre}.log"
     try:
         with consola.estado(f"Conectando con el servidor MCP {servidor.nombre}..."):
             sesion = pila.enter_context(SesionMCP(servidor, ruta_log, prep.ticket))
     except ErrorMCP as error:
-        reporte.registro.registrar_mcp(servidor, [], str(error))
-        reporte.aviso(f"{error} Se sigue sin las herramientas de GitHub para el modelo.")
+        reporte.registro.registrar_mcp(servidor, [], es_pr=False, error=str(error))
+        reporte.aviso(f"{error} {_sin_mcp(es_herramientas, es_con_pr)}")
         return
-    limites = prep.config_proyecto.limites if prep.config_proyecto else ConfigLimites()
-    prep.herramientas_github = crear_herramientas_mcp(
-        sesion,
-        PREFIJO_GITHUB,
-        HERRAMIENTAS_LECTURA_GITHUB,
-        prep.secretos,
-        limites.max_caracteres_salida,
-    )
+    _usar_sesion_github(prep, sesion, reporte, es_herramientas, es_con_pr)
+
+
+def _usar_sesion_github(
+    prep: _Preparacion,
+    sesion: SesionMCP,
+    reporte: _Reporte,
+    es_herramientas: bool,
+    es_con_pr: bool,
+) -> None:
+    """Arma las herramientas del modelo y decide si el PR va por MCP; lo avisa y lo registra."""
+    servidor = sesion.servidor
+    if es_herramientas:
+        limites = prep.config_proyecto.limites if prep.config_proyecto else ConfigLimites()
+        prep.herramientas_github = crear_herramientas_mcp(
+            sesion,
+            PREFIJO_GITHUB,
+            HERRAMIENTAS_LECTURA_GITHUB,
+            prep.secretos,
+            limites.max_caracteres_salida,
+        )
+    if es_con_pr and puede_crear_pull_request(sesion.herramientas):
+        prep.sesion_github = sesion
+    elif es_con_pr:
+        reporte.aviso(
+            f"El servidor MCP '{servidor.nombre}' no tiene create_pull_request con los "
+            "parámetros que usa el harness (¿falta el toolset pull_requests?): el PR se crea "
+            "por la API REST."
+        )
     nombres = [h.nombre for h in prep.herramientas_github]
-    reporte.registro.registrar_mcp(servidor, nombres)
-    consola.mostrar_github_mcp(servidor.nombre, servidor.transporte, len(nombres))
+    es_pr = prep.sesion_github is not None
+    reporte.registro.registrar_mcp(servidor, nombres, es_pr)
+    consola.mostrar_github_mcp(servidor.nombre, servidor.transporte, len(nombres), es_pr)
+
+
+def _sin_mcp(es_herramientas: bool, es_con_pr: bool) -> str:
+    sin = ["sin las herramientas de GitHub para el modelo"] if es_herramientas else []
+    sin += ["con el PR por la API REST"] if es_con_pr else []
+    return f"Se sigue {' y '.join(sin)}."
 
 
 def _preparar_rama(
-    prep: _Preparacion, es_con_push: bool, es_con_pr: bool, reporte: _Reporte
+    prep: _Preparacion,
+    es_con_push: bool,
+    es_con_pr: bool,
+    reporte: _Reporte,
+    conectar_github: Callable[[bool], None],
 ) -> ConfigEntrega | None:
-    """Crea la rama del ticket antes de gastar pedidos; sin harness.yaml no hay entrega."""
+    """Preflight antes de gastar pedidos: Git, GitHub (token, y MCP o REST) y la rama.
+
+    Sin harness.yaml no hay entrega: solo se conecta el MCP, para las herramientas del modelo.
+    """
     if prep.config_proyecto is None:
+        conectar_github(False)
         return None
     config = crear_config_entrega(
         prep.config_proyecto.git, prep.ticket, es_con_push, es_con_pr
@@ -262,6 +310,8 @@ def _preparar_rama(
     try:
         verificar_repo_para_entrega(prep.repo, config, reporte.aviso)
         config = _verificar_github(prep, config, reporte)
+        # Después del token: si se eligió seguir sin PR, el MCP ya no se usa para el PR.
+        conectar_github(config.es_con_pr)
         crear_rama_del_ticket(prep.repo, config)
     except ErrorGit as error:
         reporte.registro.registrar_error(str(error))
@@ -323,9 +373,10 @@ def _entregar(
         )
         return PedidoPullRequest(repo_github, config.rama, config.base, mensaje, cuerpo)
 
+    crear_pr = _crear_pr_por_mcp(prep, reporte) if prep.sesion_github else None
     try:
         entrega = entregar(
-            prep.repo, config, resultado, mensaje, armar_pedido_pr, prep.token_github
+            prep.repo, config, resultado, mensaje, armar_pedido_pr, prep.token_github, crear_pr
         )
     except ErrorGit as error:
         reporte.registro.registrar_error(str(error))
@@ -334,6 +385,20 @@ def _entregar(
     reporte.registro.registrar_entrega(entrega)
     consola.mostrar_entrega(entrega, config)
     return entrega.error_pr is None
+
+
+def _crear_pr_por_mcp(prep: _Preparacion, reporte: _Reporte) -> CrearPr:
+    """PR con create_pull_request del servidor MCP; si la sesión se cortó, por la API REST."""
+
+    def crear(pedido: PedidoPullRequest) -> PullRequest:
+        try:
+            return crear_pull_request_mcp(pedido, prep.sesion_github)
+        except ErrorMCP as error:
+            # El push ya está hecho: no vale la pena perder el PR por el servidor MCP.
+            reporte.aviso(f"{error} Se reintenta el PR por la API REST.")
+            return github.crear_pull_request(pedido, prep.token_github)
+
+    return crear
 
 
 def _cerrar_rama(

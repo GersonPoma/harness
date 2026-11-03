@@ -57,6 +57,10 @@ class PullRequest:
     es_existente: bool = False
     # True si se pidió borrador y GitHub no lo permite en este repo.
     es_borrador_rechazado: bool = False
+    # Camino por el que se creó: MCP (create_pull_request del servidor) o la API REST.
+    por_mcp: bool = False
+    # Solo por MCP: el servidor no dijo la URL y no se encontró; url lleva a los PRs de la rama.
+    es_url_aproximada: bool = False
 
 
 @dataclass(frozen=True)

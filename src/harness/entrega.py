@@ -35,6 +35,8 @@ class ConfigEntrega:
 
 # Arma el pedido del PR una vez que se sabe el repo de GitHub (sale de la URL del remoto).
 ArmarPedidoPr = Callable[[github.RepoGitHub], github.PedidoPullRequest]
+# Crea el PR por otro camino (MCP); sin él, se usa la API REST con el token.
+CrearPr = Callable[[github.PedidoPullRequest], github.PullRequest]
 
 
 @dataclass
@@ -124,6 +126,7 @@ def entregar(
     mensaje_commit: str,
     armar_pedido_pr: ArmarPedidoPr | None = None,
     token_github: str | None = None,
+    crear_pr: CrearPr | None = None,
 ) -> ResultadoEntrega:
     """Commit, push y PR si la validación pasó; si no, deja los cambios sin commitear."""
     entrega = ResultadoEntrega(config.rama)
@@ -142,7 +145,7 @@ def entregar(
     if not config.es_con_pr:
         _avisar_sin_pr(repo, config, entrega, armar_pedido_pr)
     elif armar_pedido_pr:
-        _abrir_pr(repo, config, entrega, armar_pedido_pr, token_github)
+        _abrir_pr(repo, config, entrega, armar_pedido_pr, token_github, crear_pr)
     return entrega
 
 
@@ -294,17 +297,21 @@ def _abrir_pr(
     entrega: ResultadoEntrega,
     armar_pedido_pr: ArmarPedidoPr,
     token_github: str | None,
+    crear_pr: CrearPr | None,
 ) -> None:
     repo_github = github.repo_desde_remoto(git.url_remoto(repo, config.remoto))
     if repo_github is None:
         entrega.motivo = f"El remoto '{config.remoto}' no es de GitHub: se hizo push, sin PR."
         return
-    if not token_github:
+    if crear_pr is None and not token_github:
         entrega.motivo = "Falta GITHUB_TOKEN en el .env: se hizo push, pero no el pull request."
         return
     pedido = armar_pedido_pr(repo_github)
     try:
-        entrega.pull_request = github.crear_pull_request(pedido, token_github)
+        if crear_pr is not None:
+            entrega.pull_request = crear_pr(pedido)
+        else:
+            entrega.pull_request = github.crear_pull_request(pedido, token_github)
     except github.ErrorGitHub as error:
         entrega.error_pr = str(error)
         # Por ejemplo "not all refs are readable": al token le falta el permiso Contents.

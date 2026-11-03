@@ -106,14 +106,19 @@ class RegistroPasos:
         self._escribir({"evento": "plan", "es_aprobado": es_aprobado, **plan.model_dump()})
 
     def registrar_mcp(
-        self, servidor: ServidorMCP, herramientas: list[str], error: str | None = None
+        self,
+        servidor: ServidorMCP,
+        herramientas: list[str],
+        es_pr: bool,
+        error: str | None = None,
     ) -> None:
-        """Registra la conexión con un servidor MCP: las herramientas del modelo, o el error."""
+        """Registra la conexión con un servidor MCP: para qué se usa, o por qué no conectó."""
         self._escribir({
             "evento": "mcp",
             "servidor": servidor.nombre,
             "transporte": servidor.transporte,
             "herramientas": herramientas,
+            "es_pr": es_pr,
             "error": error,
         })
 
@@ -131,6 +136,7 @@ class RegistroPasos:
             "es_pusheado": entrega.es_pusheado,
             "pull_request": entrega.pull_request.url if entrega.pull_request else None,
             "es_borrador": entrega.pull_request.es_borrador if entrega.pull_request else None,
+            "camino_pr": _camino_pr(entrega),
             "error_pr": entrega.error_pr,
             "url_pr_a_mano": entrega.url_pr_a_mano,
             "pr_pendiente": str(entrega.ruta_pr_pendiente) if entrega.ruta_pr_pendiente else None,
@@ -157,3 +163,9 @@ class RegistroPasos:
         linea = ocultar_secretos(linea, self._secretos)
         with self.ruta.open("a", encoding="utf-8") as archivo:
             archivo.write(f"{linea}\n")
+
+
+def _camino_pr(entrega: ResultadoEntrega) -> str | None:
+    if entrega.pull_request is None:
+        return None
+    return "mcp" if entrega.pull_request.por_mcp else "rest"

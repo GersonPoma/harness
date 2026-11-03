@@ -124,17 +124,29 @@ def mostrar_fin(resultado: ResultadoEjecucion, cambios: CambiosRepo, ruta_log: s
     )
 
 
-def mostrar_github_mcp(servidor: str, transporte: str, herramientas: int) -> None:
-    """Con qué servidor MCP de GitHub se trabaja y cuántas herramientas recibe el modelo."""
+def mostrar_github_mcp(servidor: str, transporte: str, herramientas: int, es_pr: bool) -> None:
+    """Para qué se usa el servidor MCP de GitHub: herramientas del modelo y/o el PR."""
+    usos = []
+    if herramientas:
+        usos.append(f"{herramientas} herramientas de lectura para el modelo")
+    if es_pr:
+        usos.append("el PR se crea con create_pull_request")
+    if not herramientas and es_pr:
+        usos = ["solo para el PR (sin herramientas para el modelo)"]
     consola.print(
         f"[bold green]GitHub por MCP[/] (servidor {escape(servidor)}, {escape(transporte)}): "
-        f"{herramientas} herramientas de lectura para el modelo."
+        f"{'; '.join(usos)}."
     )
 
 
-def mostrar_github_mcp_sin_herramientas() -> None:
-    """--sin-herramientas-github: el modelo no recibe las herramientas de GitHub."""
-    consola.print("[dim]GitHub por MCP: sin herramientas para el modelo.[/]")
+def mostrar_github_mcp_sin_uso() -> None:
+    """Hay servidor MCP, pero ni el modelo lo usa (--sin-herramientas-github) ni hay PR."""
+    consola.print("[dim]GitHub por MCP: sin herramientas para el modelo y sin PR.[/]")
+
+
+def mostrar_github_rest(motivo: str) -> None:
+    """El PR se crea con la API REST de GitHub, y por qué no por MCP."""
+    consola.print(f"[bold green]GitHub por la API REST[/] ({escape(motivo)}).")
 
 
 def mostrar_rama(config: ConfigEntrega) -> None:
@@ -171,10 +183,24 @@ def mostrar_entrega(entrega: ResultadoEntrega, config: ConfigEntrega) -> None:
 
 def _mostrar_pull_request(pr: PullRequest) -> None:
     tipo = "en borrador" if pr.es_borrador else "listo para revisar"
-    if pr.es_existente:
-        consola.print(f"[bold green]✓ Ya había un pull request[/] {tipo}: {escape(pr.url)}")
+    camino = "por MCP" if pr.por_mcp else "por la API REST"
+    # soft_wrap: el link no se parte en dos líneas (sigue siendo clicable).
+    if pr.es_url_aproximada:
+        consola.print(
+            f"[bold green]✓ Pull request[/] {tipo} ({camino}); GitHub no devolvió su URL, "
+            f"está entre los PRs de la rama: {escape(pr.url)}",
+            soft_wrap=True,
+        )
         return
-    consola.print(f"[bold green]✓ Pull request[/] {tipo}: {escape(pr.url)}")
+    if pr.es_existente:
+        consola.print(
+            f"[bold green]✓ Ya había un pull request[/] {tipo} ({camino}): {escape(pr.url)}",
+            soft_wrap=True,
+        )
+        return
+    consola.print(
+        f"[bold green]✓ Pull request[/] {tipo} ({camino}): {escape(pr.url)}", soft_wrap=True
+    )
     if pr.es_borrador_rechazado:
         mostrar_aviso(
             "GitHub no permite PR en borrador en este repo (privado en una cuenta gratuita): "

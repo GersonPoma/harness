@@ -13,6 +13,8 @@ from mcp.types import CallToolResult, TextContent
 
 # Lo que devuelve get_file_contents si se le pide 'secreto.txt': el test comprueba que se oculta.
 VAR_SECRETO = "FALSO_SECRETO"
+# Archivo donde se anotan los create_pull_request recibidos (uno por línea, en JSON).
+VAR_REGISTRO_PR = "FALSO_REGISTRO_PR"
 LINEAS_ARCHIVO_LARGO = 400
 
 
@@ -36,8 +38,36 @@ def crear_servidor() -> MCPServer:
 
     @servidor.tool()
     def search_pull_requests(query: str) -> str:
-        """Busca pull requests."""
-        return json.dumps({"total_count": 0, "items": []})
+        """Busca pull requests; por rama (head:) encuentra el PR, salvo si la rama dice sin-pr."""
+        if "head:" not in query or "sin-pr" in query:
+            return json.dumps({"total_count": 0, "items": []})
+        repo = query.split("repo:")[1].split()[0]
+        item = {"number": 9, "html_url": f"https://github.com/{repo}/pull/9", "draft": True}
+        return json.dumps({"total_count": 1, "items": [item]})
+
+    @servidor.tool(structured_output=False)
+    def create_pull_request(
+        owner: str, repo: str, title: str, head: str, base: str, body: str = "",
+        draft: bool = False,
+    ) -> CallToolResult | str:
+        """Crea un PR; una marca en el título elige cómo responde (como el servidor real)."""
+        _anotar({"title": title, "head": head, "base": base, "body": body, "draft": draft})
+        pulls = f"POST https://api.github.com/repos/{owner}/{repo}/pulls"
+        if "[sin-borradores]" in title and draft:
+            return _error(f"{pulls}: 422 Validation Failed [{{Message:Draft pull requests are "
+                          "not supported in this repository.}]")
+        if "[ya-existe]" in title:
+            return _error(f"{pulls}: 422 Validation Failed [{{Message:A pull request already "
+                          f"exists for {owner}:{head}.}}]")
+        if "[error]" in title:
+            return _error(f"{pulls}: 422 Validation Failed [{{Message:not all refs are "
+                          "readable}]")
+        if "[sin-url]" in title:
+            return json.dumps({"id": "123"})
+        url = f"https://github.com/{owner}/{repo}/pull/7"
+        if "[html-url]" in title:
+            return json.dumps({"html_url": url, "draft": draft})
+        return json.dumps({"id": "7", "url": url})
 
     @servidor.tool()
     def pull_request_read(method: str, owner: str, repo: str, pullNumber: int) -> str:
@@ -74,6 +104,18 @@ def crear_servidor() -> MCPServer:
         return json.dumps(sorted(os.environ))
 
     return servidor
+
+
+def _error(texto: str) -> CallToolResult:
+    return CallToolResult(content=[TextContent(type="text", text=texto)], is_error=True)
+
+
+def _anotar(argumentos: dict) -> None:
+    """Anota cada create_pull_request en el archivo de VAR_REGISTRO_PR, si está definida."""
+    ruta = os.environ.get(VAR_REGISTRO_PR)
+    if ruta:
+        with open(ruta, "a", encoding="utf-8") as archivo:
+            archivo.write(json.dumps(argumentos, ensure_ascii=False) + "\n")
 
 
 if __name__ == "__main__":

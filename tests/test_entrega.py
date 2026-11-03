@@ -533,3 +533,37 @@ def test_verificar_github_usa_el_repo_del_remoto_y_la_base(
     repo_github = verificar_github(proyecto, _config(), "tok")
     assert repo_github == RepoGitHub("gerson", "tareas-api")
     assert llamadas == [(repo_github, "main", "tok")]
+
+
+# --- PR por otro camino (MCP) --------------------------------------------------------------
+
+
+def test_con_crear_pr_no_usa_la_api_rest(
+    proyecto: Path, tmp_path: Path, pedidos_pr: list
+) -> None:
+    config = _preparar_y_cambiar(proyecto)
+    _con_remoto_de_github(proyecto, tmp_path)
+    por_mcp: list[PedidoPullRequest] = []
+
+    def crear_por_mcp(pedido: PedidoPullRequest) -> PullRequest:
+        por_mcp.append(pedido)
+        return PullRequest(URL_PR, es_borrador=True, por_mcp=True)
+
+    # Sin token: por MCP no hace falta para crear el PR.
+    entrega = entregar(proyecto, config, _resultado(), MENSAJE, _armar_pedido, None, crear_por_mcp)
+
+    assert entrega.pull_request == PullRequest(URL_PR, True, por_mcp=True)
+    assert [p.rama for p in por_mcp] == [RAMA] and pedidos_pr == []
+
+
+def test_si_crear_pr_falla_queda_para_crearlo_a_mano(proyecto: Path, tmp_path: Path) -> None:
+    config = _preparar_y_cambiar(proyecto)
+    _con_remoto_de_github(proyecto, tmp_path)
+
+    def falla(pedido: PedidoPullRequest) -> PullRequest:
+        raise ErrorGitHub("GitHub no creó el pull request (por MCP): 422 not all refs", 422)
+
+    entrega = entregar(proyecto, config, _resultado(), MENSAJE, _armar_pedido, "token", falla)
+
+    assert entrega.error_pr.endswith(PISTA_PERMISOS)
+    assert entrega.url_pr_a_mano and entrega.ruta_pr_pendiente.exists()

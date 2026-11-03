@@ -7,12 +7,21 @@ from pathlib import Path
 import pytest
 
 from harness import cli
+from harness.cliente_mcp import ErrorMCP
 from harness.prompts import PROMPT_GITHUB_MCP
 from harness.tipos import LlamadaHerramienta, Rol
 from tests.datos.servidor_mcp_falso import VAR_SECRETO
 from tests.falsos import ProveedorFalso, pedir, proponer, terminar
 from tests.mcp_prueba import RUTA_SERVIDOR
-from tests.test_cli import _correr, _eventos_del_log, repo_sin_yaml  # noqa: F401 - fixture
+from tests.git_prueba import requiere_git
+from tests.test_cli import (  # noqa: F401 - repo_sin_yaml es un fixture
+    _con_github_al_empezar,
+    _correr,
+    _correr_con_entrega,
+    _eventos_del_log,
+    _prs_pedidos,
+    repo_sin_yaml,
+)
 
 NOMBRES_GITHUB = [
     "github__get_file_contents",
@@ -80,7 +89,8 @@ def test_sin_herramientas_github_el_modelo_no_las_recibe(
     codigo, salida = _correr(monkeypatch, repo_sin_yaml, proveedor, *opciones)
 
     assert codigo == 0
-    assert "GitHub por MCP: sin herramientas para el modelo." in salida
+    # Sin harness.yaml no hay PR: el servidor no tiene uso y ni se conecta.
+    assert "GitHub por MCP: sin herramientas para el modelo y sin PR." in " ".join(salida.split())
     assert not any(n.startswith("github__") for n in proveedor.herramientas[0])
     assert PROMPT_GITHUB_MCP.strip() not in _sistema(proveedor)
 
@@ -134,3 +144,122 @@ def test_en_la_ronda_de_plan_tambien_estan_las_de_github(
     # Son de solo lectura: entran en la ronda de plan junto a leer_archivo y listar_directorio.
     assert set(NOMBRES_GITHUB) <= set(plan) and "escribir_archivo" not in plan
     assert set(NOMBRES_GITHUB) <= set(implementacion)
+
+
+# --- El PR por MCP, en el preflight y al final ----------------------------------------------
+
+URL_PR_MCP = "https://github.com/gerson/demo/pull/7"
+URL_PR_REST = "https://github.com/gerson/demo/pull/3"
+
+
+def _entrega_con_github(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, repo: Path, *opciones: str, mcp: bool = True
+) -> tuple[int, str, list]:
+    """Ejecución completa (falsa) con un remoto que parece de GitHub; devuelve los PR REST."""
+    if mcp:
+        _con_mcp_json(monkeypatch, tmp_path)
+    monkeypatch.setenv("GITHUB_TOKEN", "github_pat_secreto")
+    _con_github_al_empezar(monkeypatch)
+    pedidos_rest = _prs_pedidos(monkeypatch)
+    codigo, salida, _ = _correr_con_entrega(monkeypatch, repo, True, *opciones)
+    return codigo, " ".join(salida.split()), pedidos_rest
+
+
+def _entrega_del_log(repo: Path) -> dict:
+    (entrega,) = [e for e in _eventos_del_log(repo) if e["evento"] == "entrega"]
+    return entrega
+
+
+@requiere_git
+def test_el_pr_se_crea_por_mcp(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, repo_sin_yaml: Path  # noqa: F811
+) -> None:
+    codigo, salida, pedidos_rest = _entrega_con_github(monkeypatch, tmp_path, repo_sin_yaml)
+
+    assert codigo == 0
+    aviso = (
+        "GitHub por MCP (servidor github, stdio): 4 herramientas de lectura para el modelo; "
+        "el PR se crea con create_pull_request."
+    )
+    # En el preflight: antes de crear la rama.
+    assert salida.index(aviso) < salida.index("Rama feature/T-1 creada")
+    assert f"✓ Pull request en borrador (por MCP): {URL_PR_MCP}" in salida
+    assert pedidos_rest == []
+    entrega = _entrega_del_log(repo_sin_yaml)
+    assert entrega["pull_request"] == URL_PR_MCP and entrega["camino_pr"] == "mcp"
+
+
+@requiere_git
+def test_sin_herramientas_github_el_mcp_queda_solo_para_el_pr(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, repo_sin_yaml: Path  # noqa: F811
+) -> None:
+    codigo, salida, pedidos_rest = _entrega_con_github(
+        monkeypatch, tmp_path, repo_sin_yaml, "--sin-herramientas-github"
+    )
+    assert codigo == 0
+    assert (
+        "GitHub por MCP (servidor github, stdio): solo para el PR (sin herramientas para el "
+        "modelo)." in salida
+    )
+    assert f"(por MCP): {URL_PR_MCP}" in salida and pedidos_rest == []
+
+
+@requiere_git
+def test_sin_mcp_json_el_pr_va_por_rest_y_se_avisa(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, repo_sin_yaml: Path  # noqa: F811
+) -> None:
+    codigo, salida, pedidos_rest = _entrega_con_github(
+        monkeypatch, tmp_path, repo_sin_yaml, mcp=False
+    )
+    assert codigo == 0
+    aviso = "GitHub por la API REST (no hay servidor MCP de GitHub en mcp.json)."
+    assert salida.index(aviso) < salida.index("Rama feature/T-1 creada")
+    assert f"✓ Pull request en borrador (por la API REST): {URL_PR_REST}" in salida
+    assert len(pedidos_rest) == 1
+    assert _entrega_del_log(repo_sin_yaml)["camino_pr"] == "rest"
+
+
+@requiere_git
+def test_con_sin_pr_el_mcp_no_se_usa_para_el_pr(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, repo_sin_yaml: Path  # noqa: F811
+) -> None:
+    codigo, salida, pedidos_rest = _entrega_con_github(
+        monkeypatch, tmp_path, repo_sin_yaml, "--sin-pr"
+    )
+    assert codigo == 0
+    assert "4 herramientas de lectura para el modelo." in salida
+    assert "create_pull_request" not in salida and "Pull request en borrador" not in salida
+
+
+@requiere_git
+def test_si_el_servidor_no_conecta_el_pr_va_por_rest(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, repo_sin_yaml: Path  # noqa: F811
+) -> None:
+    _con_mcp_json(monkeypatch, tmp_path, {"command": "comando-que-no-existe-xyz"})
+    codigo, salida, pedidos_rest = _entrega_con_github(
+        monkeypatch, tmp_path, repo_sin_yaml, mcp=False
+    )
+    assert codigo == 0
+    assert (
+        "Se sigue sin las herramientas de GitHub para el modelo y con el PR por la API REST."
+        in salida
+    )
+    assert f"(por la API REST): {URL_PR_REST}" in salida and len(pedidos_rest) == 1
+
+
+@requiere_git
+def test_si_la_sesion_se_corta_al_final_reintenta_por_rest(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, repo_sin_yaml: Path  # noqa: F811
+) -> None:
+    def se_corta(pedido, sesion):
+        raise ErrorMCP("Se cortó la conexión con el servidor MCP 'github'.")
+
+    monkeypatch.setattr(cli, "crear_pull_request_mcp", se_corta)
+    codigo, salida, pedidos_rest = _entrega_con_github(monkeypatch, tmp_path, repo_sin_yaml)
+
+    assert codigo == 0
+    assert (
+        "Se cortó la conexión con el servidor MCP 'github'. Se reintenta el PR por la API REST."
+        in salida
+    )
+    assert f"(por la API REST): {URL_PR_REST}" in salida and len(pedidos_rest) == 1
