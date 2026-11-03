@@ -10,6 +10,8 @@ requires-python = ">=3.12"
 dependencies = [
     "anthropic>=1.15.0",
     "httpx>=0.28.1",
+    "httpx2>=2.13.1",
+    "mcp>=2.3.0",
     "openai>=3.34.0",
     "pydantic>=2.14.1",
     "python-dotenv>=1.2.4",
@@ -27,8 +29,8 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
-    "httpx2>=2.13.1",
     "pytest>=9.1.1",
+    "uvicorn>=0.54.0",
 ]
 
 [tool.pytest.ini_options]

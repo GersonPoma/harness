@@ -31,11 +31,11 @@ def resolver_variables(
     """Reemplaza ${NOMBRE} con la variable de entorno; si falta alguna, avisa de todas juntas."""
     resueltas = VariablesResueltas()
     faltantes: list[str] = []
-    resueltas.proyecto = _resolver_mapa(
+    resueltas.proyecto = resolver_mapa(
         config.variables_entorno, "variables_entorno", entorno, resueltas.secretos, faltantes
     )
     for indice, servicio in enumerate(config.servicios):
-        resueltas.servicios[servicio.nombre] = _resolver_mapa(
+        resueltas.servicios[servicio.nombre] = resolver_mapa(
             servicio.variables,
             f"servicios[{indice}].variables",
             entorno,
@@ -49,13 +49,17 @@ def resolver_variables(
     return resueltas
 
 
-def _resolver_mapa(
+def resolver_mapa(
     variables: Mapping[str, str],
     ruta: str,
     entorno: Mapping[str, str],
     secretos: list[str],
     faltantes: list[str],
 ) -> dict[str, str]:
+    """Reemplaza ${NOMBRE} en cada valor; anota los secretos usados y las variables que faltan.
+
+    También la usa mcp.json (config_mcp), con la misma sintaxis que harness.yaml.
+    """
     resultado: dict[str, str] = {}
     for clave, valor in variables.items():
         for nombre in PATRON_REFERENCIA.findall(valor):
