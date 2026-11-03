@@ -158,8 +158,9 @@ credenciales de Git del usuario.
 
   Si el remoto no es de GitHub, se hace push y se avisa que no hubo PR.
 - Opciones de `run`: `--sin-push` (commit local, sin push ni PR) y `--sin-pr` (push sin PR).
-- *(fase 6)* El PR pasa a crearse con `create_pull_request` del servidor MCP de GitHub, y la
-  API REST queda de respaldo (ver [Cómo se conectan los MCP](#cómo-se-conectan-los-mcp)).
+- **PR por MCP (fase 6):** si hay un servidor MCP de GitHub con `create_pull_request`, el PR
+  se crea con esa herramienta (la ejecuta el harness, nunca el modelo); si no, por la API REST.
+  Ver [Cómo se conectan los MCP](#cómo-se-conectan-los-mcp).
 - *(fase 7)* **`comment_jira`**: deja el link del PR en el ticket (por MCP o REST).
 
 ---
@@ -339,27 +340,81 @@ variables_entorno:                  # se pasan al contenedor del proyecto
 
 ## Cómo se conectan los MCP
 
-*(Se implementa en las fases 6 y 7.)* MCP (Model Context Protocol) es un protocolo abierto
-para que una aplicación de IA use herramientas y datos de otros programas con un formato común.
+MCP (Model Context Protocol) es un protocolo abierto para que una aplicación de IA use
+herramientas y datos de otros programas con un formato común. El harness es **cliente MCP**
+del servidor oficial de GitHub desde la fase 6 (`cliente_mcp.py`, `config_mcp.py`,
+`herramientas/remotas.py`, `github_mcp.py`); Jira llega en la fase 7.
 
 ### Cliente y servidor
 
-- El **servidor MCP** expone herramientas: por ejemplo, el servidor oficial de GitHub
-  (`github/github-mcp-server`) ofrece `search_code`, `get_file_contents` o
-  `create_pull_request`, y un servidor de Jira ofrece leer un ticket o comentarlo.
-- El **cliente MCP** es el harness: se conecta al servidor, pregunta qué herramientas tiene y
-  las llama. Se usa el SDK oficial de MCP para Python (`mcp`), que solo implementa el
-  protocolo: no es un framework de agentes, el bucle de tool calling sigue siendo nuestro.
-- Los servidores se configuran **por usuario** (`~/.harness/config.toml`, o `.env` en
-  desarrollo), nunca en `harness.yaml`: dependen de credenciales y programas de cada máquina.
+- El **servidor MCP** expone herramientas: el oficial de GitHub (`github/github-mcp-server`)
+  ofrece `get_file_contents`, `list_commits`, `search_pull_requests`, `create_pull_request` y
+  muchas más.
+- El **cliente MCP** es el harness: se conecta, pregunta qué herramientas hay y las llama. Usa
+  el SDK oficial de MCP para Python (`mcp` 2.x), que solo implementa el protocolo: no es un
+  framework de agentes, el bucle de tool calling sigue siendo nuestro.
+- El SDK es asíncrono y el harness no: `SesionMCP` corre el event loop en un portal de anyio
+  (`start_blocking_portal`). Una sola tarea del portal abre el cliente, espera la orden de
+  cerrar y lo cierra (anyio exige que los grupos de tareas entren y salgan en la misma tarea);
+  cada llamada se pide desde el hilo principal con `portal.call`, con timeout.
+
+### Configuración: `mcp.json`
+
+Mismo formato `mcpServers` que otros clientes MCP. Es configuración de cada usuario
+(credenciales, Docker), así que **nunca va en `harness.yaml`**: en desarrollo, `mcp.json` en la
+raíz del repo del harness (en `.gitignore`; el modelo es `mcp.example.json`); en la fase 12,
+`~/.harness/mcp.json`.
+
+```json
+{
+  "mcpServers": {
+    "github": {
+      "command": "docker",
+      "args": ["run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN",
+               "-e", "GITHUB_TOOLSETS", "ghcr.io/github/github-mcp-server"],
+      "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}",
+              "GITHUB_TOOLSETS": "repos,pull_requests"}
+    },
+    "github-remoto": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": {"Authorization": "Bearer ${GITHUB_TOKEN}",
+                  "X-MCP-Toolsets": "repos,pull_requests"}
+    }
+  }
+}
+```
+
+- **Secretos:** solo como `${NOMBRE}` (en `env`, `url` y `headers`), con la misma expansión
+  que `harness.yaml`. El token vive una sola vez, en `GITHUB_TOKEN`. Lo expandido se oculta en
+  el log, la consola y las salidas; una variable que falta detiene antes de empezar.
+- **Qué servidor es GitHub:** el llamado `github`, o el que diga `HARNESS_MCP_GITHUB` en el
+  `.env` (por ejemplo `HARNESS_MCP_GITHUB=github-remoto`, para usar el remoto sin editar el
+  JSON). Sin servidor de GitHub, todo va por la API REST.
+- **Toolsets:** `repos` (lectura de archivos y commits) y `pull_requests` (búsqueda, lectura y
+  `create_pull_request`); con menos herramientas, el servidor arranca más liviano. Por Docker
+  se eligen con `GITHUB_TOOLSETS`; en el remoto, con el header `X-MCP-Toolsets` (la URL
+  `/mcp/x/<toolset>` acepta uno solo). Sin `--read-only`: el harness necesita
+  `create_pull_request`, y lo que protege es la lista permitida (abajo).
+- **Token:** el mismo fine-grained de la fase 5 (Contents: Read-only, Pull requests: Read and
+  write). El remoto lo acepta en `Authorization: Bearer`.
 
 ### Transportes
 
-- **stdio:** el harness lanza el servidor como proceso hijo (por ejemplo un contenedor con
-  `docker run -i --rm ...`) y le habla por la entrada y la salida estándar. Las credenciales
-  van como variables de entorno del proceso.
-- **HTTP:** el servidor ya está corriendo (local o remoto) y el harness se conecta a una URL,
-  con un token en la cabecera `Authorization`.
+- **stdio (Docker, el camino principal):** el harness lanza el servidor como proceso hijo y le
+  habla por stdin/stdout.
+  - Entorno del hijo: el mínimo del SDK (`get_default_environment`, que en Windows incluye
+    SYSTEMROOT, PATHEXT, APPDATA, TEMP...), más `DOCKER_HOST`/`DOCKER_CONTEXT`/
+    `DOCKER_CONFIG`/`DOCKER_CERT_PATH` si están, más el `env` del servidor. Nunca el entorno
+    completo: las API keys del `.env` no llegan al servidor.
+  - Los logs del servidor (su stderr) van a `.harness/logs/<TICKET>-mcp-<servidor>.log`, no a
+    la consola.
+  - A `docker run` sin `--name` el harness le agrega `--name harness-mcp-<servidor>-<ticket>-
+    <pid>`; al cerrar, después del cierre del SDK (cierra stdin, espera, mata el proceso),
+    hace `docker rm -f` de ese nombre por si el contenedor quedó vivo.
+- **HTTP (remoto):** el servidor ya está corriendo. El SDK no tiene parámetro `headers`: van
+  en el `httpx2.AsyncClient` que se le pasa a `streamable_http_client`, con los timeouts que el
+  SDK usa por defecto. Al cerrar, el cliente termina la sesión (DELETE).
 
 Por cualquiera de los dos viajan los mismos mensajes JSON-RPC 2.0.
 
@@ -370,24 +425,86 @@ Por cualquiera de los dos viajan los mismos mensajes JSON-RPC 2.0.
 2. **`tools/list`**: el servidor devuelve sus herramientas, cada una con `name`,
    `description` e `inputSchema` (un JSON Schema de los argumentos).
 3. **`tools/call`**: el cliente llama una herramienta con `name` y `arguments`; el servidor
-   devuelve `content` (bloques de texto, casi siempre) e `isError`.
+   devuelve `content` (bloques de texto, casi siempre) e `isError`. Cuando una herramienta
+   falla, el servidor de GitHub no corta: responde `isError: true` con el motivo en el texto.
 
 ### De herramienta MCP a `Herramienta` del harness
 
-Al iniciar, por cada herramienta de `tools/list` que esté en la **lista permitida** se arma una
-`Herramienta` propia, así el bucle y los proveedores no saben que existe MCP:
+Al conectar, por cada herramienta de `tools/list` que esté en la **lista permitida** se arma
+una `Herramienta` propia, así el bucle y los proveedores no saben que existe MCP:
 
 | `Herramienta` | Sale de |
 |---|---|
-| `nombre` | `<servidor>__<name>`, por ejemplo `github__search_code` (evita choques entre servidores y con las herramientas propias) |
+| `nombre` | `<servidor>__<name>`, por ejemplo `github__list_commits` (evita choques entre servidores y con las herramientas propias) |
 | `descripcion` | `description` |
-| `parametros` | `inputSchema` (ya es JSON Schema, el mismo formato que usan los proveedores) |
-| `funcion` | llama `tools/call` y junta los bloques de texto del `content`; con `isError`, devuelve el error como resultado, igual que una herramienta propia |
+| `parametros` | `inputSchema` **tal cual**; cada proveedor lo adapta al mandarlo (`adaptar_esquema`, ver [Proveedores de modelo](#proveedores-de-modelo)) |
+| `funcion` | llama `tools/call` y junta los bloques de texto; con `isError`, el modelo recibe "Error: <motivo>" para corregirse |
 
-- La lista permitida tiene **solo herramientas de lectura**. Las escrituras (crear el PR,
-  comentar en Jira) nunca se le ofrecen al modelo: las llama el harness con `tools/call`
-  después de la validación, igual que hoy hace el PR con la API REST.
-- Las salidas pasan por el mismo recorte y enmascarado de secretos que el resto.
+- **Lista permitida** (`HERRAMIENTAS_LECTURA_GITHUB`), solo lectura y corta, porque cada
+  herramienta suma tokens a todos los pedidos: `get_file_contents`, `list_commits`,
+  `search_pull_requests` y `pull_request_read`. Se pueden sumar `search_code`, `get_commit` o
+  `list_branches` si hacen falta. Las escrituras (crear el PR, comentar) nunca se le ofrecen
+  al modelo: las llama el harness después de la validación.
+- Las herramientas de GitHub entran también en la ronda de plan (son de lectura). Cuando el
+  modelo las tiene, el system prompt agrega: "Los archivos locales son la fuente de verdad.
+  Usa las herramientas github__ solo para otras ramas, otros repos, historia o PRs
+  anteriores; para leer el proyecto usa leer_archivo." (`get_file_contents` sobre el mismo
+  repo devuelve lo que hay en GitHub, sin los cambios locales de la ejecución.)
+- **Salidas:** se ocultan los secretos; si son JSON (casi todo lo de GitHub viene en una
+  línea) se formatean con sangría de 1 espacio; si pasan de `limites.max_caracteres_salida`
+  se conserva **el principio** (en líneas completas si hay varias), con la marca "[... N
+  caracteres en total, se omitió el resto. Si necesitas más, pide menos resultados (perPage)
+  o un archivo concreto.]". A diferencia de la salida de los tests, aquí el final suelto no
+  sirve: un JSON sin su comienzo no se puede leer.
+
+### El PR por MCP
+
+- **Preflight**, antes de crear la rama: comprobaciones de Git → verificación del token (fase
+  5, sin cambios) → conexión con el servidor MCP → la rama. El camino se decide después del
+  token, porque si se eligió seguir sin PR el MCP ya no se usa para eso. La consola dice cuál:
+  - "GitHub por MCP (servidor github, stdio): 4 herramientas de lectura para el modelo; el
+    PR se crea con create_pull_request."
+  - Con `--sin-herramientas-github`: "… solo para el PR (sin herramientas para el modelo)."
+  - Sin servidor: "GitHub por la API REST (no hay servidor MCP de GitHub en mcp.json)."
+  - Si no conecta: se avisa y se sigue sin sus herramientas y con el PR por la API REST.
+  - Si el servidor no tiene `create_pull_request` con `owner`, `repo`, `title`, `head`,
+    `base`, `body` y `draft` (por ejemplo, falta el toolset `pull_requests`): PR por REST.
+- **Al terminar**, con la validación OK y después del push, el harness llama a
+  `create_pull_request` (borrador). Respuestas reales del servidor (v2.0.3), con las que se
+  ajustó el servidor falso de los tests:
+  - **Éxito:** `{"id": "<id interno de GitHub>", "url": "https://github.com/<dueño>/<repo>/
+    pull/<n>"}`. La URL sale de ahí (también se acepta `html_url`). En las pruebas reales
+    siempre vino.
+  - Si la respuesta no trajera la URL, se busca el PR recién creado con
+    `search_pull_requests` (`repo:<dueño>/<repo> is:pr is:open head:<rama>`), que responde
+    `{"incomplete_results", "items": [{"number", "html_url", "draft", "state", ...}],
+    "total_count"}`. Si tampoco aparece, queda el link a los PRs de la rama.
+  - **Errores 422:** el servidor los reescribe sin el código HTTP: "failed to create pull
+    request: Validation Failed" y una línea por error ("PullRequest.base (invalid)",
+    "PullRequest (custom): A pull request already exists for …"). El harness los reconoce
+    como 422 (para la pista de permisos), detecta "already exists" (busca el PR existente) y
+    "Draft pull requests are not supported" (lo pide como PR normal), igual que por REST.
+  - Si GitHub lo rechaza, queda para crearlo a mano, igual que por REST (link y
+    `.harness/logs/<TICKET>-pr.md`). Si se cortó la sesión MCP, se reintenta por la API REST.
+- La consola y el log dicen el camino: "✓ Pull request en borrador (por MCP): url" o "(por
+  la API REST)", y `camino_pr` en el evento `entrega`.
+
+### Cuánto cuesta darle las herramientas al modelo
+
+Medido en tareas-api (fase 6), tokens de entrada de toda la ejecución:
+
+| Ejecución | Tokens de entrada | Pedidos | Por pedido |
+|---|---|---|---|
+| TAREAS-2: MCP por Docker, con herramientas para el modelo | 42.776 | 8 | ~5.350 |
+| TAREAS-3: MCP por HTTP, con herramientas para el modelo | 50.228 | 9 | ~5.580 |
+| TAREAS-4: MCP por Docker, `--sin-herramientas-github` | 35.303 | 10 | ~3.530 |
+| TAREAS-5: sin MCP (API REST) | 22.569 | 7 | ~3.220 |
+
+Las cuatro herramientas de GitHub suman unos **2.000 tokens a cada pedido**, las use o no el
+modelo, y en tickets simples no las usa. Por eso existe `--sin-herramientas-github` (o
+`HARNESS_MCP_HERRAMIENTAS_MODELO=0` en el `.env`): el modelo no las recibe, no va la nota del
+prompt, y el MCP se sigue usando para el PR. La diferencia que queda con REST (~300 por
+pedido) no viene del MCP: es la variación entre tickets.
 
 ### Por qué el push sigue siendo con `git`
 
@@ -399,11 +516,9 @@ Al iniciar, por cada herramienta de `tools/list` que esté en la **lista permiti
 
 ### MCP preferido, REST de respaldo
 
-- Si el usuario configuró un servidor MCP (de GitHub o de Jira), el harness lo usa.
-- Si no, usa el cliente REST propio (`github.py`, y uno para Jira en la fase 7).
-- La consola dice qué camino se usó ("PR creado por MCP (github)" / "por la API REST"), y el
-  log también.
-- Los dos caminos devuelven los mismos tipos propios (el PR creado, el ticket con título,
+- Si el usuario configuró un servidor MCP (de GitHub, y en la fase 7 de Jira), el harness lo
+  usa; si no, el cliente REST propio (`github.py`, y uno para Jira en la fase 7).
+- Los dos caminos devuelven los mismos tipos propios (`PullRequest`, y el ticket con título,
   descripción y criterios), así el resto del harness no cambia según el camino.
 
 ---
@@ -435,11 +550,20 @@ class ProveedorLLM(Protocol):
     def responder(
         self, mensajes: list[Mensaje], herramientas: list[Herramienta]
     ) -> RespuestaModelo: ...
+
+    def adaptar_esquema(self, esquema: dict) -> dict: ...
 ```
 
 - El bucle, la memoria y `harness resume` trabajan solo con estos tipos propios (`Mensaje`,
   `Herramienta`, `LlamadaHerramienta`, `RespuestaModelo`). Así las sesiones guardadas no
   dependen del proveedor, y cambiar de modelo no toca el bucle.
+- **`adaptar_esquema` (fase 6):** las herramientas guardan su esquema original (el de un
+  servidor MCP, por ejemplo) y cada proveedor lo adapta justo antes de mandarlo, porque cada
+  API acepta cosas distintas. En `ProveedorOpenAICompatible` depende del preset
+  (`perfil_esquema`): todos quitan las claves de extensión `x-...` (como `x-mcp-header`, que
+  trae el servidor de GitHub), y `gemini` además resuelve `$ref`/`$defs` en línea. Solo se
+  quita lo que se comprobó que una API rechaza; las funciones comunes están en
+  `proveedores/esquemas.py`. Con los esquemas reales de GitHub, Gemini los acepta tal cual.
 - Se hace **en la fase 1**, no al final: con APIs gratuitas se acaban las cuotas y hay que
   poder cambiar de proveedor desde el primer día.
 
@@ -479,6 +603,7 @@ Nunca en `harness.yaml`. Hay dos lugares, según el momento:
 |---|---|---|
 | `.env` | **Mientras se desarrolla el harness** (hasta `harness config`, fase 12) | Raíz del repo del harness (en `.gitignore`) |
 | `config.toml` | Cuando otros lo instalan con `uv tool install` (no tienen el repo ni el `.env`) | `C:\Users\<usuario>\.harness\config.toml` / `~/.harness/config.toml` |
+| `mcp.json` | Servidores MCP (formato `mcpServers`); en la fase 12, en `~/.harness/` | Raíz del repo del harness (en `.gitignore`; modelo: `mcp.example.json`) |
 
 **`.env` en desarrollo:**
 
@@ -688,23 +813,30 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
   - [x] **Pull request automático** (`create_pull_request`, API de GitHub).
 - [ ] **6.** Cliente MCP y GitHub por MCP
       (ver [Cómo se conectan los MCP](#cómo-se-conectan-los-mcp))
-  - [ ] **Servidores MCP configurados por usuario** (no en `harness.yaml`: son credenciales
-        y herramientas de la máquina de cada uno), por stdio o HTTP. Con el SDK oficial de
-        MCP para Python (`mcp`).
-  - [ ] **Al iniciar: `initialize` y `tools/list`.** Cada herramienta MCP se convierte en una
-        `Herramienta` del harness con el prefijo del servidor (por ejemplo
-        `github__search_code`).
-  - [ ] **El modelo solo ve una lista permitida de herramientas de solo lectura.** Las
-        escrituras (crear el PR, comentar) las hace el harness después de la validación, nunca
-        el modelo.
-  - [ ] **Las salidas MCP pasan por el mismo recorte y enmascarado de secretos** que el
-        resto de las herramientas.
-  - [ ] **El PR se crea con `create_pull_request` del servidor MCP oficial de GitHub**,
-        ejecutado por el harness. Si no hay servidor MCP configurado, se usa el cliente REST
-        actual (`github.py`), con un aviso en consola de qué camino se usó.
+  - [ ] **Servidores MCP configurados por usuario** en `mcp.json` (formato `mcpServers`, no en
+        `harness.yaml`), por stdio (Docker) o HTTP (el remoto de GitHub), con `${NOMBRE}` para
+        los secretos y `HARNESS_MCP_GITHUB` para elegir cuál es GitHub. SDK oficial `mcp`, con
+        un portal de anyio para usarlo desde el harness síncrono.
+  - [ ] **stdio seguro:** entorno mínimo del proceso (sin las API keys del `.env`), logs del
+        servidor a su archivo y `--name` + `docker rm -f` para no dejar contenedores.
+  - [ ] **Al conectar: `initialize` y `tools/list`.** Cada herramienta permitida se convierte
+        en una `Herramienta` con el prefijo del servidor (`github__list_commits`) y el esquema
+        tal cual; cada proveedor lo adapta al mandarlo (`adaptar_esquema`, por preset).
+  - [ ] **Lista permitida corta, de solo lectura:** `get_file_contents`, `list_commits`,
+        `search_pull_requests` y `pull_request_read`. Las escrituras las hace el harness.
+  - [ ] **Salidas MCP:** secretos ocultos, JSON con sangría y recorte desde el principio.
+  - [ ] **El PR se crea con `create_pull_request`**, ejecutado por el harness; sin servidor
+        (o si no conecta) por la API REST, y si la sesión se corta al final, reintento por
+        REST. El camino se decide y se avisa en el preflight, antes de crear la rama.
+  - [ ] **`--sin-herramientas-github` / `HARNESS_MCP_HERRAMIENTAS_MODELO=0`:** el modelo no
+        recibe las herramientas de GitHub (~2.000 tokens menos por pedido) y el PR sigue por
+        MCP.
   - [ ] Rama, commit y push siguen siendo con `git`.
-  - [ ] **Pruebas:** con el servidor MCP de GitHub real en Docker, y del respaldo REST sin él.
+  - [ ] **Pruebas reales en tareas-api:** Docker por stdio, HTTP remoto, solo para el PR, REST
+        sin `mcp.json` y Ctrl+C sin contenedores colgados.
 - [ ] **7.** Jira por MCP con respaldo REST (reemplaza el ticket local)
+  - [ ] **Ver si el servidor MCP remoto de Atlassian acepta email + API token o solo OAuth.**
+        Si solo OAuth, usar por stdio con Docker un servidor de Jira que acepte API token.
   - [ ] **Leer el ticket y comentar el link del PR** a través de un servidor MCP de Jira.
   - [ ] **Respaldo REST:** si no hay servidor MCP de Jira configurado, usar la API REST v3
         de Jira directamente (email y API token), con un aviso en consola de qué camino se
@@ -795,6 +927,9 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
   - [ ] **Prefijo "Aviso:" en los avisos de consola**, además del color amarillo, para que
         se distingan cuando la salida se copia, se redirige a un archivo o no va a una
         terminal (rich no pone colores en esos casos).
+  - [ ] **Probar la salida en conhost, PowerShell, Windows Terminal y las terminales de VS
+        Code y PyCharm.** La consola ya no escribe en la última columna (en conhost puede
+        agregar un salto de línea y pisar una línea); falta comprobarlo en cada una.
   - [ ] **Plan con correcciones del usuario.** Hoy, con `--aprobar-plan`, solo se puede
         responder s o n. Cambiar la pregunta a "¿Aprobar el plan? [s/n, o escribe qué
         cambiar]":
@@ -843,10 +978,13 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         fijos (`TIMEOUT_DESCARGA_SEGUNDOS`) y no se ve cuánto falta; las imágenes de Gradle o
         Maven son grandes.
 - [ ] **12.** Distribución y pulido
-  - [ ] **`ProveedorAnthropic`** (preset `anthropic`), para quien elija Claude.
+  - [ ] **`ProveedorAnthropic`** (preset `anthropic`), para quien elija Claude. Define su
+        propio `adaptar_esquema`: los esquemas de las herramientas (los de MCP, por ejemplo) se
+        adaptan a lo que acepta la API de Anthropic.
   - [ ] **`harness config` + `~/.harness/config.toml`**, con el orden de prioridad: opciones
         del comando → variables de entorno / `.env` → `config.toml`. Necesario para que otros
-        lo instalen con `uv tool install git+...` y lo usen sin el repo.
+        lo instalen con `uv tool install git+...` y lo usen sin el repo. `mcp.json` pasa a
+        `~/.harness/mcp.json`.
         - Ajustar el mensaje "Falta GITHUB_TOKEN en el .env" (en `github.verificar_acceso` y
           en `entrega._abrir_pr`): el token también puede venir de una variable de entorno o
           de `config.toml`. Por ejemplo: "Falta el token de GitHub (GITHUB_TOKEN en el entorno

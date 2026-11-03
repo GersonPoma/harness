@@ -46,9 +46,27 @@ harness/
 │   └── harness-yaml.md     # especificación completa de harness.yaml
 ├── pyproject.toml          # [project.scripts] define el comando "harness"
 ├── uv.lock
+├── mcp.example.json        # modelo de mcp.json (servidores MCP del usuario, en .gitignore)
 └── src/harness/
-    ├── __init__.py
-    └── cli.py              # punto de entrada (typer)
+    ├── cli.py              # punto de entrada (typer): run, init, version
+    ├── bucle.py            # bucle de tool calling
+    ├── ejecucion.py        # plan + implementación + validación
+    ├── planificacion.py    # ronda de plan (proponer_plan)
+    ├── prompts.py          # textos que recibe el modelo
+    ├── tipos.py            # Mensaje, Herramienta, LlamadaHerramienta, RespuestaModelo
+    ├── consola.py          # salida con rich (nunca en la última columna)
+    ├── registro.py         # log JSONL de cada ejecución
+    ├── config.py           # .env: proveedor, modelo, tokens
+    ├── config_proyecto.py  # harness.yaml del repo objetivo
+    ├── entorno_docker.py   # contenedores del proyecto y sus servicios
+    ├── entrega.py          # rama, commit, push y PR
+    ├── git.py              # git del host
+    ├── github.py           # PR por la API REST
+    ├── config_mcp.py       # mcp.json (mcpServers)
+    ├── cliente_mcp.py      # SesionMCP: stdio o HTTP, síncrona sobre anyio
+    ├── github_mcp.py       # PR con create_pull_request del servidor MCP
+    ├── herramientas/       # las del modelo: archivos, comandos y remotas (MCP)
+    └── proveedores/        # ProveedorLLM, presets y adaptación de esquemas
 ```
 
 Todo el código nuevo va dentro de `src/harness/`.
