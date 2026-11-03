@@ -16,6 +16,8 @@ VAR_SECRETO = "FALSO_SECRETO"
 # Archivo donde se anotan los create_pull_request recibidos (uno por línea, en JSON).
 VAR_REGISTRO_PR = "FALSO_REGISTRO_PR"
 LINEAS_ARCHIVO_LARGO = 400
+# El id interno que devuelve GitHub (no es el número del PR).
+ID_PR = "3120004567"
 
 
 def crear_servidor() -> MCPServer:
@@ -40,10 +42,10 @@ def crear_servidor() -> MCPServer:
     def search_pull_requests(query: str) -> str:
         """Busca pull requests; por rama (head:) encuentra el PR, salvo si la rama dice sin-pr."""
         if "head:" not in query or "sin-pr" in query:
-            return json.dumps({"total_count": 0, "items": []})
+            return json.dumps({"incomplete_results": False, "items": [], "total_count": 0})
         repo = query.split("repo:")[1].split()[0]
         item = {"number": 9, "html_url": f"https://github.com/{repo}/pull/9", "draft": True}
-        return json.dumps({"total_count": 1, "items": [item]})
+        return json.dumps({"incomplete_results": False, "items": [item], "total_count": 1})
 
     @servidor.tool(structured_output=False)
     def create_pull_request(
@@ -52,22 +54,21 @@ def crear_servidor() -> MCPServer:
     ) -> CallToolResult | str:
         """Crea un PR; una marca en el título elige cómo responde (como el servidor real)."""
         _anotar({"title": title, "head": head, "base": base, "body": body, "draft": draft})
-        pulls = f"POST https://api.github.com/repos/{owner}/{repo}/pulls"
         if "[sin-borradores]" in title and draft:
-            return _error(f"{pulls}: 422 Validation Failed [{{Message:Draft pull requests are "
-                          "not supported in this repository.}]")
+            return _error_422("PullRequest (custom): Draft pull requests are not supported in "
+                              "this repository.")
         if "[ya-existe]" in title:
-            return _error(f"{pulls}: 422 Validation Failed [{{Message:A pull request already "
-                          f"exists for {owner}:{head}.}}]")
+            return _error_422(f"PullRequest (custom): A pull request already exists for "
+                              f"{owner}:{head}.")
         if "[error]" in title:
-            return _error(f"{pulls}: 422 Validation Failed [{{Message:not all refs are "
-                          "readable}]")
+            return _error_422("PullRequest.head (invalid): not all refs are readable")
         if "[sin-url]" in title:
-            return json.dumps({"id": "123"})
+            return json.dumps({"id": ID_PR})
         url = f"https://github.com/{owner}/{repo}/pull/7"
         if "[html-url]" in title:
             return json.dumps({"html_url": url, "draft": draft})
-        return json.dumps({"id": "7", "url": url})
+        # Lo que responde el servidor real (v2.0.3): el id interno de GitHub y la URL web.
+        return json.dumps({"id": ID_PR, "url": url})
 
     @servidor.tool()
     def pull_request_read(method: str, owner: str, repo: str, pullNumber: int) -> str:
@@ -108,6 +109,11 @@ def crear_servidor() -> MCPServer:
 
 def _error(texto: str) -> CallToolResult:
     return CallToolResult(content=[TextContent(type="text", text=texto)], is_error=True)
+
+
+def _error_422(detalle: str) -> CallToolResult:
+    # Formato real: el servidor reescribe los 422 sin el código HTTP, con una línea por error.
+    return _error(f"failed to create pull request: Validation Failed\n{detalle}")
 
 
 def _anotar(argumentos: dict) -> None:

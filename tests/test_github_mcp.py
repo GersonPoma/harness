@@ -96,8 +96,10 @@ def test_un_error_de_github_llega_con_su_motivo_y_su_codigo(
 ) -> None:
     with pytest.raises(ErrorGitHub) as error:
         crear_pull_request_mcp(_pedido("T-1 [error]"), sesion)
-    assert str(error.value).startswith("GitHub no creó el pull request (por MCP): POST https://")
-    assert "not all refs are readable" in str(error.value)
+    assert str(error.value) == (
+        "GitHub no creó el pull request (por MCP): failed to create pull request: Validation "
+        "Failed\nPullRequest.head (invalid): not all refs are readable"
+    )
     # Con el 422, entrega.py agrega la pista de permisos, igual que por la API REST.
     assert error.value.codigo == 422
     assert PISTA_PERMISOS not in str(error.value)
