@@ -10,6 +10,15 @@ class FormatoApi(StrEnum):
     OPENAI = "openai"
 
 
+class PerfilEsquema(StrEnum):
+    """Qué le acepta la API a los esquemas de las herramientas (ver adaptar_esquema)."""
+
+    # Sin claves "x-..."; el resto, tal cual.
+    GENERAL = "general"
+    # Además, sin $ref ni $defs: Gemini no los acepta.
+    GEMINI = "gemini"
+
+
 @dataclass(frozen=True)
 class Preset:
     """Datos fijos de un proveedor conocido."""
@@ -17,6 +26,7 @@ class Preset:
     formato: FormatoApi
     base_url: str | None
     variable_api_key: str | None
+    perfil_esquema: PerfilEsquema = PerfilEsquema.GENERAL
 
 
 PROVEEDOR_PERSONALIZADO = "personalizado"
@@ -27,6 +37,7 @@ PRESETS: dict[str, Preset] = {
         FormatoApi.OPENAI,
         "https://generativelanguage.googleapis.com/v1beta/openai/",
         "GEMINI_API_KEY",
+        PerfilEsquema.GEMINI,
     ),
     "groq": Preset(FormatoApi.OPENAI, "https://api.groq.com/openai/v1", "GROQ_API_KEY"),
     "openrouter": Preset(FormatoApi.OPENAI, "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),

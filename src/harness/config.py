@@ -17,6 +17,11 @@ VAR_BASE_URL = "HARNESS_BASE_URL"
 VAR_API_KEY_ENV = "HARNESS_API_KEY_ENV"
 # Solo para el pull request: el push usa las credenciales de Git del usuario.
 VAR_TOKEN_GITHUB = "GITHUB_TOKEN"
+# Servidores MCP del usuario (formato mcpServers), junto al .env mientras se desarrolla.
+RUTA_MCP = RUTA_ENV.parent / "mcp.json"
+# "0" para no darle al modelo las herramientas de GitHub por MCP (el PR sigue por MCP).
+VAR_HERRAMIENTAS_GITHUB_MODELO = "HARNESS_MCP_HERRAMIENTAS_MODELO"
+VALORES_DESACTIVADO = ("0", "false", "no")
 
 
 class ErrorConfiguracion(Exception):
@@ -66,6 +71,12 @@ def cargar_config(ruta_env: Path = RUTA_ENV) -> ConfigModelo:
 def leer_token_github() -> str | None:
     """Token de GitHub del .env (ya cargado) para crear el PR; None si no está."""
     return os.environ.get(VAR_TOKEN_GITHUB, "").strip() or None
+
+
+def leer_herramientas_github_modelo() -> bool:
+    """Si el modelo recibe las herramientas de GitHub por MCP (por defecto, sí)."""
+    valor = os.environ.get(VAR_HERRAMIENTAS_GITHUB_MODELO, "").strip().lower()
+    return valor not in VALORES_DESACTIVADO
 
 
 def _leer_obligatoria(variable: str, que_es: str) -> str:

@@ -39,6 +39,14 @@ Tests:
 la salida y tendrás que corregir el código."""
 
 
+# Solo si el modelo tiene herramientas de GitHub por MCP: get_file_contents sobre el mismo repo
+# devuelve lo que hay en GitHub, sin los cambios locales de esta ejecución.
+PROMPT_GITHUB_MCP = """
+
+Los archivos locales son la fuente de verdad. Usa las herramientas github__ solo para otras \
+ramas, otros repos, historia o PRs anteriores; para leer el proyecto usa leer_archivo."""
+
+
 # El harness lee AGENTS.md y lo pone aquí: así no depende de que el modelo lo pida.
 PROMPT_CON_AGENTS = """
 
@@ -264,10 +272,17 @@ def crear_mensaje_guardar_faltantes(pendientes: list[str]) -> str:
 
 
 def crear_mensajes_iniciales(
-    ticket: str, contexto: ContextoProyecto | None = None, hay_validacion: bool = False
+    ticket: str,
+    contexto: ContextoProyecto | None = None,
+    hay_validacion: bool = False,
+    hay_github_mcp: bool = False,
 ) -> list[Mensaje]:
-    """Arma la conversación inicial: instrucciones, contexto del proyecto y ticket."""
+    """Arma la conversación inicial: instrucciones, contexto del proyecto y ticket.
+
+    La ronda de plan usa esta misma conversación, así que las notas valen para las dos.
+    """
     sistema = PROMPT_SISTEMA + (PROMPT_VALIDACION if hay_validacion else "")
+    sistema += PROMPT_GITHUB_MCP if hay_github_mcp else ""
     sistema += crear_seccion_contexto(contexto or ContextoProyecto())
     return [
         Mensaje(Rol.SISTEMA, sistema),

@@ -22,8 +22,9 @@ def crear_herramientas(
     config: ConfigProyecto | None = None,
     ejecutor: EjecutorComandos | None = None,
     al_escribir: Callable[[str], None] | None = None,
+    extras: list[Herramienta] | None = None,
 ) -> list[Herramienta]:
-    """Crea las herramientas atadas al repo objetivo.
+    """Crea las herramientas atadas al repo objetivo, más las extras (por ejemplo, las de MCP).
 
     Sin harness.yaml (config None) solo hay herramientas de archivos, como en la fase 1.
     """
@@ -31,12 +32,15 @@ def crear_herramientas(
     herramientas = _herramientas_de_archivos(repo, protegidos, al_escribir)
     if config and ejecutor:
         herramientas += _herramientas_de_comandos(config, ejecutor)
-    return herramientas
+    return herramientas + (extras or [])
 
 
-def crear_herramientas_lectura(repo: Path) -> list[Herramienta]:
-    """Solo las herramientas que no cambian nada: para la ronda de plan y para init."""
-    return [h for h in _herramientas_de_archivos(repo, [], None) if h.nombre in NOMBRES_LECTURA]
+def crear_herramientas_lectura(
+    repo: Path, extras: list[Herramienta] | None = None
+) -> list[Herramienta]:
+    """Solo las que no cambian nada, para la ronda de plan y para init (extras: de solo lectura)."""
+    lectura = [h for h in _herramientas_de_archivos(repo, [], None) if h.nombre in NOMBRES_LECTURA]
+    return lectura + (extras or [])
 
 
 def _herramientas_de_archivos(

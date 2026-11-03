@@ -35,6 +35,16 @@ def crear_servidor() -> MCPServer:
         return json.dumps([{"sha": "abc123", "commit": {"message": "inicio"}}])
 
     @servidor.tool()
+    def search_pull_requests(query: str) -> str:
+        """Busca pull requests."""
+        return json.dumps({"total_count": 0, "items": []})
+
+    @servidor.tool()
+    def pull_request_read(method: str, owner: str, repo: str, pullNumber: int) -> str:
+        """Lee un pull request."""
+        return json.dumps({"number": pullNumber, "title": "PR anterior"})
+
+    @servidor.tool()
     def delete_file(owner: str, repo: str, path: str) -> str:
         """Borra un archivo (escritura: nunca debe llegar al modelo)."""
         return "borrado"

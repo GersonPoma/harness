@@ -124,6 +124,19 @@ def mostrar_fin(resultado: ResultadoEjecucion, cambios: CambiosRepo, ruta_log: s
     )
 
 
+def mostrar_github_mcp(servidor: str, transporte: str, herramientas: int) -> None:
+    """Con qué servidor MCP de GitHub se trabaja y cuántas herramientas recibe el modelo."""
+    consola.print(
+        f"[bold green]GitHub por MCP[/] (servidor {escape(servidor)}, {escape(transporte)}): "
+        f"{herramientas} herramientas de lectura para el modelo."
+    )
+
+
+def mostrar_github_mcp_sin_herramientas() -> None:
+    """--sin-herramientas-github: el modelo no recibe las herramientas de GitHub."""
+    consola.print("[dim]GitHub por MCP: sin herramientas para el modelo.[/]")
+
+
 def mostrar_rama(config: ConfigEntrega) -> None:
     """Avisa en qué rama trabaja el modelo."""
     consola.print(f"[dim]Rama {escape(config.rama)} creada desde {escape(config.base)}.[/]")

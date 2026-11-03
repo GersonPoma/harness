@@ -1,4 +1,5 @@
-from dataclasses import dataclass, replace
+from contextlib import ExitStack
+from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
 from typing import Annotated
@@ -9,12 +10,21 @@ from rich import print
 from harness import consola
 from harness.bucle import MAX_PASOS_POR_DEFECTO, ErrorRespuestaVacia, Paso
 from harness.cambios import CambiosRepo, comparar, tomar_instantanea
+from harness.cliente_mcp import ErrorMCP, SesionMCP
 from harness.config import (
+    RUTA_MCP,
     ConfigModelo,
     ErrorConfiguracion,
     cargar_config,
     cargar_env,
+    leer_herramientas_github_modelo,
     leer_token_github,
+)
+from harness.config_mcp import (
+    ErrorConfigMCP,
+    ServidorMCP,
+    cargar_config_mcp,
+    elegir_servidor_github,
 )
 from harness.config_proyecto import (
     ConfigLimites,
@@ -41,6 +51,11 @@ from harness.git import ErrorGit
 from harness.herramientas import crear_herramientas, crear_herramientas_lectura
 from harness.herramientas.comandos import EjecutorComandos, validar_proyecto
 from harness.herramientas.protegidos import GuardiaProtegidos
+from harness.herramientas.remotas import (
+    HERRAMIENTAS_LECTURA_GITHUB,
+    PREFIJO_GITHUB,
+    crear_herramientas_mcp,
+)
 from harness.init import ErrorInit, archivos_faltantes, ejecutar_init, verificar_config
 from harness.plan import Plan
 from harness.planificacion import ErrorPlan, calcular_pasos_plan
@@ -48,6 +63,7 @@ from harness.prompts import crear_mensajes_iniciales
 from harness.proveedores.base import ErrorProveedor, ProveedorLLM
 from harness.proveedores.fabrica import crear_proveedor
 from harness.registro import RegistroPasos
+from harness.tipos import Herramienta
 from harness.ticket import ErrorTicket, leer_ticket_local, titulo_ticket
 from harness.variables import (
     ErrorVariables,
@@ -78,6 +94,9 @@ class _Preparacion:
     contexto: ContextoProyecto
     es_con_plan: bool = True
     token_github: str | None = None
+    # Servidor MCP de GitHub de mcp.json (None: no hay) y sus herramientas para el modelo.
+    servidor_github: ServidorMCP | None = None
+    herramientas_github: list[Herramienta] = field(default_factory=list)
 
     @property
     def titulo(self) -> str:
@@ -88,7 +107,8 @@ class _Preparacion:
     def secretos(self) -> list[str]:
         """Lo que nunca se escribe en el log ni se le muestra al modelo."""
         token = [self.token_github] if self.token_github else []
-        return [self.config.api_key, *self.variables.secretos, *token]
+        mcp = list(self.servidor_github.secretos) if self.servidor_github else []
+        return [self.config.api_key, *self.variables.secretos, *token, *mcp]
 
 
 class _Reporte:
@@ -146,6 +166,13 @@ def run(
     sin_pr: Annotated[
         bool, typer.Option("--sin-pr", help="Hacer commit y push, pero no el pull request.")
     ] = False,
+    sin_herramientas_github: Annotated[
+        bool,
+        typer.Option(
+            "--sin-herramientas-github",
+            help="No darle al modelo las herramientas de GitHub por MCP (ahorra tokens).",
+        ),
+    ] = False,
 ) -> None:
     """Procesa un ticket y genera el código en el repo objetivo."""
     if sin_plan and aprobar_plan:
@@ -163,26 +190,64 @@ def run(
     reporte = _Reporte(registro, aprobar_plan)
     _avisar_recorte_plan(prep, max_pasos, reporte)
     config_entrega = _preparar_rama(prep, not sin_push, not sin_pr, reporte)
-    try:
-        resultado, cambios = _ejecutar(prep, max_pasos, reporte)
-    except (ErrorProveedor, ErrorDocker, ErrorRespuestaVacia, ErrorPlan) as error:
-        registro.registrar_error(str(error))
-        consola.mostrar_error(str(error))
-        _cerrar_rama(prep, config_entrega, reporte)
-        raise typer.Exit(1) from error
-    except KeyboardInterrupt as error:
-        registro.registrar_error("Ejecución cancelada por el usuario.")
-        consola.mostrar_error("Ejecución cancelada (los contenedores se borraron).")
-        _cerrar_rama(prep, config_entrega, reporte)
-        raise typer.Exit(CODIGO_CANCELADO) from error
+    es_herramientas_github = not sin_herramientas_github and leer_herramientas_github_modelo()
+    # El servidor MCP se cierra al salir del with: también con error o Ctrl+C.
+    with ExitStack() as pila:
+        try:
+            _conectar_github_mcp(prep, pila, reporte, es_herramientas_github)
+            resultado, cambios = _ejecutar(prep, max_pasos, reporte)
+        except (ErrorProveedor, ErrorDocker, ErrorRespuestaVacia, ErrorPlan) as error:
+            registro.registrar_error(str(error))
+            consola.mostrar_error(str(error))
+            _cerrar_rama(prep, config_entrega, reporte)
+            raise typer.Exit(1) from error
+        except KeyboardInterrupt as error:
+            registro.registrar_error("Ejecución cancelada por el usuario.")
+            consola.mostrar_error("Ejecución cancelada (los contenedores se borraron).")
+            _cerrar_rama(prep, config_entrega, reporte)
+            raise typer.Exit(CODIGO_CANCELADO) from error
 
-    registro.registrar_fin(resultado, cambios)
-    consola.mostrar_fin(resultado, cambios, str(registro.ruta))
-    es_entrega_ok = True
-    if config_entrega:
-        es_entrega_ok = _entregar(prep, config_entrega, resultado, cambios, reporte)
+        registro.registrar_fin(resultado, cambios)
+        consola.mostrar_fin(resultado, cambios, str(registro.ruta))
+        es_entrega_ok = True
+        if config_entrega:
+            es_entrega_ok = _entregar(prep, config_entrega, resultado, cambios, reporte)
     if resultado.es_limite_alcanzado or resultado.es_validado is False or not es_entrega_ok:
         raise typer.Exit(1)
+
+
+def _conectar_github_mcp(
+    prep: _Preparacion, pila: ExitStack, reporte: _Reporte, es_herramientas: bool
+) -> None:
+    """Abre la sesión con el servidor MCP de GitHub, si hay uno, y arma sus herramientas.
+
+    Si no conecta, se avisa y se sigue: nada de lo que hace el harness depende de MCP.
+    """
+    servidor = prep.servidor_github
+    if servidor is None:
+        return
+    if not es_herramientas:
+        consola.mostrar_github_mcp_sin_herramientas()
+        return
+    ruta_log = reporte.registro.ruta.parent / f"{prep.ticket}-mcp-{servidor.nombre}.log"
+    try:
+        with consola.estado(f"Conectando con el servidor MCP {servidor.nombre}..."):
+            sesion = pila.enter_context(SesionMCP(servidor, ruta_log, prep.ticket))
+    except ErrorMCP as error:
+        reporte.registro.registrar_mcp(servidor, [], str(error))
+        reporte.aviso(f"{error} Se sigue sin las herramientas de GitHub para el modelo.")
+        return
+    limites = prep.config_proyecto.limites if prep.config_proyecto else ConfigLimites()
+    prep.herramientas_github = crear_herramientas_mcp(
+        sesion,
+        PREFIJO_GITHUB,
+        HERRAMIENTAS_LECTURA_GITHUB,
+        prep.secretos,
+        limites.max_caracteres_salida,
+    )
+    nombres = [h.nombre for h in prep.herramientas_github]
+    reporte.registro.registrar_mcp(servidor, nombres)
+    consola.mostrar_github_mcp(servidor.nombre, servidor.transporte, len(nombres))
 
 
 def _preparar_rama(
@@ -297,7 +362,10 @@ def _preparar_ejecucion(ticket: Path, repo: Path) -> _Preparacion:
         config = cargar_config()
         config_proyecto = cargar_config_proyecto(repo)
         variables = resolver_variables(config_proyecto) if config_proyecto else None
-    except (ErrorTicket, ErrorConfiguracion, ErrorConfigProyecto, ErrorVariables) as error:
+        servidor_github = elegir_servidor_github(cargar_config_mcp(RUTA_MCP))
+    except (
+        ErrorTicket, ErrorConfiguracion, ErrorConfigProyecto, ErrorVariables, ErrorConfigMCP
+    ) as error:
         consola.mostrar_error(str(error))
         raise typer.Exit(1) from error
     if config_proyecto is None:
@@ -314,6 +382,7 @@ def _preparar_ejecucion(ticket: Path, repo: Path) -> _Preparacion:
     return _Preparacion(
         repo, ticket.stem, texto_ticket, config, config_proyecto,
         variables or VariablesResueltas(), contexto, token_github=leer_token_github(),
+        servidor_github=servidor_github,
     )
 
 
@@ -325,8 +394,10 @@ def _ejecutar(
         antes = tomar_instantanea(prep.repo)
         resultado = ejecutar_ticket(
             proveedor,
-            crear_mensajes_iniciales(prep.texto_ticket, prep.contexto),
-            crear_herramientas(prep.repo),
+            crear_mensajes_iniciales(
+                prep.texto_ticket, prep.contexto, hay_github_mcp=bool(prep.herramientas_github)
+            ),
+            crear_herramientas(prep.repo, extras=prep.herramientas_github),
             max_pasos,
             al_paso=reporte.paso,
             al_aviso=reporte.aviso,
@@ -365,8 +436,15 @@ def _ejecutar_con_validacion(
     comandos = config_proyecto.comandos
     resultado = ejecutar_ticket(
         proveedor,
-        crear_mensajes_iniciales(prep.texto_ticket, prep.contexto, hay_validacion=True),
-        crear_herramientas(prep.repo, config_proyecto, ejecutor, entorno.marcar_cambio),
+        crear_mensajes_iniciales(
+            prep.texto_ticket,
+            prep.contexto,
+            hay_validacion=True,
+            hay_github_mcp=bool(prep.herramientas_github),
+        ),
+        crear_herramientas(
+            prep.repo, config_proyecto, ejecutor, entorno.marcar_cambio, prep.herramientas_github
+        ),
         max_pasos,
         validar=partial(validar_proyecto, ejecutor, comandos.tests, comandos.lint),
         max_intentos_validacion=limites.max_intentos_validacion,
@@ -397,7 +475,9 @@ def _planificacion(prep: _Preparacion, reporte: _Reporte) -> Planificacion | Non
         return None
     limites = prep.config_proyecto.limites if prep.config_proyecto else ConfigLimites()
     return Planificacion(
-        crear_herramientas_lectura(prep.repo), reporte.plan, limites.max_pasos_plan
+        crear_herramientas_lectura(prep.repo, prep.herramientas_github),
+        reporte.plan,
+        limites.max_pasos_plan,
     )
 
 

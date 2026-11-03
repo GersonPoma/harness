@@ -1,6 +1,7 @@
 """Dobles de prueba: modelo falso, entorno Docker falso y respuestas guionadas."""
 
 from collections.abc import Callable
+from typing import Any
 
 from harness.entorno_docker import ResultadoComando
 from harness.tipos import Herramienta, LlamadaHerramienta, Mensaje, RespuestaModelo
@@ -41,6 +42,9 @@ class ProveedorFalso:
         self.conversaciones.append(list(mensajes))
         self.herramientas.append([h.nombre for h in herramientas])
         return self._respuestas.pop(0)
+
+    def adaptar_esquema(self, esquema: dict[str, Any]) -> dict[str, Any]:
+        return esquema
 
 
 def pedir(*llamadas: LlamadaHerramienta) -> RespuestaModelo:

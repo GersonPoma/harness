@@ -9,6 +9,8 @@ import openai
 
 from harness.config import ConfigModelo
 from harness.proveedores.base import ErrorProveedor
+from harness.proveedores.esquemas import quitar_extensiones, resolver_referencias
+from harness.proveedores.presets import PRESETS, PerfilEsquema
 from harness.tipos import Herramienta, LlamadaHerramienta, Mensaje, RespuestaModelo, Rol
 
 # Gemini gratis permite 15 pedidos por minuto: uno cada 4 segundos como mínimo.
@@ -42,6 +44,7 @@ class ProveedorOpenAICompatible:
         al_reintentar: Callable[[str], None] | None = None,
     ) -> None:
         self._config = config
+        self._perfil_esquema = PRESETS[config.proveedor].perfil_esquema
         # max_retries=0: los reintentos los maneja esta clase, con sus propias esperas.
         self._cliente = cliente or openai.OpenAI(
             api_key=config.api_key,
@@ -64,9 +67,27 @@ class ProveedorOpenAICompatible:
             "messages": [_a_mensaje_openai(m) for m in mensajes],
         }
         if herramientas:
-            parametros["tools"] = [_a_herramienta_openai(h) for h in herramientas]
+            parametros["tools"] = [self._a_herramienta_openai(h) for h in herramientas]
         respuesta = self._pedir_con_reintentos(parametros)
         return _a_respuesta_modelo(respuesta)
+
+    def adaptar_esquema(self, esquema: dict[str, Any]) -> dict[str, Any]:
+        """Sin claves "x-..." para todos (no se sabe si cada API las acepta); según el preset,
+        además sin $ref ni $defs."""
+        adaptado = quitar_extensiones(esquema)
+        if self._perfil_esquema == PerfilEsquema.GEMINI:
+            adaptado = resolver_referencias(adaptado)
+        return adaptado
+
+    def _a_herramienta_openai(self, herramienta: Herramienta) -> dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {
+                "name": herramienta.nombre,
+                "description": herramienta.descripcion,
+                "parameters": self.adaptar_esquema(herramienta.parametros),
+            },
+        }
 
     def _pedir_con_reintentos(self, parametros: dict[str, Any]) -> Any:
         espera = ESPERA_INICIAL_SEGUNDOS
@@ -178,17 +199,6 @@ def _a_llamada_openai(llamada: LlamadaHerramienta) -> dict[str, Any]:
         "function": {
             "name": llamada.nombre,
             "arguments": json.dumps(llamada.argumentos, ensure_ascii=False),
-        },
-    }
-
-
-def _a_herramienta_openai(herramienta: Herramienta) -> dict[str, Any]:
-    return {
-        "type": "function",
-        "function": {
-            "name": herramienta.nombre,
-            "description": herramienta.descripcion,
-            "parameters": herramienta.parametros,
         },
     }
 

@@ -14,3 +14,11 @@ def repo(tmp_path: Path) -> Path:
     (raiz / ".git" / "config").write_text("[core]\n", encoding="utf-8")
     (tmp_path / "secreto.txt").write_text("fuera del repo", encoding="utf-8")
     return raiz
+
+
+@pytest.fixture(autouse=True)
+def sin_mcp_del_usuario(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Ningún test usa el mcp.json ni las variables HARNESS_MCP_* de quien los corre."""
+    monkeypatch.setattr("harness.cli.RUTA_MCP", tmp_path / "sin-mcp.json")
+    monkeypatch.delenv("HARNESS_MCP_GITHUB", raising=False)
+    monkeypatch.delenv("HARNESS_MCP_HERRAMIENTAS_MODELO", raising=False)

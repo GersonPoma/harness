@@ -162,6 +162,16 @@ def test_herramienta_ejecutar_comando(repo: Path) -> None:
     assert entorno.comandos == ["python -V"]
 
 
+def test_ejecutar_tests_sigue_recortando_como_antes(repo: Path) -> None:
+    # Las salidas de los comandos conservan el final (ahí está el resumen de los tests); el
+    # formateo de JSON y el principio son solo para las herramientas MCP.
+    salida = "\n".join(f"test_{numero}.py ." for numero in range(400)) + "\n5 passed in 0.8s"
+    ejecutor, _ = _ejecutor(repo, [ResultadoComando(0, salida)])
+    resultado = ejecutor.correr("pytest -q")[1]
+    assert resultado == formatear_resultado(ResultadoComando(0, salida), 4000)
+    assert resultado.endswith("5 passed in 0.8s")
+
+
 def test_los_secretos_no_llegan_al_modelo(repo: Path) -> None:
     entorno = EntornoFalso([ResultadoComando(0, "DATABASE_URL=postgresql://u:s3creta@db/x")])
     ejecutor = EjecutorComandos(entorno, GuardiaProtegidos(repo, []), 4000, 120, ["s3creta"])

@@ -7,6 +7,7 @@ from typing import Any
 
 from harness.bucle import Paso
 from harness.cambios import CambiosRepo
+from harness.config_mcp import ServidorMCP
 from harness.carpetas import CARPETA_LOGS
 from harness.contexto import ContextoProyecto
 from harness.ejecucion import ResultadoEjecucion, Validacion
@@ -103,6 +104,18 @@ class RegistroPasos:
     def registrar_plan(self, plan: Plan, es_aprobado: bool) -> None:
         """Registra el plan propuesto y si se siguió con la implementación."""
         self._escribir({"evento": "plan", "es_aprobado": es_aprobado, **plan.model_dump()})
+
+    def registrar_mcp(
+        self, servidor: ServidorMCP, herramientas: list[str], error: str | None = None
+    ) -> None:
+        """Registra la conexión con un servidor MCP: las herramientas del modelo, o el error."""
+        self._escribir({
+            "evento": "mcp",
+            "servidor": servidor.nombre,
+            "transporte": servidor.transporte,
+            "herramientas": herramientas,
+            "error": error,
+        })
 
     def registrar_rama(self, config: ConfigEntrega) -> None:
         """Registra la rama del ticket creada al empezar."""
