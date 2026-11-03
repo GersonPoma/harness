@@ -3,7 +3,7 @@
 import sys
 from typing import Any
 
-from rich.console import Console
+from rich.console import Console, ConsoleDimensions
 from rich.markup import escape
 from rich.panel import Panel
 from rich.status import Status
@@ -28,7 +28,29 @@ RESPUESTAS_SI = ("s", "si", "sí")
 RESPUESTAS_NO = ("n", "no")
 LINEAS_VERIFICACION = 15
 
-consola = Console()
+
+class ConsolaSinUltimaColumna(Console):
+    """Consola que nunca escribe en la última columna de la terminal.
+
+    En algunas terminales (la consola clásica de Windows, entre otras), una línea que llega a
+    la última columna salta sola al renglón siguiente y el salto de línea agrega otro: el texto
+    queda corrido o pisa una línea. Como width y options salen de size, alcanza con achicarlo
+    una vez para que los paneles, el ajuste de líneas y cualquier salida a todo el ancho
+    respeten el margen. (En modo legacy de Windows Rich a veces ya resta una columna: perder
+    otra no molesta.)
+    """
+
+    @property
+    def size(self) -> ConsoleDimensions:
+        real = super().size
+        return ConsoleDimensions(max(real.width - 1, 1), real.height)
+
+    @size.setter
+    def size(self, nuevo: tuple[int, int]) -> None:
+        Console.size.fset(self, nuevo)
+
+
+consola = ConsolaSinUltimaColumna()
 
 
 def forzar_salida_utf8() -> None:

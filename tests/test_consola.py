@@ -10,6 +10,7 @@ from rich.console import Console
 
 from harness import cli, consola
 from harness.bucle import Paso
+from harness.plan import ArchivoPlan, Plan
 from harness.tipos import LlamadaHerramienta
 
 RAIZ_PROYECTO = Path(__file__).resolve().parents[1]
@@ -122,3 +123,70 @@ def test_un_paso_con_una_llamada_mantiene_el_formato(monkeypatch: pytest.MonkeyP
         "[1] listar_directorio(ruta='.')",
         "    → src/ (+1 líneas)",
     ]
+
+
+# --- Nunca la última columna -------------------------------------------------------------
+
+# El plan de TAREAS-5 con el que una terminal perdió el primer renglón del paso 2.
+PLAN_TAREAS_5 = Plan(
+    resumen=(
+        "Implementar la eliminación de tareas mediante el endpoint DELETE /tareas/{id} y su "
+        "soporte en el repositorio y tests."
+    ),
+    archivos=[
+        ArchivoPlan(
+            ruta="src/tareas/repositorio.py",
+            accion="modificar",
+            motivo="Agregar método eliminar(id) para borrar una tarea por su id y retornar "
+            "booleano o indicador de éxito.",
+        ),
+        ArchivoPlan(
+            ruta="tests/test_tareas.py",
+            accion="modificar",
+            motivo="Agregar tests para eliminación exitosa, caso de tarea inexistente y "
+            "verificación de que las demás tareas no cambian de id ni desaparecen.",
+        ),
+    ],
+    pasos=[
+        "Implementar el método eliminar en RepositorioTareas en src/tareas/repositorio.py.",
+        "Implementar el endpoint DELETE /tareas/{id} en src/tareas/main.py utilizando el "
+        "método del repositorio y levantando HTTPException 404 si no se encuentra.",
+    ],
+    tests=["test_eliminar_tarea_existente"],
+)
+
+
+def _grabar_sin_ultima_columna(monkeypatch: pytest.MonkeyPatch, ancho: int) -> Console:
+    grabadora = consola.ConsolaSinUltimaColumna(record=True, width=ancho)
+    monkeypatch.setattr(consola, "consola", grabadora)
+    return grabadora
+
+
+def test_la_consola_del_harness_no_usa_la_ultima_columna() -> None:
+    assert isinstance(consola.consola, consola.ConsolaSinUltimaColumna)
+
+
+@pytest.mark.parametrize("ancho", [154, 100, 80, 60])
+def test_ninguna_linea_del_plan_llega_a_la_ultima_columna(
+    monkeypatch: pytest.MonkeyPatch, ancho: int
+) -> None:
+    grabadora = _grabar_sin_ultima_columna(monkeypatch, ancho)
+    consola.mostrar_plan(PLAN_TAREAS_5)
+    lineas = grabadora.export_text().splitlines()
+
+    assert max(len(linea) for linea in lineas) == ancho - 1
+    # Y no se pierde nada: el paso 2 está entero, aunque ocupe varios renglones.
+    texto = " ".join(" ".join(l.strip("│| ").split()) for l in lineas)
+    assert "2. Implementar el endpoint DELETE /tareas/{id}" in texto
+    assert "levantando HTTPException 404 si no se encuentra." in texto
+
+
+def test_un_aviso_largo_tampoco_llega_a_la_ultima_columna(monkeypatch: pytest.MonkeyPatch) -> None:
+    grabadora = _grabar_sin_ultima_columna(monkeypatch, 80)
+    consola.mostrar_aviso("palabra " * 60)
+    assert max(len(linea) for linea in grabadora.export_text().splitlines()) <= 79
+
+
+@pytest.mark.parametrize("legacy", [True, False])
+def test_el_ancho_es_uno_menos_que_el_de_la_terminal(legacy: bool) -> None:
+    assert consola.ConsolaSinUltimaColumna(width=100, legacy_windows=legacy).width == 99
