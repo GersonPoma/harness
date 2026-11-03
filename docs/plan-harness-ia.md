@@ -811,28 +811,28 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
 - [x] **5.** Git: rama, commit, push. **No se hace commit ni push de código que no pasó la
       validación** (tests + lint), ni de ejecuciones sin `harness.yaml` (no hubo validación)
   - [x] **Pull request automático** (`create_pull_request`, API de GitHub).
-- [ ] **6.** Cliente MCP y GitHub por MCP
+- [x] **6.** Cliente MCP y GitHub por MCP
       (ver [Cómo se conectan los MCP](#cómo-se-conectan-los-mcp))
-  - [ ] **Servidores MCP configurados por usuario** en `mcp.json` (formato `mcpServers`, no en
+  - [x] **Servidores MCP configurados por usuario** en `mcp.json` (formato `mcpServers`, no en
         `harness.yaml`), por stdio (Docker) o HTTP (el remoto de GitHub), con `${NOMBRE}` para
         los secretos y `HARNESS_MCP_GITHUB` para elegir cuál es GitHub. SDK oficial `mcp`, con
         un portal de anyio para usarlo desde el harness síncrono.
-  - [ ] **stdio seguro:** entorno mínimo del proceso (sin las API keys del `.env`), logs del
+  - [x] **stdio seguro:** entorno mínimo del proceso (sin las API keys del `.env`), logs del
         servidor a su archivo y `--name` + `docker rm -f` para no dejar contenedores.
-  - [ ] **Al conectar: `initialize` y `tools/list`.** Cada herramienta permitida se convierte
+  - [x] **Al conectar: `initialize` y `tools/list`.** Cada herramienta permitida se convierte
         en una `Herramienta` con el prefijo del servidor (`github__list_commits`) y el esquema
         tal cual; cada proveedor lo adapta al mandarlo (`adaptar_esquema`, por preset).
-  - [ ] **Lista permitida corta, de solo lectura:** `get_file_contents`, `list_commits`,
+  - [x] **Lista permitida corta, de solo lectura:** `get_file_contents`, `list_commits`,
         `search_pull_requests` y `pull_request_read`. Las escrituras las hace el harness.
-  - [ ] **Salidas MCP:** secretos ocultos, JSON con sangría y recorte desde el principio.
-  - [ ] **El PR se crea con `create_pull_request`**, ejecutado por el harness; sin servidor
+  - [x] **Salidas MCP:** secretos ocultos, JSON con sangría y recorte desde el principio.
+  - [x] **El PR se crea con `create_pull_request`**, ejecutado por el harness; sin servidor
         (o si no conecta) por la API REST, y si la sesión se corta al final, reintento por
         REST. El camino se decide y se avisa en el preflight, antes de crear la rama.
-  - [ ] **`--sin-herramientas-github` / `HARNESS_MCP_HERRAMIENTAS_MODELO=0`:** el modelo no
+  - [x] **`--sin-herramientas-github` / `HARNESS_MCP_HERRAMIENTAS_MODELO=0`:** el modelo no
         recibe las herramientas de GitHub (~2.000 tokens menos por pedido) y el PR sigue por
         MCP.
-  - [ ] Rama, commit y push siguen siendo con `git`.
-  - [ ] **Pruebas reales en tareas-api:** Docker por stdio, HTTP remoto, solo para el PR, REST
+  - [x] Rama, commit y push siguen siendo con `git`.
+  - [x] **Pruebas reales en tareas-api:** Docker por stdio, HTTP remoto, solo para el PR, REST
         sin `mcp.json` y Ctrl+C sin contenedores colgados.
 - [ ] **7.** Jira por MCP con respaldo REST (reemplaza el ticket local)
   - [ ] **Ver si el servidor MCP remoto de Atlassian acepta email + API token o solo OAuth.**
