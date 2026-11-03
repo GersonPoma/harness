@@ -6,7 +6,7 @@ import pytest
 
 from harness.cliente_mcp import HerramientaMCP, SesionMCP
 from harness.github import PISTA_PERMISOS, ErrorGitHub, PedidoPullRequest, PullRequest, RepoGitHub
-from harness.github_mcp import crear_pull_request_mcp, puede_crear_pull_request
+from harness.github_mcp import _codigo_http, crear_pull_request_mcp, puede_crear_pull_request
 from tests.datos.servidor_mcp_falso import VAR_REGISTRO_PR
 from tests.mcp_prueba import servidor_stdio
 
@@ -136,3 +136,29 @@ def test_puede_crear_pull_request_con_el_esquema_real() -> None:
 )
 def test_no_puede_crear_pull_request(herramientas: list[HerramientaMCP]) -> None:
     assert not puede_crear_pull_request(herramientas)
+
+
+# --- Código HTTP de los errores, con los textos reales del servidor ------------------------
+
+
+@pytest.mark.parametrize(
+    ("texto", "codigo"),
+    [
+        # Respuesta real (base inexistente), capturada del servidor v2.0.3.
+        (
+            "failed to create pull request: Validation Failed\nPullRequest.base (invalid)\n"
+            "PullRequest.head (invalid)",
+            422,
+        ),
+        (
+            "failed to create pull request: Validation Failed\n"
+            "PullRequest (custom): A pull request already exists for o:feature/T-1.",
+            422,
+        ),
+        ("failed to create pull request: GitHub API validation failed", 422),
+        ("failed to create pull request: GET https://api.github.com/x: 404 Not Found", 404),
+        ("failed to create pull request: connection reset", None),
+    ],
+)
+def test_codigo_http_de_los_errores_reales(texto: str, codigo: int | None) -> None:
+    assert _codigo_http(texto) == codigo

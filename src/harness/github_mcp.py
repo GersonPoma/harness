@@ -22,8 +22,13 @@ HERRAMIENTA_CREAR_PR = "create_pull_request"
 HERRAMIENTA_BUSCAR_PR = "search_pull_requests"
 # Los parámetros que el harness le manda; sin alguno de ellos, el PR va por la API REST.
 PARAMETROS_CREAR_PR = ("owner", "repo", "title", "head", "base", "body", "draft")
-# Los errores del servidor traen el código de la API de GitHub: "...pulls: 422 Validation...".
+# Algunos errores del servidor traen el código HTTP ("...: 404 Not Found").
 PATRON_CODIGO_HTTP = re.compile(r"\b([45]\d\d)\b")
+# Los 422 no: el servidor los reescribe como "failed to create pull request: Validation
+# Failed" seguido de una línea por error ("PullRequest (custom): A pull request already...").
+# Solo arma ese texto para respuestas 422, así que alcanza para reconocerlos.
+TEXTOS_VALIDACION = ("validation failed", "github api validation failed")
+CODIGO_VALIDACION = 422
 
 
 def puede_crear_pull_request(herramientas: list[HerramientaMCP]) -> bool:
@@ -116,4 +121,8 @@ def _leer_json(texto: str) -> dict[str, Any]:
 
 def _codigo_http(texto: str) -> int | None:
     coincidencia = PATRON_CODIGO_HTTP.search(texto)
-    return int(coincidencia[1]) if coincidencia else None
+    if coincidencia:
+        return int(coincidencia[1])
+    if any(validacion in texto.lower() for validacion in TEXTOS_VALIDACION):
+        return CODIGO_VALIDACION
+    return None
