@@ -24,6 +24,7 @@ from harness.config import (
     cargar_env,
     leer_config_jira,
     leer_herramientas_github_modelo,
+    leer_respaldo,
     leer_token_github,
 )
 from harness.config_mcp import (
@@ -76,7 +77,8 @@ from harness.plan import Plan
 from harness.planificacion import ErrorPlan, calcular_pasos_plan
 from harness.prompts import crear_mensajes_iniciales
 from harness.proveedores.base import ErrorProveedor, ProveedorLLM
-from harness.proveedores.fabrica import crear_proveedor
+from harness.proveedores.fabrica import crear_proveedor, identificador
+from harness.proveedores.respaldo import CambioProveedor
 from harness.registro import RegistroPasos
 from harness.tipos import Herramienta
 from harness.ticket import (
@@ -119,6 +121,8 @@ class _Preparacion:
     contexto: ContextoProyecto
     es_con_plan: bool = True
     es_con_cache: bool = True
+    # HARNESS_RESPALDO: si el proveedor principal se cae, se sigue con estos, en orden.
+    respaldo: list[ConfigModelo] = field(default_factory=list)
     token_github: str | None = None
     # Servidor MCP de GitHub de mcp.json (None: no hay) y sus herramientas para el modelo.
     servidor_github: ServidorMCP | None = None
@@ -153,19 +157,33 @@ class _Preparacion:
         tokens = [t for t in (self.token_github, token_jira) if t]
         mcp = [s for servidor in (self.servidor_github, self.servidor_jira) if servidor
                for s in servidor.secretos]
-        return [self.config.api_key, *self.variables.secretos, *tokens, *mcp]
+        respaldo = [config.api_key for config in self.respaldo]
+        return [self.config.api_key, *respaldo, *self.variables.secretos, *tokens, *mcp]
 
 
 class _Reporte:
     """Muestra en consola y registra en el log lo que pasa durante la ejecución."""
 
-    def __init__(self, registro: RegistroPasos, es_aprobar_plan: bool = False) -> None:
+    def __init__(
+        self, registro: RegistroPasos, es_aprobar_plan: bool = False, modelo: str = ""
+    ) -> None:
         self.registro = registro
         self._es_aprobar_plan = es_aprobar_plan
+        self._ultimo_paso = 0
+        # Los modelos que respondieron, en orden (más de uno si se pasó al respaldo).
+        self.modelos_usados = [modelo] if modelo else []
 
     def paso(self, paso: Paso) -> None:
+        self._ultimo_paso = paso.numero
         consola.mostrar_paso(paso)
         self.registro.registrar_paso(paso)
+
+    def cambio_proveedor(self, cambio: CambioProveedor) -> None:
+        # El pedido que falló es el del paso siguiente al último que terminó.
+        paso = self._ultimo_paso + 1
+        self.modelos_usados.append(cambio.siguiente)
+        consola.mostrar_cambio_proveedor(cambio, paso)
+        self.registro.registrar_cambio_proveedor(cambio, paso)
 
     def reintento(self, mensaje: str) -> None:
         consola.mostrar_aviso(mensaje)
@@ -244,9 +262,14 @@ def run(
     limites = prep.config_proyecto.limites if prep.config_proyecto else None
     max_pasos = max_pasos or (limites.max_pasos if limites else MAX_PASOS_POR_DEFECTO)
     registro = RegistroPasos(prep.repo, prep.ticket, secretos=prep.secretos)
-    registro.registrar_inicio(prep.config.proveedor, prep.config.modelo, prep.contexto)
+    respaldo = [identificador(config) for config in prep.respaldo]
+    registro.registrar_inicio(
+        prep.config.proveedor, prep.config.modelo, prep.contexto, respaldo=respaldo
+    )
     registro.registrar_ticket(prep.datos_ticket)
-    consola.mostrar_inicio(prep.ticket, str(prep.repo), prep.config.proveedor, prep.config.modelo)
+    consola.mostrar_inicio(
+        prep.ticket, str(prep.repo), prep.config.proveedor, prep.config.modelo, respaldo
+    )
     consola.mostrar_ticket(prep.datos_ticket)
     if prep.datos_ticket.es_recortado:
         aviso = _aviso_recorte_ticket(prep.datos_ticket)
@@ -254,7 +277,7 @@ def run(
         consola.mostrar_aviso(aviso)
     consola.mostrar_contexto(prep.contexto)
 
-    reporte = _Reporte(registro, aprobar_plan)
+    reporte = _Reporte(registro, aprobar_plan, identificador(prep.config))
     _avisar_recorte_plan(prep, max_pasos, reporte)
     es_herramientas_github = not sin_herramientas_github and leer_herramientas_github_modelo()
     # El servidor MCP se abre en el preflight y se cierra al salir del with: también con
@@ -472,7 +495,7 @@ def _entregar(
 
     def armar_pedido_pr(repo_github: RepoGitHub) -> PedidoPullRequest:
         comandos = prep.config_proyecto.comandos
-        modelo = f"{prep.config.proveedor}/{prep.config.modelo}"
+        modelo = ", después ".join(reporte.modelos_usados)
         # El resumen lo escribió el modelo: podría repetir un secreto que vio en una salida.
         cuerpo = ocultar_secretos(
             crear_cuerpo_pr(resultado, cambios, comandos, modelo), prep.secretos
@@ -549,6 +572,7 @@ def _preparar_ejecucion(ticket: str, repo: Path) -> _Preparacion:
     try:
         # cargar_config carga el .env: después ya se pueden resolver los ${NOMBRE}.
         config = cargar_config()
+        respaldo = leer_respaldo()
         config_proyecto = cargar_config_proyecto(repo)
         variables = resolver_variables(config_proyecto) if config_proyecto else None
         servidores = cargar_config_mcp(RUTA_MCP)
@@ -567,7 +591,7 @@ def _preparar_ejecucion(ticket: str, repo: Path) -> _Preparacion:
             "y por eso sin commit ni push. Créalo con 'harness init' o a mano "
             "(docs/harness-yaml.md)."
         )
-    _avisar_secretos_cortos(config, variables, servidor_github, servidor_jira)
+    _avisar_secretos_cortos([config, *respaldo], variables, servidor_github, servidor_jira)
     contexto = cargar_agents_md(repo)
     # Para ejecuciones sin nadie mirando la consola: el aviso de "falta AGENTS.md" no alcanza.
     if config_proyecto and config_proyecto.requiere_agents_md and not contexto.tiene_contenido:
@@ -577,17 +601,19 @@ def _preparar_ejecucion(ticket: str, repo: Path) -> _Preparacion:
         repo, datos_ticket, config, config_proyecto,
         variables or VariablesResueltas(), contexto, token_github=leer_token_github(),
         servidor_github=servidor_github, config_jira=config_jira, servidor_jira=servidor_jira,
+        respaldo=respaldo,
     )
 
 
 def _avisar_secretos_cortos(
-    config: ConfigModelo,
+    configs: list[ConfigModelo],
     variables: VariablesResueltas | None,
     servidor_github: ServidorMCP | None,
     servidor_jira: ServidorMCP | None,
 ) -> None:
     """Los secretos de menos de MIN_CARACTERES_SECRETO no se ocultan: se avisa una vez."""
-    tokens = [config.variable_api_key or "", VAR_TOKEN_GITHUB, VAR_JIRA_TOKEN]
+    claves = [config.variable_api_key or "" for config in configs]
+    tokens = [*dict.fromkeys(claves), VAR_TOKEN_GITHUB, VAR_JIRA_TOKEN]
     for servidor in (servidor_github, servidor_jira):
         tokens += list(servidor.variables_secretas) if servidor else []
     avisos = avisos_secretos_cortos(tokens)
@@ -625,7 +651,9 @@ def _aviso_recorte_ticket(ticket: Ticket) -> str:
 def _ejecutar(
     prep: _Preparacion, max_pasos: int, reporte: _Reporte
 ) -> tuple[ResultadoEjecucion, CambiosRepo]:
-    proveedor = crear_proveedor(prep.config, reporte.reintento)
+    proveedor = crear_proveedor(
+        prep.config, reporte.reintento, prep.respaldo, reporte.cambio_proveedor
+    )
     if prep.config_proyecto is None:
         antes = tomar_instantanea(prep.repo)
         resultado = ejecutar_ticket(

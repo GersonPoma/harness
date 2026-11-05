@@ -9,7 +9,13 @@ import pytest
 
 from harness.config import ConfigModelo
 from harness.proveedores import openai_compatible
-from harness.proveedores.base import ErrorProveedor
+from harness.proveedores.base import (
+    MOTIVO_CAIDO,
+    MOTIVO_CUOTA_DIARIA,
+    MOTIVO_LIMITE,
+    ErrorProveedor,
+    ErrorProveedorCaido,
+)
 from harness.proveedores.openai_compatible import (
     INTERVALO_MINIMO_SEGUNDOS,
     MAX_REINTENTOS,
@@ -134,9 +140,10 @@ def test_traduce_la_respuesta_a_tipos_propios() -> None:
     proveedor, _, _ = crear([respuesta_openai(None, llamadas)])
     respuesta = proveedor.responder([Mensaje(Rol.USUARIO, "hola")], [])
 
+    # Cada llamada sabe qué proveedor la generó (para el respaldo y resume).
     assert respuesta.llamadas == [
-        LlamadaHerramienta("c1", "leer_archivo", {"ruta": "a.py"}),
-        LlamadaHerramienta("llamada_1", "listar_directorio", {}),
+        LlamadaHerramienta("c1", "leer_archivo", {"ruta": "a.py"}, origen="gemini/modelo-x"),
+        LlamadaHerramienta("llamada_1", "listar_directorio", {}, origen="gemini/modelo-x"),
     ]
     assert (respuesta.tokens_entrada, respuesta.tokens_salida) == (12, 3)
 
@@ -160,8 +167,10 @@ def test_reintenta_ante_429_y_respeta_retry_after() -> None:
 
 def test_429_agotado_da_error_claro() -> None:
     proveedor, cliente, _ = crear([error_429() for _ in range(MAX_REINTENTOS + 1)])
-    with pytest.raises(ErrorProveedor, match="límite o la cuota.*'gemini'.*HARNESS_PROVEEDOR"):
+    patron = "límite de pedidos.*'gemini'.*HARNESS_RESPALDO"
+    with pytest.raises(ErrorProveedorCaido, match=patron) as info:
         proveedor.responder([Mensaje(Rol.USUARIO, "hola")], [])
+    assert info.value.motivo == MOTIVO_LIMITE
     assert len(cliente.pedidos) == MAX_REINTENTOS + 1
 
 
@@ -272,3 +281,97 @@ def test_el_cliente_real_tiene_timeout_por_pedido(monkeypatch: pytest.MonkeyPatc
     ProveedorOpenAICompatible(CONFIG)
     assert recibido["timeout"] == openai_compatible.TIMEOUT_PEDIDO_SEGUNDOS
     assert recibido["max_retries"] == 0
+
+
+# --- Respaldo: qué error da cada caída, y los datos de cada proveedor ---------------------
+
+# Cuerpos de un 429 de cuota diaria, como los documentan Gemini y OpenRouter.
+CUERPO_GEMINI_DIARIA = [{"error": {
+    "code": 429, "status": "RESOURCE_EXHAUSTED",
+    "message": "You exceeded your current quota, please check your plan and billing details.",
+    "details": [{
+        "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+        "violations": [{"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}],
+    }],
+}}]
+CUERPO_GEMINI_MINUTO = [{"error": {
+    "code": 429, "status": "RESOURCE_EXHAUSTED", "message": "You exceeded your current quota.",
+    "details": [{
+        "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+        "violations": [{"quotaId": "GenerateRequestsPerMinutePerProjectPerModel-FreeTier"}],
+    }],
+}}]
+CUERPO_OPENROUTER_DIARIA = {"error": {
+    "code": 429, "message": "Rate limit exceeded: free-models-per-day. Add 10 credits...",
+}}
+
+
+def error_429_con_cuerpo(cuerpo: Any) -> openai.RateLimitError:
+    respuesta = httpx2.Response(429, request=PEDIDO)
+    return openai.RateLimitError("Error code: 429", response=respuesta, body=cuerpo)
+
+
+@pytest.mark.parametrize("cuerpo", [CUERPO_GEMINI_DIARIA, CUERPO_OPENROUTER_DIARIA])
+def test_cuota_diaria_corta_sin_reintentar(cuerpo: Any) -> None:
+    avisos: list[str] = []
+    proveedor, cliente, _ = crear([error_429_con_cuerpo(cuerpo)], avisos)
+    with pytest.raises(ErrorProveedorCaido, match="cuota diaria.*'gemini'") as info:
+        proveedor.responder([Mensaje(Rol.USUARIO, "hola")], [])
+    assert info.value.motivo == MOTIVO_CUOTA_DIARIA
+    assert len(cliente.pedidos) == 1 and avisos == []
+
+
+def test_429_por_minuto_se_reintenta() -> None:
+    resultados = [error_429_con_cuerpo(CUERPO_GEMINI_MINUTO), respuesta_openai("ok")]
+    proveedor, cliente, _ = crear(resultados)
+    assert proveedor.responder([Mensaje(Rol.USUARIO, "hola")], []).texto == "ok"
+    assert len(cliente.pedidos) == 2
+
+
+def test_5xx_agotado_es_caido_y_respeta_max_reintentos() -> None:
+    cliente = ClienteFalso([error_http(503) for _ in range(3)])
+    reloj = Reloj()
+    proveedor = ProveedorOpenAICompatible(
+        CONFIG, cliente, dormir=reloj.dormir, reloj=reloj, max_reintentos=2
+    )
+    with pytest.raises(ErrorProveedorCaido, match="después de 2 reintentos") as info:
+        proveedor.responder([Mensaje(Rol.USUARIO, "hola")], [])
+    assert info.value.motivo == MOTIVO_CAIDO and len(cliente.pedidos) == 3
+
+
+def test_un_error_de_configuracion_no_es_caido() -> None:
+    proveedor, _, _ = crear([error_http(401)])
+    with pytest.raises(ErrorProveedor) as info:
+        proveedor.responder([Mensaje(Rol.USUARIO, "hola")], [])
+    assert not isinstance(info.value, ErrorProveedorCaido)
+
+
+def _reenvio_de_otro_origen(config: ConfigModelo) -> dict[str, Any]:
+    """Una llamada que generó otro proveedor, reenviada a este: el tool_call que se manda."""
+    cliente = ClienteFalso([respuesta_openai("ok")])
+    proveedor = ProveedorOpenAICompatible(config, cliente, dormir=lambda _: None)
+    llamada = LlamadaHerramienta(
+        "c1", "leer_archivo", {"ruta": "a"}, datos_proveedor={"campo_propio": 1},
+        origen="openrouter/otro",
+    )
+    mensajes = [
+        Mensaje(Rol.USUARIO, "hola"),
+        Mensaje(Rol.ASISTENTE, None, [llamada]),
+        Mensaje(Rol.HERRAMIENTA, "x", id_llamada="c1"),
+    ]
+    proveedor.responder(mensajes, [HERRAMIENTA])
+    return cliente.pedidos[0]["messages"][1]["tool_calls"][0]
+
+
+def test_los_datos_de_otro_proveedor_no_se_reenvian() -> None:
+    config = ConfigModelo("groq", "m", None, "clave-falsa-0123456789")
+    reenviada = _reenvio_de_otro_origen(config)
+    assert "campo_propio" not in reenviada and "extra_content" not in reenviada
+
+
+def test_gemini_pone_la_firma_de_reemplazo_en_llamadas_de_otro_proveedor() -> None:
+    reenviada = _reenvio_de_otro_origen(CONFIG)
+    assert "campo_propio" not in reenviada
+    assert reenviada["extra_content"] == {
+        "google": {"thought_signature": "skip_thought_signature_validator"}
+    }

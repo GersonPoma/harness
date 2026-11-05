@@ -17,6 +17,7 @@ from harness.entorno_docker import Instalacion
 from harness.entrega import ConfigEntrega, ResultadoEntrega
 from harness.init import ResultadoInit
 from harness.plan import Plan, archivos_fuera_del_plan
+from harness.proveedores.respaldo import CambioProveedor
 from harness.ticket import Ticket
 from harness.variables import ocultar_secretos
 
@@ -33,7 +34,11 @@ class RegistroPasos:
         self._secretos += [json.dumps(s)[1:-1] for s in self._secretos]
 
     def registrar_inicio(
-        self, proveedor: str, modelo: str, contexto: ContextoProyecto | None = None
+        self,
+        proveedor: str,
+        modelo: str,
+        contexto: ContextoProyecto | None = None,
+        respaldo: list[str] | None = None,
     ) -> None:
         """Registra con qué proveedor, modelo y AGENTS.md empezó (nunca la API key)."""
         contexto = contexto or ContextoProyecto()
@@ -41,6 +46,7 @@ class RegistroPasos:
             "evento": "inicio",
             "proveedor": proveedor,
             "modelo": modelo,
+            "respaldo": respaldo or [],
             "agents_md": contexto.existe,
             "agents_md_caracteres": contexto.caracteres_originales,
             "agents_md_recortado": contexto.es_recortado,
@@ -195,6 +201,17 @@ class RegistroPasos:
             "es_reinstalacion": instalacion.es_reinstalacion,
             "archivo_cambiado": instalacion.archivo_cambiado,
             "es_ok": instalacion.es_ok,
+        })
+
+    def registrar_cambio_proveedor(self, cambio: CambioProveedor, paso: int) -> None:
+        """Registra que la conversación pasó al siguiente proveedor de respaldo."""
+        self._escribir({
+            "evento": "proveedor",
+            "anterior": cambio.anterior,
+            "siguiente": cambio.siguiente,
+            "motivo": cambio.motivo,
+            "detalle": cambio.detalle,
+            "paso": paso,
         })
 
     def registrar_aviso(self, mensaje: str) -> None:

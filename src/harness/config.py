@@ -15,6 +15,9 @@ VAR_PROVEEDOR = "HARNESS_PROVEEDOR"
 VAR_MODELO = "HARNESS_MODELO"
 VAR_BASE_URL = "HARNESS_BASE_URL"
 VAR_API_KEY_ENV = "HARNESS_API_KEY_ENV"
+# Proveedores de respaldo, en orden: si el principal se cae, la ejecución sigue con estos.
+VAR_RESPALDO = "HARNESS_RESPALDO"
+SEPARADOR_RESPALDO = ","
 # Solo para el pull request: el push usa las credenciales de Git del usuario.
 VAR_TOKEN_GITHUB = "GITHUB_TOKEN"
 # Servidores MCP del usuario (formato mcpServers), junto al .env mientras se desarrolla.
@@ -83,6 +86,40 @@ def cargar_config(ruta_env: Path = RUTA_ENV) -> ConfigModelo:
 
     api_key = _leer_obligatoria(variable_api_key, f"la API key del proveedor '{proveedor}'")
     return ConfigModelo(proveedor, modelo, base_url, api_key, variable_api_key)
+
+
+def leer_respaldo() -> list[ConfigModelo]:
+    """Los proveedores de respaldo de HARNESS_RESPALDO, en orden ("proveedor:modelo, ...").
+
+    Se separa en el primer ':' porque los modelos gratis de OpenRouter terminan en ':free'.
+    Lanza ErrorConfiguracion si una entrada no se entiende o le falta la API key.
+    """
+    texto = os.environ.get(VAR_RESPALDO, "")
+    respaldo = []
+    for entrada in (parte.strip() for parte in texto.split(SEPARADOR_RESPALDO)):
+        if entrada:
+            respaldo.append(_leer_entrada_respaldo(entrada))
+    return respaldo
+
+
+def _leer_entrada_respaldo(entrada: str) -> ConfigModelo:
+    # Sin ':' será el nombre de un perfil de config.toml (fase 12); hoy solo proveedor:modelo.
+    proveedor, separador, modelo = entrada.partition(":")
+    proveedor, modelo = proveedor.strip().lower(), modelo.strip()
+    if not separador or not modelo:
+        raise ErrorConfiguracion(
+            f"'{entrada}' en {VAR_RESPALDO} no es proveedor:modelo "
+            "(por ejemplo openrouter:qwen/qwen3-coder:free)."
+        )
+    if proveedor not in PRESETS or proveedor == PROVEEDOR_PERSONALIZADO:
+        conocidos = ", ".join(p for p in PRESETS if p != PROVEEDOR_PERSONALIZADO)
+        raise ErrorConfiguracion(
+            f"Proveedor '{proveedor}' no válido en {VAR_RESPALDO}. Opciones: {conocidos}."
+        )
+    preset = PRESETS[proveedor]
+    variable = preset.variable_api_key
+    api_key = _leer_obligatoria(variable, f"la API key de '{proveedor}' (de {VAR_RESPALDO})")
+    return ConfigModelo(proveedor, modelo, preset.base_url, api_key, variable)
 
 
 def leer_token_github() -> str | None:

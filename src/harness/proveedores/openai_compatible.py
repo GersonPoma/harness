@@ -1,6 +1,7 @@
 """Proveedor para cualquier API con formato OpenAI (Gemini, Groq, OpenRouter, OpenAI...)."""
 
 import json
+import re
 import time
 from collections.abc import Callable
 from typing import Any
@@ -8,7 +9,13 @@ from typing import Any
 import openai
 
 from harness.config import ConfigModelo
-from harness.proveedores.base import ErrorProveedor
+from harness.proveedores.base import (
+    MOTIVO_CAIDO,
+    MOTIVO_CUOTA_DIARIA,
+    MOTIVO_LIMITE,
+    ErrorProveedor,
+    ErrorProveedorCaido,
+)
 from harness.proveedores.esquemas import quitar_extensiones, resolver_referencias
 from harness.proveedores.presets import PRESETS, PerfilEsquema
 from harness.tipos import Herramienta, LlamadaHerramienta, Mensaje, RespuestaModelo, Rol
@@ -23,6 +30,14 @@ ESPERA_MAXIMA_SEGUNDOS = 60.0
 TIMEOUT_PEDIDO_SEGUNDOS = 120.0
 ESTADO_LIMITE = 429
 ESTADO_ERROR_SERVIDOR = 500
+# Un 429 de cuota diaria no se recupera esperando (se renueva una vez por día). Se reconoce
+# por el cuerpo: Gemini manda un quotaId con "PerDay" y OpenRouter "free-models-per-day".
+PATRON_CUOTA_DIARIA = re.compile(r"per[\s_-]?day", re.IGNORECASE)
+
+SUGERENCIA_OTRO_PROVEEDOR = (
+    "configura otro proveedor en HARNESS_RESPALDO (o cambia HARNESS_PROVEEDOR / HARNESS_MODELO) "
+    "en el .env."
+)
 
 _ROLES_OPENAI = {
     Rol.SISTEMA: "system",
@@ -42,9 +57,14 @@ class ProveedorOpenAICompatible:
         dormir: Callable[[float], None] = time.sleep,
         reloj: Callable[[], float] = time.monotonic,
         al_reintentar: Callable[[str], None] | None = None,
+        max_reintentos: int = MAX_REINTENTOS,
     ) -> None:
         self._config = config
+        # Con un respaldo detrás conviene rendirse antes: el siguiente proveedor sí responde.
+        self._max_reintentos = max_reintentos
+        self.id = f"{config.proveedor}/{config.modelo}"
         self._perfil_esquema = PRESETS[config.proveedor].perfil_esquema
+        self._firma_de_reemplazo = PRESETS[config.proveedor].firma_de_reemplazo
         # max_retries=0: los reintentos los maneja esta clase, con sus propias esperas.
         self._cliente = cliente or openai.OpenAI(
             api_key=config.api_key,
@@ -64,12 +84,12 @@ class ProveedorOpenAICompatible:
         """Envía la conversación al modelo y devuelve su respuesta en tipos propios."""
         parametros: dict[str, Any] = {
             "model": self._config.modelo,
-            "messages": [_a_mensaje_openai(m) for m in mensajes],
+            "messages": [self._a_mensaje_openai(m) for m in mensajes],
         }
         if herramientas:
             parametros["tools"] = [self._a_herramienta_openai(h) for h in herramientas]
         respuesta = self._pedir_con_reintentos(parametros)
-        return _a_respuesta_modelo(respuesta)
+        return _a_respuesta_modelo(respuesta, self.id)
 
     def adaptar_esquema(self, esquema: dict[str, Any]) -> dict[str, Any]:
         """Sin claves "x-..." para todos (no se sabe si cada API las acepta); según el preset,
@@ -99,7 +119,9 @@ class ProveedorOpenAICompatible:
             except openai.APIError as error:
                 if not _es_pasajero(error):
                     raise self._error_permanente(error) from error
-                if reintento == MAX_REINTENTOS:
+                if _es_cuota_diaria(error):
+                    raise self._error_cuota_diaria() from error
+                if reintento == self._max_reintentos:
                     raise self._error_agotado(error) from error
                 reintento += 1
                 segundos = _espera_sugerida(error) or espera
@@ -111,7 +133,7 @@ class ProveedorOpenAICompatible:
         if self._al_reintentar:
             self._al_reintentar(
                 f"{self._config.proveedor.capitalize()} {_describir(error)}, "
-                f"reintento {reintento}/{MAX_REINTENTOS} en {segundos:g} s..."
+                f"reintento {reintento}/{self._max_reintentos} en {segundos:g} s..."
             )
 
     def _error_permanente(self, error: openai.APIError) -> ErrorProveedor:
@@ -123,20 +145,27 @@ class ProveedorOpenAICompatible:
         estado = getattr(error, "status_code", "desconocido")
         return ErrorProveedor(f"'{proveedor}' respondió con error {estado}: {error.message}")
 
-    def _error_agotado(self, error: openai.APIError) -> ErrorProveedor:
+    def _error_agotado(self, error: openai.APIError) -> ErrorProveedorCaido:
         proveedor = self._config.proveedor
-        sugerencia = (
-            "prueba con otro proveedor o modelo cambiando HARNESS_PROVEEDOR / HARNESS_MODELO "
-            "en el .env."
-        )
+        reintentos = self._max_reintentos
         if getattr(error, "status_code", None) == ESTADO_LIMITE:
-            return ErrorProveedor(
-                f"Se agotó el límite o la cuota del proveedor '{proveedor}' (error 429) después "
-                f"de {MAX_REINTENTOS} reintentos. Espera un rato o {sugerencia}"
+            return ErrorProveedorCaido(
+                f"Se agotó el límite de pedidos del proveedor '{proveedor}' (error 429) después "
+                f"de {reintentos} reintentos. Espera un rato o {SUGERENCIA_OTRO_PROVEEDOR}",
+                MOTIVO_LIMITE,
             )
-        return ErrorProveedor(
+        return ErrorProveedorCaido(
             f"El servicio de '{proveedor}' no está disponible ({_describir(error)}) después de "
-            f"{MAX_REINTENTOS} reintentos. Intenta más tarde o {sugerencia}"
+            f"{reintentos} reintentos. Intenta más tarde o {SUGERENCIA_OTRO_PROVEEDOR}",
+            MOTIVO_CAIDO,
+        )
+
+    def _error_cuota_diaria(self) -> ErrorProveedorCaido:
+        return ErrorProveedorCaido(
+            f"Se agotó la cuota diaria del proveedor '{self._config.proveedor}' (error 429): "
+            f"no se recupera esperando unos minutos, se renueva una vez por día. "
+            f"Mañana, o ahora mismo si {SUGERENCIA_OTRO_PROVEEDOR}",
+            MOTIVO_CUOTA_DIARIA,
         )
 
     def _respetar_intervalo(self) -> None:
@@ -147,6 +176,45 @@ class ProveedorOpenAICompatible:
                 self._dormir(faltante)
                 ahora += faltante
         self._ultimo_pedido = ahora
+
+
+    def _a_mensaje_openai(self, mensaje: Mensaje) -> dict[str, Any]:
+        resultado: dict[str, Any] = {
+            "role": _ROLES_OPENAI[mensaje.rol],
+            "content": mensaje.contenido,
+        }
+        if mensaje.llamadas:
+            resultado["tool_calls"] = [self._a_llamada_openai(ll) for ll in mensaje.llamadas]
+        if mensaje.rol == Rol.HERRAMIENTA:
+            resultado["tool_call_id"] = mensaje.id_llamada
+        return resultado
+
+    def _a_llamada_openai(self, llamada: LlamadaHerramienta) -> dict[str, Any]:
+        return {
+            # Primero los datos del proveedor, para que nunca pisen los campos estándar.
+            **self._datos_a_reenviar(llamada),
+            "id": llamada.id,
+            "type": "function",
+            "function": {
+                "name": llamada.nombre,
+                "arguments": json.dumps(llamada.argumentos, ensure_ascii=False),
+            },
+        }
+
+    def _datos_a_reenviar(self, llamada: LlamadaHerramienta) -> dict[str, Any]:
+        """Los datos propios solo vuelven a quien los generó (sin origen: se asume que es él)."""
+        if llamada.origen is None or llamada.origen == self.id:
+            return llamada.datos_proveedor or {}
+        if self._firma_de_reemplazo:
+            return {"extra_content": {"google": {"thought_signature": self._firma_de_reemplazo}}}
+        return {}
+
+
+def _es_cuota_diaria(error: openai.APIError) -> bool:
+    if getattr(error, "status_code", None) != ESTADO_LIMITE:
+        return False
+    cuerpo = json.dumps(getattr(error, "body", None), ensure_ascii=False, default=str)
+    return PATRON_CUOTA_DIARIA.search(f"{error.message} {cuerpo}") is not None
 
 
 def _es_pasajero(error: openai.APIError) -> bool:
@@ -178,35 +246,11 @@ def _espera_sugerida(error: openai.APIError) -> float | None:
         return None
 
 
-def _a_mensaje_openai(mensaje: Mensaje) -> dict[str, Any]:
-    resultado: dict[str, Any] = {
-        "role": _ROLES_OPENAI[mensaje.rol],
-        "content": mensaje.contenido,
-    }
-    if mensaje.llamadas:
-        resultado["tool_calls"] = [_a_llamada_openai(llamada) for llamada in mensaje.llamadas]
-    if mensaje.rol == Rol.HERRAMIENTA:
-        resultado["tool_call_id"] = mensaje.id_llamada
-    return resultado
-
-
-def _a_llamada_openai(llamada: LlamadaHerramienta) -> dict[str, Any]:
-    return {
-        # Primero los datos del proveedor, para que nunca pisen los campos estándar.
-        **(llamada.datos_proveedor or {}),
-        "id": llamada.id,
-        "type": "function",
-        "function": {
-            "name": llamada.nombre,
-            "arguments": json.dumps(llamada.argumentos, ensure_ascii=False),
-        },
-    }
-
-
-def _a_respuesta_modelo(respuesta: Any) -> RespuestaModelo:
+def _a_respuesta_modelo(respuesta: Any, origen: str) -> RespuestaModelo:
     mensaje = respuesta.choices[0].message
     llamadas = [
-        _a_llamada(llamada, indice) for indice, llamada in enumerate(mensaje.tool_calls or [])
+        _a_llamada(llamada, indice, origen)
+        for indice, llamada in enumerate(mensaje.tool_calls or [])
     ]
     uso = respuesta.usage
     return RespuestaModelo(
@@ -217,7 +261,7 @@ def _a_respuesta_modelo(respuesta: Any) -> RespuestaModelo:
     )
 
 
-def _a_llamada(llamada: Any, indice: int) -> LlamadaHerramienta:
+def _a_llamada(llamada: Any, indice: int, origen: str) -> LlamadaHerramienta:
     # Algunos proveedores compatibles no mandan id; sin id no se puede asociar el resultado.
     id_llamada = llamada.id or f"llamada_{indice}"
     # model_extra trae los campos fuera del estándar OpenAI (Gemini 3 manda ahí extra_content
@@ -225,7 +269,7 @@ def _a_llamada(llamada: Any, indice: int) -> LlamadaHerramienta:
     datos_proveedor = getattr(llamada, "model_extra", None) or None
     argumentos, error = _leer_argumentos(llamada.function.arguments)
     return LlamadaHerramienta(
-        id_llamada, llamada.function.name, argumentos, error, datos_proveedor
+        id_llamada, llamada.function.name, argumentos, error, datos_proveedor, origen
     )
 
 

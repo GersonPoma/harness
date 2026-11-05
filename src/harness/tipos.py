@@ -29,6 +29,9 @@ class LlamadaHerramienta:
     # thought_signature de Gemini 3). El bucle nunca los interpreta; deben ser serializables
     # a JSON para guardarlos en las sesiones de harness resume.
     datos_proveedor: dict[str, Any] | None = None
+    # Quién generó la llamada ("gemini/<modelo>"): cada proveedor reenvía datos_proveedor solo
+    # en las suyas, porque otro podría rechazar campos que no conoce (respaldo y resume).
+    origen: str | None = None
 
 
 @dataclass

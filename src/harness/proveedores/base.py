@@ -9,6 +9,24 @@ class ErrorProveedor(Exception):
     """Error del proveedor que no se puede resolver reintentando."""
 
 
+# Por qué un proveedor quedó fuera de servicio para esta ejecución.
+MOTIVO_CAIDO = "caido"
+MOTIVO_LIMITE = "limite"
+MOTIVO_CUOTA_DIARIA = "cuota_diaria"
+
+
+class ErrorProveedorCaido(ErrorProveedor):
+    """El proveedor no responde después de los reintentos, o agotó su cuota diaria.
+
+    Es el único error con el que el respaldo pasa al siguiente proveedor: los demás (API key,
+    modelo inexistente, pedido inválido) son de configuración y otro proveedor no los arregla.
+    """
+
+    def __init__(self, mensaje: str, motivo: str) -> None:
+        super().__init__(mensaje)
+        self.motivo = motivo
+
+
 class ProveedorLLM(Protocol):
     """Lo único que el bucle sabe de un modelo: recibe mensajes y responde."""
 

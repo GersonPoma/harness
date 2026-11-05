@@ -27,6 +27,9 @@ class Preset:
     base_url: str | None
     variable_api_key: str | None
     perfil_esquema: PerfilEsquema = PerfilEsquema.GENERAL
+    # Gemini 3 exige la thought_signature en las llamadas del turno actual. Las que generó otro
+    # proveedor (respaldo, resume) no la tienen: Gemini acepta este valor en su lugar.
+    firma_de_reemplazo: str | None = None
 
 
 PROVEEDOR_PERSONALIZADO = "personalizado"
@@ -38,6 +41,7 @@ PRESETS: dict[str, Preset] = {
         "https://generativelanguage.googleapis.com/v1beta/openai/",
         "GEMINI_API_KEY",
         PerfilEsquema.GEMINI,
+        firma_de_reemplazo="skip_thought_signature_validator",
     ),
     "groq": Preset(FormatoApi.OPENAI, "https://api.groq.com/openai/v1", "GROQ_API_KEY"),
     "openrouter": Preset(FormatoApi.OPENAI, "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),

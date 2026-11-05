@@ -10,7 +10,9 @@ from harness.config import ConfigModelo
 from harness.cache_dependencias import EstadoCache
 from harness.entorno_docker import ErrorDocker, Instalacion
 from harness.planificacion import calcular_pasos_plan
-from harness.tipos import LlamadaHerramienta, RespuestaModelo
+from harness.proveedores.base import MOTIVO_CAIDO, ErrorProveedorCaido
+from harness.proveedores.respaldo import ProveedorConRespaldo
+from harness.tipos import LlamadaHerramienta, RespuestaModelo, Rol
 from harness.cambios import CambiosRepo
 from harness.ejecucion import ResultadoEjecucion
 from harness.github import ErrorGitHub, PedidoPullRequest, PullRequest
@@ -95,6 +97,47 @@ def test_agents_md_va_al_contexto_y_al_log(
     assert "Reglas del proyecto." in proveedor.conversaciones[0][0].contenido
     inicio = _eventos_del_log(repo_sin_yaml)[0]
     assert (inicio["agents_md"], inicio["agents_md_caracteres"]) == (True, len(texto))
+
+
+def test_respaldo_sigue_con_el_siguiente_proveedor(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    monkeypatch.setenv("HARNESS_RESPALDO", "openrouter:qwen/qwen3-coder:free")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "clave-openrouter-0123456789")
+    caido = ErrorProveedorCaido("Gemini no está disponible (503).", MOTIVO_CAIDO)
+    leer = LlamadaHerramienta("c1", "leer_archivo", {"ruta": "app.py"})
+    principal = ProveedorFalso([pedir(leer), caido])
+    respaldo = ProveedorFalso([terminar("Listo con el respaldo")])
+    recibido: dict = {}
+
+    def crear(config, al_reintentar, configs_respaldo, al_cambiar):
+        recibido["respaldo"] = [(c.proveedor, c.modelo) for c in configs_respaldo]
+        nombres = ["gemini/modelo-x", "openrouter/qwen/qwen3-coder:free"]
+        return ProveedorConRespaldo(list(zip(nombres, [principal, respaldo])), al_cambiar)
+
+    config = ConfigModelo("gemini", "modelo-x", None, "clave-falsa-0123456789")
+    monkeypatch.setattr(cli, "cargar_config", lambda: config)
+    monkeypatch.setattr(cli, "crear_proveedor", crear)
+    argumentos = ["run", str(repo_sin_yaml.parent / "T-1.md"), "--repo", str(repo_sin_yaml),
+                  "--sin-plan"]
+    resultado = CliRunner().invoke(cli.app, argumentos)
+
+    assert resultado.exit_code == 0, resultado.output
+    assert recibido["respaldo"] == [("openrouter", "qwen/qwen3-coder:free")]
+    plana = " ".join(resultado.output.split())
+    assert "(respaldo: openrouter/qwen/qwen3-coder:free)" in plana
+    assert ("gemini/modelo-x no responde después de los reintentos: se sigue con "
+            "openrouter/qwen/qwen3-coder:free desde el paso 2.") in plana
+    # El respaldo recibe la conversación completa, con el resultado del paso 1.
+    assert respaldo.conversaciones[0][-1].rol == Rol.HERRAMIENTA
+    eventos = _eventos_del_log(repo_sin_yaml)
+    assert eventos[0]["respaldo"] == ["openrouter/qwen/qwen3-coder:free"]
+    (cambio,) = [e for e in eventos if e["evento"] == "proveedor"]
+    assert (cambio["anterior"], cambio["siguiente"], cambio["motivo"], cambio["paso"]) == (
+        "gemini/modelo-x", "openrouter/qwen/qwen3-coder:free", "caido", 2,
+    )
+    # La key del respaldo es un secreto más: nunca va al log.
+    assert "clave-openrouter-0123456789" not in json.dumps(eventos)
 
 
 def test_sin_agents_md_avisa(monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path) -> None:

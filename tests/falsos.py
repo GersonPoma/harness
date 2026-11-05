@@ -30,7 +30,7 @@ class EntornoFalso:
 class ProveedorFalso:
     """Devuelve respuestas guionadas, sin llamar a ninguna API, y guarda lo que recibió."""
 
-    def __init__(self, respuestas: list[RespuestaModelo]) -> None:
+    def __init__(self, respuestas: list[RespuestaModelo | Exception]) -> None:
         self._respuestas = list(respuestas)
         self.conversaciones: list[list[Mensaje]] = []
         # Nombres de las herramientas ofrecidas en cada pedido.
@@ -41,7 +41,11 @@ class ProveedorFalso:
     ) -> RespuestaModelo:
         self.conversaciones.append(list(mensajes))
         self.herramientas.append([h.nombre for h in herramientas])
-        return self._respuestas.pop(0)
+        respuesta = self._respuestas.pop(0)
+        # Un error en el guion se lanza: así se simula un proveedor caído.
+        if isinstance(respuesta, Exception):
+            raise respuesta
+        return respuesta
 
     def adaptar_esquema(self, esquema: dict[str, Any]) -> dict[str, Any]:
         return esquema

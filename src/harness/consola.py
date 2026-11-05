@@ -21,6 +21,8 @@ from harness.entrega import ConfigEntrega, ResultadoEntrega
 from harness.github import PullRequest
 from harness.init import ResultadoInit
 from harness.plan import Plan, archivos_fuera_del_plan
+from harness.proveedores.base import MOTIVO_CAIDO, MOTIVO_CUOTA_DIARIA, MOTIVO_LIMITE
+from harness.proveedores.respaldo import CambioProveedor
 from harness.ticket import FUENTE_LOCAL, Ticket
 
 MAX_CARACTERES_RESUMEN = 120
@@ -36,6 +38,11 @@ LINEAS_VERIFICACION = 15
 SPINNER_INDICADOR = "dots"
 REFRESCOS_POR_SEGUNDO_INDICADOR = 12.5
 SEGUNDOS_POR_MINUTO = 60
+TEXTOS_MOTIVO_CAMBIO = {
+    MOTIVO_CAIDO: "no responde después de los reintentos",
+    MOTIVO_LIMITE: "sigue con el límite de pedidos (429) después de los reintentos",
+    MOTIVO_CUOTA_DIARIA: "agotó su cuota diaria",
+}
 # Sin caché porque lo pidió el usuario: no hace falta avisar en amarillo.
 MOTIVOS_SIN_CACHE_ELEGIDOS = (MOTIVO_SIN_CACHE, MOTIVO_DESACTIVADA)
 
@@ -77,11 +84,22 @@ def forzar_salida_utf8() -> None:
             reconfigurar(encoding="utf-8", errors="replace")
 
 
-def mostrar_inicio(ticket: str, repo: str, proveedor: str, modelo: str) -> None:
+def mostrar_inicio(
+    ticket: str, repo: str, proveedor: str, modelo: str, respaldo: list[str] | None = None
+) -> None:
     """Muestra con qué datos arranca la ejecución."""
+    texto_respaldo = f"  [dim](respaldo: {escape(', '.join(respaldo))})[/]" if respaldo else ""
     consola.print(
         f"[bold green]Ticket[/] {escape(ticket)}  [bold green]Repo[/] {escape(repo)}\n"
-        f"[bold green]Modelo[/] {escape(proveedor)} / {escape(modelo)}"
+        f"[bold green]Modelo[/] {escape(proveedor)} / {escape(modelo)}{texto_respaldo}"
+    )
+
+
+def mostrar_cambio_proveedor(cambio: CambioProveedor, paso: int) -> None:
+    """El proveedor se cayó y la misma conversación sigue con el siguiente de la lista."""
+    que_paso = TEXTOS_MOTIVO_CAMBIO.get(cambio.motivo, "falló")
+    mostrar_aviso(
+        f"{cambio.anterior} {que_paso}: se sigue con {cambio.siguiente} desde el paso {paso}."
     )
 
 
