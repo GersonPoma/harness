@@ -13,6 +13,7 @@ from rich.text import Text
 from harness.bucle import Paso
 from harness.cambios import CambiosRepo
 from harness.comentario_pr import COMENTADO, POR_MCP, SIN_URL, YA_ESTABA, ResultadoComentario
+from harness.compactacion import Compactacion
 from harness.contexto import MAX_CARACTERES_AGENTS, ContextoProyecto
 from harness.ejecucion import ResultadoEjecucion, Validacion
 from harness.cache_dependencias import MOTIVO_DESACTIVADA, EstadoCache
@@ -145,6 +146,16 @@ def mostrar_memoria(memoria: Memoria) -> None:
 def mostrar_nota_guardada(nota: str) -> None:
     """La nota que el modelo agregó a la memoria del proyecto."""
     consola.print(f"[dim]Memoria: nota guardada en {RUTA_MEMORIA}: {escape(nota)}[/]")
+
+
+def mostrar_compactacion(compactacion: Compactacion) -> None:
+    """La conversación creció demasiado y se acortaron los resultados viejos."""
+    omitidos = compactacion.resultados_omitidos
+    que = "se omitió 1 resultado viejo" if omitidos == 1 else (
+        f"se omitieron {omitidos} resultados viejos"
+    )
+    ahorro = f"{compactacion.caracteres_ahorrados:,}".replace(",", ".")
+    consola.print(f"[dim]Conversación compactada: {que} (−{ahorro} caracteres).[/]")
 
 
 def mostrar_como_retomar(clave: str) -> None:

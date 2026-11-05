@@ -93,6 +93,8 @@ class ConfigLimites(_Modelo):
     max_intentos_validacion: Entero = 3
     timeout_comando_segundos: Entero = 120
     max_caracteres_salida: Entero = 4000
+    # Unos 50.000 tokens: de ahí para arriba se acortan los resultados viejos (compactacion.py).
+    max_caracteres_conversacion: Entero = 200_000
 
     @field_validator("max_pasos_plan")
     @classmethod

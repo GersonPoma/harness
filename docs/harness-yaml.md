@@ -242,6 +242,7 @@ Variables que se pasan al **contenedor del proyecto** (no a los servicios).
 | `max_intentos_validacion` | entero | no | `3` | Cuántas veces se vuelve de la validación (tests + lint) a la implementación antes de rendirse. |
 | `timeout_comando_segundos` | entero | no | `120` | Tiempo máximo de cada comando dentro del contenedor. Si se pasa, se corta y el modelo recibe "tiempo agotado". |
 | `max_caracteres_salida` | entero | no | `4000` | Largo máximo de la salida de una herramienta que se le devuelve al modelo. Si se pasa, el harness prioriza las **líneas que parecen errores** (`ERROR`, `FAIL`, `...Exception:`, `Caused by`, `expected`/`but was`, `E   assert` de pytest, `Traceback`...) con unas líneas de contexto, y con lo que queda conserva el **final** de la salida. Lo omitido se marca con `[... N líneas omitidas ...]`, y el texto fijo de ayuda de Maven ("Re-run Maven using the -X switch...") se descarta. El log de la ejecución guarda exactamente este mismo texto. |
+| `max_caracteres_conversacion` | entero | no | `200000` | Tamaño máximo de la conversación (unos 50.000 tokens) antes de compactarla: los resultados de herramientas más viejos se reemplazan por una marca ("[Resultado omitido para ahorrar contexto: leer_archivo('src/x.py'), 120 líneas...]") y el modelo puede volver a pedirlos. Los últimos 6 pasos, el ticket, el plan y los textos del modelo nunca se tocan, y nunca se borra un mensaje. Se avisa en consola y queda en el log (`compactacion`). |
 
 ### `archivos_protegidos`
 

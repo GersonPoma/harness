@@ -9,6 +9,7 @@ from harness.bucle import Paso
 from harness.cache_dependencias import EstadoCache
 from harness.cambios import CambiosRepo
 from harness.comentario_pr import ResultadoComentario
+from harness.compactacion import Compactacion
 from harness.config_mcp import ServidorMCP
 from harness.carpetas import CARPETA_LOGS
 from harness.contexto import ContextoProyecto
@@ -223,6 +224,14 @@ class RegistroPasos:
             "motivo": cambio.motivo,
             "detalle": cambio.detalle,
             "paso": paso,
+        })
+
+    def registrar_compactacion(self, compactacion: Compactacion) -> None:
+        """Registra que se acortaron resultados viejos de la conversación."""
+        self._escribir({
+            "evento": "compactacion",
+            "resultados_omitidos": compactacion.resultados_omitidos,
+            "caracteres_ahorrados": compactacion.caracteres_ahorrados,
         })
 
     def registrar_memoria(self, nota: str) -> None:

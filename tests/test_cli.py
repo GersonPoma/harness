@@ -7,6 +7,7 @@ from typer.testing import CliRunner
 
 from harness import cli
 from harness.config import ConfigModelo
+from harness.config_proyecto import ConfigLimites
 from harness.cache_dependencias import EstadoCache
 from harness.entorno_docker import ErrorDocker, Instalacion
 from harness.planificacion import calcular_pasos_plan
@@ -824,3 +825,19 @@ def test_avisa_si_el_gitignore_ignora_la_memoria(
     aviso = ".harness/memory.md está ignorado por el .gitignore: la nota no entrará en el commit."
     # Una sola vez, aunque se guarden varias notas.
     assert " ".join(salida.split()).count(aviso) == 1
+
+
+def test_una_conversacion_larga_se_compacta_y_se_avisa(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    # Un máximo chico: después de 7 lecturas, la primera ya se puede omitir.
+    monkeypatch.setattr(cli, "ConfigLimites", lambda: ConfigLimites(max_caracteres_conversacion=1))
+    # Más largo que la marca que lo reemplaza: si no, omitirlo no ahorraría nada.
+    (repo_sin_yaml / "app.py").write_text("x = 1\n" * 100, encoding="utf-8")
+    lecturas = [pedir(LlamadaHerramienta(f"c{n}", "leer_archivo", {"ruta": "app.py"}))
+                for n in range(7)]
+    codigo, salida = _correr(monkeypatch, repo_sin_yaml, [*lecturas, terminar()], "--sin-plan")
+    assert codigo == 0
+    assert "Conversación compactada: se omitió 1 resultado viejo" in " ".join(salida.split())
+    (evento, *_) = [e for e in _eventos_del_log(repo_sin_yaml) if e["evento"] == "compactacion"]
+    assert evento["resultados_omitidos"] == 1 and evento["caracteres_ahorrados"] > 0

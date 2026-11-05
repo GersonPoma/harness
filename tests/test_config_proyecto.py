@@ -205,3 +205,12 @@ def test_directorio_de_trabajo_con_nombre_parecido_vale(tmp_path: Path) -> None:
         "  imagen: python:3.12-slim", "  imagen: x\n  directorio_trabajo: /harness-cache-app"
     )
     assert _cargar(tmp_path, contenido).docker.directorio_trabajo == "/harness-cache-app"
+
+
+def test_max_caracteres_conversacion(tmp_path: Path) -> None:
+    assert _cargar(tmp_path, MINIMO).limites.max_caracteres_conversacion == 200_000
+    contenido = MINIMO + "limites:\n  max_caracteres_conversacion: 80000\n"
+    assert _cargar(tmp_path, contenido).limites.max_caracteres_conversacion == 80_000
+    assert "limites.max_caracteres_conversacion" in _error(
+        tmp_path, MINIMO + "limites:\n  max_caracteres_conversacion: 0\n"
+    )

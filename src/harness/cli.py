@@ -13,6 +13,7 @@ from harness.bucle import MAX_PASOS_POR_DEFECTO, ErrorRespuestaVacia, Paso
 from harness.cambios import CambiosRepo, Instantanea, comparar, tomar_instantanea
 from harness.cliente_mcp import ErrorMCP, SesionMCP
 from harness.comentario_pr import COMENTADO, YA_ESTABA, comentar_pr_en_jira
+from harness.compactacion import Compactacion, ProveedorQueCompacta
 from harness.config import (
     RUTA_MCP,
     VAR_JIRA_TOKEN,
@@ -271,6 +272,10 @@ class _Reporte:
                     f"{RUTA_MEMORIA} está ignorado por el .gitignore: la nota no entrará en el "
                     "commit. Ignora solo .harness/logs/ y .harness/sessions/."
                 )
+
+    def compactacion(self, compactacion: Compactacion) -> None:
+        consola.mostrar_compactacion(compactacion)
+        self.registro.registrar_compactacion(compactacion)
 
     def cache(self, cache: EstadoCache) -> None:
         consola.mostrar_cache(cache)
@@ -1132,8 +1137,11 @@ def _aviso_recorte_ticket(ticket: Ticket) -> str:
 def _ejecutar(
     prep: _Preparacion, max_pasos: int, reporte: _Reporte
 ) -> tuple[ResultadoEjecucion, CambiosRepo]:
-    proveedor = crear_proveedor(
-        prep.config, reporte.reintento, prep.respaldo, reporte.cambio_proveedor
+    limites = prep.config_proyecto.limites if prep.config_proyecto else ConfigLimites()
+    proveedor = ProveedorQueCompacta(
+        crear_proveedor(prep.config, reporte.reintento, prep.respaldo, reporte.cambio_proveedor),
+        limites.max_caracteres_conversacion,
+        reporte.compactacion,
     )
     if prep.config_proyecto is None:
         antes = _repo_al_empezar(prep)
