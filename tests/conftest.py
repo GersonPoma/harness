@@ -21,4 +21,5 @@ def sin_mcp_del_usuario(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None
     """Ningún test usa el mcp.json ni las variables HARNESS_MCP_* de quien los corre."""
     monkeypatch.setattr("harness.cli.RUTA_MCP", tmp_path / "sin-mcp.json")
     monkeypatch.delenv("HARNESS_MCP_GITHUB", raising=False)
+    monkeypatch.delenv("HARNESS_MCP_JIRA", raising=False)
     monkeypatch.delenv("HARNESS_MCP_HERRAMIENTAS_MODELO", raising=False)

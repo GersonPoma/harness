@@ -25,6 +25,9 @@ VAR_SERVIDOR_GITHUB = "HARNESS_MCP_GITHUB"
 # El de Jira (comentar el link del PR y leer los comentarios), y su variable.
 SERVIDOR_JIRA = "jira"
 VAR_SERVIDOR_JIRA = "HARNESS_MCP_JIRA"
+# HARNESS_MCP_GITHUB=rest o HARNESS_MCP_JIRA=rest: la API REST aunque haya servidor en mcp.json
+# (por ejemplo, para mostrar los dos caminos sin editar el JSON). Por eso es un nombre reservado.
+VALOR_SOLO_REST = "rest"
 # Autenticación Basic explícita en servidores HTTP: el harness arma el header con base64.
 CLAVE_AUTH = "auth"
 CLAVE_BASIC = "basic"
@@ -88,6 +91,12 @@ def cargar_config_mcp(
     servidores = datos.get(CLAVE_SERVIDORES) if isinstance(datos, dict) else None
     if not isinstance(servidores, dict):
         raise ErrorConfigMCP(f"{ruta.name} debe tener un objeto '{CLAVE_SERVIDORES}'.")
+    reservados = [nombre for nombre in servidores if nombre.strip().lower() == VALOR_SOLO_REST]
+    if reservados:
+        raise ErrorConfigMCP(
+            f"'{reservados[0]}' es un nombre reservado en {ruta.name}: {VAR_SERVIDOR_GITHUB}=rest "
+            f"y {VAR_SERVIDOR_JIRA}=rest fuerzan la API REST. Usa otro nombre para el servidor."
+        )
     return {
         nombre: _leer_servidor(nombre, valores, entorno)
         for nombre, valores in servidores.items()
@@ -114,8 +123,13 @@ def elegir_servidor(
     variable: str,
     entorno: Mapping[str, str] = os.environ,
 ) -> ServidorMCP | None:
-    """El servidor que nombra la variable o, si no está definida, el que se llama `nombre`."""
+    """El servidor que nombra la variable o, si no está definida, el que se llama `nombre`.
+
+    Con la variable en "rest", ninguno: se usa la API REST.
+    """
     elegido = entorno.get(variable, "").strip()
+    if es_solo_rest(variable, entorno):
+        return None
     if not elegido:
         return servidores.get(nombre)
     if elegido not in servidores:
@@ -124,6 +138,20 @@ def elegir_servidor(
             f"{variable}={elegido}, pero mcp.json no tiene ese servidor (hay: {disponibles})."
         )
     return servidores[elegido]
+
+
+def es_solo_rest(variable: str, entorno: Mapping[str, str] = os.environ) -> bool:
+    """True si la variable (HARNESS_MCP_GITHUB o HARNESS_MCP_JIRA) fuerza la API REST."""
+    return entorno.get(variable, "").strip().lower() == VALOR_SOLO_REST
+
+
+def motivo_sin_servidor(
+    variable: str, servicio: str, entorno: Mapping[str, str] = os.environ
+) -> str:
+    """Por qué no hay servidor MCP: se forzó la API REST, o mcp.json no lo tiene."""
+    if es_solo_rest(variable, entorno):
+        return f"{variable}={VALOR_SOLO_REST}"
+    return f"no hay servidor MCP de {servicio} en mcp.json"
 
 
 def _leer_servidor(nombre: str, valores: Any, entorno: Mapping[str, str]) -> ServidorMCP:

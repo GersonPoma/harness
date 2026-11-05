@@ -11,6 +11,7 @@ from harness.config_mcp import (
     cargar_config_mcp,
     elegir_servidor_github,
     elegir_servidor_jira,
+    motivo_sin_servidor,
 )
 
 ENTORNO = {"GITHUB_TOKEN": "github_pat_secreto", "OTRA": "x"}
@@ -216,3 +217,30 @@ def test_harness_mcp_jira_elige_otro_servidor() -> None:
     assert elegir_servidor_jira(servidores, {"HARNESS_MCP_JIRA": "jira-remoto"}) is remoto
     with pytest.raises(ErrorConfigMCP, match="HARNESS_MCP_JIRA=jira, pero mcp.json no tiene"):
         elegir_servidor_jira(servidores, {"HARNESS_MCP_JIRA": "jira"})
+
+
+# --- Forzar la API REST --------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("valor", ["rest", "REST", " Rest "])
+def test_rest_fuerza_la_api_rest_aunque_haya_servidor(valor: str) -> None:
+    servidores = {**SERVIDORES, "jira": ServidorStdio("jira", "docker", ())}
+    assert elegir_servidor_github(servidores, {"HARNESS_MCP_GITHUB": valor}) is None
+    assert elegir_servidor_jira(servidores, {"HARNESS_MCP_JIRA": valor}) is None
+    # Cada variable afecta solo a su servicio.
+    assert elegir_servidor_jira(servidores, {"HARNESS_MCP_GITHUB": valor}) is servidores["jira"]
+
+
+def test_motivo_sin_servidor() -> None:
+    assert motivo_sin_servidor("HARNESS_MCP_JIRA", "Jira", {"HARNESS_MCP_JIRA": "rest"}) == (
+        "HARNESS_MCP_JIRA=rest"
+    )
+    assert motivo_sin_servidor("HARNESS_MCP_JIRA", "Jira", {}) == (
+        "no hay servidor MCP de Jira en mcp.json"
+    )
+
+
+@pytest.mark.parametrize("nombre", ["rest", "Rest"])
+def test_rest_es_un_nombre_reservado(tmp_path: Path, nombre: str) -> None:
+    with pytest.raises(ErrorConfigMCP, match=f"'{nombre}' es un nombre reservado en mcp.json"):
+        _cargar(tmp_path, {nombre: {"command": "docker"}})

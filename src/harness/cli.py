@@ -29,9 +29,12 @@ from harness.config import (
 from harness.config_mcp import (
     ErrorConfigMCP,
     ServidorMCP,
+    VAR_SERVIDOR_GITHUB,
+    VAR_SERVIDOR_JIRA,
     cargar_config_mcp,
     elegir_servidor_github,
     elegir_servidor_jira,
+    motivo_sin_servidor,
 )
 from harness.github_mcp import crear_pull_request_mcp, puede_crear_pull_request
 from harness.config_proyecto import (
@@ -284,7 +287,7 @@ def _conectar_jira_mcp(prep: _Preparacion, pila: ExitStack, reporte: _Reporte) -
     """
     servidor = prep.servidor_jira
     if servidor is None:
-        consola.mostrar_jira_rest("no hay servidor MCP de Jira en mcp.json")
+        consola.mostrar_jira_rest(motivo_sin_servidor(VAR_SERVIDOR_JIRA, "Jira"))
         return
     ruta_log = reporte.registro.ruta.parent / f"{prep.ticket}-mcp-{servidor.nombre}.log"
     try:
@@ -321,7 +324,7 @@ def _conectar_github_mcp(
     servidor = prep.servidor_github
     if servidor is None:
         if es_con_pr:
-            consola.mostrar_github_rest("no hay servidor MCP de GitHub en mcp.json")
+            consola.mostrar_github_rest(motivo_sin_servidor(VAR_SERVIDOR_GITHUB, "GitHub"))
         return
     if not es_herramientas and not es_con_pr:
         consola.mostrar_github_mcp_sin_uso()

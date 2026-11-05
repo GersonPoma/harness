@@ -263,3 +263,16 @@ def test_si_la_sesion_se_corta_al_final_reintenta_por_rest(
         in salida
     )
     assert f"(por la API REST): {URL_PR_REST}" in salida and len(pedidos_rest) == 1
+
+
+@requiere_git
+def test_harness_mcp_github_rest_fuerza_la_api_rest(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, repo_sin_yaml: Path  # noqa: F811
+) -> None:
+    monkeypatch.setenv("HARNESS_MCP_GITHUB", "rest")
+    codigo, salida, pedidos_rest = _entrega_con_github(monkeypatch, tmp_path, repo_sin_yaml)
+
+    assert codigo == 0
+    assert "GitHub por la API REST (HARNESS_MCP_GITHUB=rest)." in salida
+    assert "GitHub por MCP" not in salida
+    assert f"(por la API REST): {URL_PR_REST}" in salida and len(pedidos_rest) == 1

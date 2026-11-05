@@ -507,3 +507,22 @@ def test_comenta_por_mcp(
     guardados = json.loads((tmp_path / "comentarios.json").read_text(encoding="utf-8"))
     assert guardados == {"TAREAS-3": [f"Pull request en borrador creado por harness: {URL_PR}"]}
     assert "✓ Comentario en TAREAS-3 (por MCP)" in " ".join(salida.split())
+
+
+@requiere_git
+def test_harness_mcp_jira_rest_fuerza_la_api_rest(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, repo_sin_yaml: Path  # noqa: F811
+) -> None:
+    monkeypatch.setenv("HARNESS_MCP_JIRA", "rest")
+    pedidos = _con_jira(monkeypatch)
+    _con_pr(monkeypatch)
+    _mcp_json(monkeypatch, tmp_path, {"jira": _jira_falso(tmp_path)})
+    codigo, salida, _ = _correr_con_entrega(monkeypatch, repo_sin_yaml, True, ticket="TAREAS-3")
+
+    assert codigo == 0
+    salida_plana = " ".join(salida.split())
+    assert ("Jira por la API REST: el link del PR se comenta por REST "
+            "(HARNESS_MCP_JIRA=rest).") in salida_plana
+    assert "✓ Comentario en TAREAS-3 (por la API REST)" in salida_plana
+    assert len(_comentarios_enviados(pedidos)) == 1
+    assert not (tmp_path / "comentarios.json").exists()
