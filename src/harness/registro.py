@@ -6,12 +6,14 @@ from pathlib import Path
 from typing import Any
 
 from harness.bucle import Paso
+from harness.cache_dependencias import EstadoCache
 from harness.cambios import CambiosRepo
 from harness.comentario_pr import ResultadoComentario
 from harness.config_mcp import ServidorMCP
 from harness.carpetas import CARPETA_LOGS
 from harness.contexto import ContextoProyecto
 from harness.ejecucion import ResultadoEjecucion, Validacion
+from harness.entorno_docker import Instalacion
 from harness.entrega import ConfigEntrega, ResultadoEntrega
 from harness.init import ResultadoInit
 from harness.plan import Plan, archivos_fuera_del_plan
@@ -172,6 +174,27 @@ class RegistroPasos:
             "pr_pendiente": str(entrega.ruta_pr_pendiente) if entrega.ruta_pr_pendiente else None,
             "es_rama_borrada": entrega.es_rama_borrada,
             "motivo": entrega.motivo,
+        })
+
+    def registrar_cache(self, cache: EstadoCache) -> None:
+        """Registra si se usó la caché de dependencias, con qué volumen, o por qué no."""
+        self._escribir({
+            "evento": "cache",
+            "volumen": cache.volumen,
+            "es_usada": cache.es_usada,
+            "es_creado": cache.es_creado,
+            "motivo": cache.motivo,
+            "variables_respetadas": list(cache.variables_respetadas),
+        })
+
+    def registrar_instalacion(self, instalacion: Instalacion) -> None:
+        """Registra cuánto tardó docker.instalar (el dato para medir la caché)."""
+        self._escribir({
+            "evento": "instalacion",
+            "segundos": round(instalacion.segundos, 1),
+            "es_reinstalacion": instalacion.es_reinstalacion,
+            "archivo_cambiado": instalacion.archivo_cambiado,
+            "es_ok": instalacion.es_ok,
         })
 
     def registrar_aviso(self, mensaje: str) -> None:

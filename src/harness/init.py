@@ -21,7 +21,8 @@ from harness.config_proyecto import (
     validar_texto_config,
 )
 from harness.contexto import NOMBRE_AGENTS
-from harness.entorno_docker import EntornoDocker, ResultadoComando
+from harness.cache_dependencias import EstadoCache
+from harness.entorno_docker import EntornoDocker, Instalacion, ResultadoComando
 from harness.herramientas import crear_herramientas_lectura
 from harness.herramientas.archivos import ErrorHerramienta
 from harness.prompts import crear_mensajes_init, crear_mensaje_guardar_faltantes
@@ -143,12 +144,24 @@ def verificar_config(
     config: ConfigProyecto,
     variables: VariablesResueltas,
     al_avanzar: Callable[[str], None] | None = None,
+    usar_cache: bool = True,
+    al_cache: Callable[[EstadoCache], None] | None = None,
+    al_instalar: Callable[[Instalacion], None] | None = None,
 ) -> ResultadoComando:
     """Levanta el entorno con el harness.yaml (servicios, instalación) y corre los tests.
 
     Solo informa: no hay bucle de corrección del YAML (queda para la fase 10).
     """
-    with EntornoDocker(repo, config, NOMBRE_EJECUCION_VERIFICAR, variables) as entorno:
+    entorno_docker = EntornoDocker(
+        repo,
+        config,
+        NOMBRE_EJECUCION_VERIFICAR,
+        variables,
+        usar_cache=usar_cache,
+        al_cache=al_cache,
+        al_instalar=al_instalar,
+    )
+    with entorno_docker as entorno:
         entorno.iniciar(al_avanzar)
         if al_avanzar:
             al_avanzar(f"Corriendo los tests ({config.comandos.tests})...")

@@ -11,6 +11,8 @@ from rich.console import Console
 
 from harness import cli, consola
 from harness.bucle import Paso
+from harness.cache_dependencias import EstadoCache
+from harness.entorno_docker import Instalacion
 from harness.plan import ArchivoPlan, Plan
 from harness.tipos import LlamadaHerramienta
 
@@ -254,3 +256,57 @@ def test_al_cerrar_no_sube_el_cursor_ni_borra_lineas(monkeypatch: pytest.MonkeyP
     nuestro = cerrar(con_rich=False)
     assert "\x1b[2K" not in nuestro and not re.search(r"\x1b\[\d*A", nuestro)
     assert nuestro.endswith("Leyendo...\n\x1b[?25hlínea siguiente\n")
+
+
+# --- Caché de dependencias ----------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("segundos", "texto"),
+    [(0.3, "menos de 1 s"), (8.2, "8 s"), (59.6, "1 min 0 s"), (112.4, "1 min 52 s")],
+)
+def test_formatear_duracion(segundos: float, texto: str) -> None:
+    assert consola.formatear_duracion(segundos) == texto
+
+
+@pytest.mark.parametrize(
+    ("cache", "texto"),
+    [
+        (
+            EstadoCache("harness-cache-tienda-api", es_creado=True),
+            "Caché de dependencias: volumen harness-cache-tienda-api (nuevo: esta vez se "
+            "descarga todo).",
+        ),
+        (
+            EstadoCache("harness-cache-tienda-api", variables_respetadas=("PIP_CACHE_DIR",)),
+            "Caché de dependencias: volumen harness-cache-tienda-api (reutilizado). Se respetan "
+            "de harness.yaml: PIP_CACHE_DIR.",
+        ),
+        (EstadoCache(motivo="--sin-cache"), "Sin caché de dependencias (--sin-cache)."),
+        (
+            EstadoCache(motivo="docker.cache: false en harness.yaml"),
+            "Sin caché de dependencias (docker.cache: false en harness.yaml).",
+        ),
+        (
+            EstadoCache(motivo="otra ejecución de tienda-api la está usando (harness-x)"),
+            "Esta ejecución corre sin caché de dependencias: otra ejecución de tienda-api la "
+            "está usando (harness-x).",
+        ),
+    ],
+)
+def test_mostrar_cache(monkeypatch: pytest.MonkeyPatch, cache: EstadoCache, texto: str) -> None:
+    grabadora = _grabar(monkeypatch)
+    consola.mostrar_cache(cache)
+    assert grabadora.export_text().strip() == texto
+
+
+def test_mostrar_instalacion(monkeypatch: pytest.MonkeyPatch) -> None:
+    grabadora = _grabar(monkeypatch)
+    consola.mostrar_instalacion(Instalacion(112.4, es_ok=True))
+    consola.mostrar_instalacion(Instalacion(8.0, es_ok=True, archivo_cambiado="pom.xml"))
+    # Si falló, el error ya lo dice: no se muestra el tiempo.
+    consola.mostrar_instalacion(Instalacion(3.0, es_ok=False))
+    assert grabadora.export_text().splitlines() == [
+        "Dependencias instaladas en 1 min 52 s.",
+        "Dependencias reinstaladas en 8 s (cambió pom.xml).",
+    ]

@@ -15,6 +15,7 @@ from harness.entorno_docker import (
     CODIGO_TIEMPO_AGOTADO,
     EntornoDocker,
     ErrorDocker,
+    Instalacion,
 )
 from harness.variables import resolver_variables
 
@@ -526,3 +527,40 @@ def test_respeta_las_variables_de_cache_del_proyecto(repo: Path) -> None:
 def test_maven_opts_con_su_propio_repositorio_se_respeta() -> None:
     variables, respetadas = variables_cache({"MAVEN_OPTS": "-Dmaven.repo.local=/m2"})
     assert "MAVEN_OPTS" not in variables and respetadas == ["MAVEN_OPTS"]
+
+
+def test_avisa_la_cache_y_mide_la_instalacion(repo: Path) -> None:
+    # Cada comando lee el reloj al empezar y al terminar: instalar (3 s + 7 s), pytest,
+    # reinstalar (8 s + 2 s) y pytest.
+    tiempos = [0.0, 3.0, 3.0, 10.0, 20.0, 21.0, 30.0, 38.0, 38.0, 40.0, 41.0, 42.0]
+    caches: list[EstadoCache] = []
+    instalaciones: list[Instalacion] = []
+    entorno = _iniciar(
+        repo, DockerFalso(), reloj=lambda: tiempos.pop(0),
+        al_cache=caches.append, al_instalar=instalaciones.append,
+    )
+    assert caches == [entorno.cache] and entorno.cache.es_usada
+    assert instalaciones == [Instalacion(10.0, es_ok=True)]
+    entorno.ejecutar("pytest")
+    entorno.marcar_cambio("pyproject.toml")
+    entorno.ejecutar("pytest")
+    assert instalaciones[1] == Instalacion(10.0, es_ok=True, archivo_cambiado="pyproject.toml")
+    assert instalaciones[1].es_reinstalacion
+
+
+def test_una_instalacion_fallida_tambien_se_mide(repo: Path) -> None:
+    instalaciones: list[Instalacion] = []
+    docker = DockerFalso({"pip install pytest": [(1, "sin red")]})
+    with pytest.raises(ErrorDocker, match="sin red"):
+        _iniciar(repo, docker, al_instalar=instalaciones.append)
+    assert [i.es_ok for i in instalaciones] == [False]
+
+
+def test_sin_comandos_de_instalacion_no_hay_nada_que_medir(repo: Path) -> None:
+    config = CONFIG.model_copy(update={"docker": CONFIG.docker.model_copy(update={"instalar": []})})
+    instalaciones: list[Instalacion] = []
+    with EntornoDocker(
+        repo, config, "T", ejecutar=DockerFalso(), al_instalar=instalaciones.append
+    ) as entorno:
+        entorno.iniciar()
+    assert instalaciones == []

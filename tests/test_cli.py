@@ -7,7 +7,8 @@ from typer.testing import CliRunner
 
 from harness import cli
 from harness.config import ConfigModelo
-from harness.entorno_docker import ErrorDocker
+from harness.cache_dependencias import EstadoCache
+from harness.entorno_docker import ErrorDocker, Instalacion
 from harness.planificacion import calcular_pasos_plan
 from harness.tipos import LlamadaHerramienta, RespuestaModelo
 from harness.cambios import CambiosRepo
@@ -124,7 +125,7 @@ def _con_requiere_agents(
     iniciar_repo(repo)
     usos: list[str] = []
 
-    def docker_falso(*_args: object) -> None:
+    def docker_falso(*_args: object, **_kwargs: object) -> None:
         usos.append("docker")
         raise ErrorDocker("Docker falso")
 
@@ -162,6 +163,53 @@ def test_sin_requiere_agents_md_avisa_y_sigue(
     _, salida = _correr(monkeypatch, repo_sin_yaml, [terminar()], "--sin-push")
     assert "El repo no tiene AGENTS.md" in salida
     assert usos == ["docker"]
+
+
+@pytest.mark.parametrize(("opciones", "es_con_cache"), [((), True), (("--sin-cache",), False)])
+def test_run_reporta_la_cache_y_el_tiempo_de_instalacion(
+    monkeypatch: pytest.MonkeyPatch,
+    repo_sin_yaml: Path,
+    opciones: tuple[str, ...],
+    es_con_cache: bool,
+) -> None:
+    (repo_sin_yaml / "harness.yaml").write_text(YAML_CON_DOCKER, encoding="utf-8")
+    iniciar_repo(repo_sin_yaml)
+    recibido: dict = {}
+
+    class EntornoFalso:
+        """Reporta la caché y la instalación como el real, y después falla."""
+
+        def __init__(self, *_args: object, **opciones_entorno: object) -> None:
+            recibido.update(opciones_entorno)
+
+        def __enter__(self) -> "EntornoFalso":
+            cache = (
+                EstadoCache("harness-cache-demo") if recibido["usar_cache"]
+                else EstadoCache(motivo="--sin-cache")
+            )
+            recibido["al_cache"](cache)
+            recibido["al_instalar"](Instalacion(8.2, es_ok=True))
+            raise ErrorDocker("Docker falso")
+
+        def __exit__(self, *_: object) -> None:
+            pass
+
+    monkeypatch.setattr(cli, "EntornoDocker", EntornoFalso)
+    codigo, salida = _correr(monkeypatch, repo_sin_yaml, [terminar()], "--sin-push", *opciones)
+    assert codigo == 1 and recibido["usar_cache"] is es_con_cache
+    plana = " ".join(salida.split())
+    eventos = {e["evento"]: e for e in _eventos_del_log(repo_sin_yaml)}
+    if es_con_cache:
+        assert "Caché de dependencias: volumen harness-cache-demo (reutilizado)." in plana
+        assert eventos["cache"]["volumen"] == "harness-cache-demo"
+    else:
+        assert "Sin caché de dependencias (--sin-cache)." in plana
+        assert eventos["cache"] == {**eventos["cache"], "es_usada": False, "motivo": "--sin-cache"}
+    assert "Dependencias instaladas en 8 s." in plana
+    assert eventos["instalacion"] == {
+        "hora": eventos["instalacion"]["hora"], "evento": "instalacion", "segundos": 8.2,
+        "es_reinstalacion": False, "archivo_cambiado": None, "es_ok": True,
+    }
 
 
 def test_max_pasos_plan_de_harness_yaml_llega_a_la_planificacion(

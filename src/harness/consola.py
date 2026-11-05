@@ -15,7 +15,8 @@ from harness.cambios import CambiosRepo
 from harness.comentario_pr import COMENTADO, POR_MCP, SIN_URL, YA_ESTABA, ResultadoComentario
 from harness.contexto import MAX_CARACTERES_AGENTS, ContextoProyecto
 from harness.ejecucion import ResultadoEjecucion, Validacion
-from harness.entorno_docker import ResultadoComando
+from harness.cache_dependencias import MOTIVO_DESACTIVADA, EstadoCache
+from harness.entorno_docker import MOTIVO_SIN_CACHE, Instalacion, ResultadoComando
 from harness.entrega import ConfigEntrega, ResultadoEntrega
 from harness.github import PullRequest
 from harness.init import ResultadoInit
@@ -34,6 +35,9 @@ LINEAS_VERIFICACION = 15
 # Los mismos que usa console.status de Rich.
 SPINNER_INDICADOR = "dots"
 REFRESCOS_POR_SEGUNDO_INDICADOR = 12.5
+SEGUNDOS_POR_MINUTO = 60
+# Sin caché porque lo pidió el usuario: no hace falta avisar en amarillo.
+MOTIVOS_SIN_CACHE_ELEGIDOS = (MOTIVO_SIN_CACHE, MOTIVO_DESACTIVADA)
 
 
 class ConsolaSinUltimaColumna(Console):
@@ -407,6 +411,42 @@ def mostrar_verificacion(resultado: ResultadoComando, salida: str) -> None:
     consola.print("[bold red]✗ Verificación: los tests no pasan con este harness.yaml.[/]")
     lineas = salida.strip().splitlines()[-LINEAS_VERIFICACION:]
     consola.print(f"[dim]{escape(chr(10).join(lineas))}[/]")
+
+
+def mostrar_cache(cache: EstadoCache) -> None:
+    """Si la ejecución usa la caché de dependencias y con qué volumen, o por qué no."""
+    if cache.es_usada:
+        estado = "nuevo: esta vez se descarga todo" if cache.es_creado else "reutilizado"
+        texto = f"Caché de dependencias: volumen {cache.volumen} ({estado})."
+        if cache.variables_respetadas:
+            texto += f" Se respetan de harness.yaml: {', '.join(cache.variables_respetadas)}."
+        consola.print(f"[dim]{escape(texto)}[/]")
+    elif cache.motivo in MOTIVOS_SIN_CACHE_ELEGIDOS:
+        consola.print(f"[dim]Sin caché de dependencias ({escape(cache.motivo)}).[/]")
+    else:
+        # No lo eligió el usuario (otra ejecución, un volumen que no se pudo crear): se avisa.
+        mostrar_aviso(f"Esta ejecución corre sin caché de dependencias: {cache.motivo}.")
+
+
+def mostrar_instalacion(instalacion: Instalacion) -> None:
+    """Cuánto tardó la instalación de dependencias (si falló, el error ya lo dice)."""
+    if not instalacion.es_ok:
+        return
+    duracion = formatear_duracion(instalacion.segundos)
+    if instalacion.es_reinstalacion:
+        texto = f"Dependencias reinstaladas en {duracion} (cambió {instalacion.archivo_cambiado})."
+    else:
+        texto = f"Dependencias instaladas en {duracion}."
+    consola.print(f"[dim]{escape(texto)}[/]")
+
+
+def formatear_duracion(segundos: float) -> str:
+    """'8 s', '1 min 52 s' o 'menos de 1 s'."""
+    total = round(segundos)
+    if total < 1:
+        return "menos de 1 s"
+    minutos, resto = divmod(total, SEGUNDOS_POR_MINUTO)
+    return f"{minutos} min {resto} s" if minutos else f"{resto} s"
 
 
 def mostrar_aviso(mensaje: str) -> None:

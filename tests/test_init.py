@@ -5,7 +5,8 @@ from typer.testing import CliRunner
 
 from harness import cli
 from harness.config import ConfigModelo
-from harness.entorno_docker import ResultadoComando
+from harness.cache_dependencias import EstadoCache
+from harness.entorno_docker import Instalacion, ResultadoComando
 from harness.config_proyecto import validar_texto_config
 from harness.init import LINEA_REQUIERE_AGENTS, ErrorInit, archivos_faltantes, ejecutar_init
 from harness.prompts import (
@@ -194,8 +195,11 @@ def test_cli_init_verificar_ok(monkeypatch: pytest.MonkeyPatch, repo_vacio: Path
     (repo_vacio / "harness.yaml").write_text(YAML_VALIDO, encoding="utf-8")
     llamadas: list[str] = []
 
-    def verificar_falso(repo, config, variables, al_avanzar=None) -> ResultadoComando:
+    def verificar_falso(repo, config, variables, al_avanzar=None, **opciones) -> ResultadoComando:
         llamadas.append(config.comandos.tests)
+        assert opciones["usar_cache"] is True
+        opciones["al_cache"](EstadoCache("harness-cache-demo", es_creado=True))
+        opciones["al_instalar"](Instalacion(112.4, es_ok=True))
         return ResultadoComando(0, "2 passed")
 
     monkeypatch.setattr(cli, "verificar_config", verificar_falso)
@@ -203,6 +207,23 @@ def test_cli_init_verificar_ok(monkeypatch: pytest.MonkeyPatch, repo_vacio: Path
     assert codigo == 0
     assert llamadas == ["pytest -q"]
     assert "✓ Verificación: la instalación y los tests funcionan." in salida
+    plana = " ".join(salida.split())
+    assert "Caché de dependencias: volumen harness-cache-demo (nuevo: esta vez se" in plana
+    assert "Dependencias instaladas en 1 min 52 s." in plana
+
+
+def test_cli_init_verificar_sin_cache(monkeypatch: pytest.MonkeyPatch, repo_vacio: Path) -> None:
+    (repo_vacio / "AGENTS.md").write_text("# x", encoding="utf-8")
+    (repo_vacio / "harness.yaml").write_text(YAML_VALIDO, encoding="utf-8")
+    opciones_recibidas: dict = {}
+
+    def verificar_falso(*_args, **opciones) -> ResultadoComando:
+        opciones_recibidas.update(opciones)
+        return ResultadoComando(0, "ok")
+
+    monkeypatch.setattr(cli, "verificar_config", verificar_falso)
+    codigo, _, _ = _init(monkeypatch, repo_vacio, [], "--verificar", "--sin-cache")
+    assert codigo == 0 and opciones_recibidas["usar_cache"] is False
 
 
 def test_cli_init_verificar_falla_y_oculta_secretos(

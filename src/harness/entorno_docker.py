@@ -75,6 +75,21 @@ class ResultadoComando:
     codigo: int
     salida: str
     es_tiempo_agotado: bool = False
+    segundos: float = 0.0
+
+
+@dataclass(frozen=True)
+class Instalacion:
+    """Cuánto tardó `docker.instalar` y si terminó bien (para medir la caché)."""
+
+    segundos: float
+    es_ok: bool
+    # El archivo de dependencias que el modelo cambió, si es una reinstalación.
+    archivo_cambiado: str | None = None
+
+    @property
+    def es_reinstalacion(self) -> bool:
+        return self.archivo_cambiado is not None
 
 
 def ejecutar_proceso(
@@ -114,6 +129,8 @@ class EntornoDocker:
         reloj: Callable[[], float] = time.monotonic,
         dormir: Callable[[float], None] = time.sleep,
         usar_cache: bool = True,
+        al_cache: Callable[[EstadoCache], None] | None = None,
+        al_instalar: Callable[[Instalacion], None] | None = None,
     ) -> None:
         self._repo = repo.resolve()
         self._config = config
@@ -122,6 +139,8 @@ class EntornoDocker:
         self._reloj = reloj
         self._dormir = dormir
         self._usar_cache = usar_cache
+        self._al_cache = al_cache
+        self._al_instalar = al_instalar
         # Qué pasó con la caché de dependencias; se decide en iniciar().
         self.cache = EstadoCache()
         self._variables_cache: dict[str, str] = {}
@@ -131,7 +150,8 @@ class EntornoDocker:
         self._red: str | None = None
         # Archivo vacío del host que se monta encima de cada .env del repo.
         self._archivo_vacio: Path | None = None
-        self._hay_que_reinstalar = False
+        # El archivo de dependencias que cambió el modelo: hay que reinstalar.
+        self._cambio_dependencias: str | None = None
 
     def __enter__(self) -> "EntornoDocker":
         return self
@@ -163,6 +183,8 @@ class EntornoDocker:
                 avisar(f"Esperando a que el servicio {servicio.nombre} esté listo...")
                 self._esperar_listo(servicio)
         self.cache = self._preparar_cache()
+        if self._al_cache:
+            self._al_cache(self.cache)
         avisar(f"Creando el contenedor del proyecto ({self._config.docker.imagen})...")
         variables = {**self._variables.proyecto, **self._variables_cache}
         self._correr(self.nombre, self._argumentos_proyecto(), variables)
@@ -173,10 +195,10 @@ class EntornoDocker:
 
     def ejecutar(self, comando: str, timeout: int | None = None) -> ResultadoComando:
         """Ejecuta un comando con `sh -c` en el contenedor del proyecto, con timeout."""
-        if self._hay_que_reinstalar:
-            self._hay_que_reinstalar = False
+        if self._cambio_dependencias:
+            archivo, self._cambio_dependencias = self._cambio_dependencias, None
             try:
-                self._instalar()
+                self._instalar(archivo)
             except ErrorDocker as error:
                 return ResultadoComando(1, f"Falló la reinstalación de dependencias:\n{error}")
         return self._exec(comando, timeout or self._config.limites.timeout_comando_segundos)
@@ -184,7 +206,7 @@ class EntornoDocker:
     def marcar_cambio(self, ruta: str) -> None:
         """Avisa que se escribió un archivo; si es de dependencias, se reinstalará."""
         if coincide_alguno(ruta, self._config.docker.reinstalar_si_cambia):
-            self._hay_que_reinstalar = True
+            self._cambio_dependencias = ruta
 
     def cerrar(self) -> None:
         """Borra los contenedores y la red creados; nunca lanza excepciones."""
@@ -363,7 +385,7 @@ class EntornoDocker:
                 return
         raise ErrorDocker(
             f"No se pudo preparar la caché de dependencias ({salida.strip() or 'sin salida'}). "
-            f"Se puede desactivar con docker.cache: false en {NOMBRE_ARCHIVO}."
+            f"Se puede desactivar con --sin-cache o con docker.cache: false en {NOMBRE_ARCHIVO}."
         )
 
     def _argumentos_proyecto(self) -> list[str]:
@@ -415,13 +437,22 @@ class EntornoDocker:
             ]
         return argumentos
 
-    def _instalar(self) -> None:
+    def _instalar(self, archivo_cambiado: str | None = None) -> None:
+        segundos = 0.0
         for comando in self._config.docker.instalar:
             resultado = self._exec(comando, TIMEOUT_INSTALACION_SEGUNDOS)
+            segundos += resultado.segundos
             if resultado.codigo != 0:
+                self._avisar_instalacion(Instalacion(segundos, False, archivo_cambiado))
                 detalle = resultado.salida[-MAX_CARACTERES_ERROR_INSTALACION:].strip()
                 motivo = "tiempo agotado" if resultado.es_tiempo_agotado else detalle
                 raise ErrorDocker(f"Falló la instalación '{comando}': {motivo}")
+        self._avisar_instalacion(Instalacion(segundos, True, archivo_cambiado))
+
+    def _avisar_instalacion(self, instalacion: Instalacion) -> None:
+        # Sin comandos de instalación no hay nada que medir.
+        if self._al_instalar and self._config.docker.instalar:
+            self._al_instalar(instalacion)
 
     def _exec(self, comando: str, timeout: int) -> ResultadoComando:
         # timeout -s KILL corta el proceso dentro del contenedor; el timeout del host solo
@@ -436,7 +467,7 @@ class EntornoDocker:
         es_tiempo_agotado = codigo == CODIGO_TIEMPO_AGOTADO or (
             codigo == CODIGO_MATADO and transcurrido >= timeout
         )
-        return ResultadoComando(codigo, salida, es_tiempo_agotado)
+        return ResultadoComando(codigo, salida, es_tiempo_agotado, transcurrido)
 
 
 def _argumentos_variables(variables: Mapping[str, str]) -> list[str]:

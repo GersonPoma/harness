@@ -45,7 +45,8 @@ from harness.config_proyecto import (
 )
 from harness.contexto import ContextoProyecto, cargar_agents_md
 from harness.ejecucion import Planificacion, ResultadoEjecucion, Validacion, ejecutar_ticket
-from harness.entorno_docker import EntornoDocker, ErrorDocker
+from harness.cache_dependencias import EstadoCache
+from harness.entorno_docker import EntornoDocker, ErrorDocker, Instalacion
 from harness.entrega import (
     ConfigEntrega,
     CrearPr,
@@ -99,6 +100,9 @@ MENSAJE_REQUIERE_AGENTS = (
     "Este proyecto requiere AGENTS.md (requiere_agents_md: true). Créalo con 'harness init'."
 )
 NOMBRE_LOG_INIT = "init"
+AYUDA_SIN_CACHE = (
+    "No usar la caché de dependencias: se descarga todo de nuevo (el volumen no se toca)."
+)
 
 app = typer.Typer(help="Harness de IA para generación de código")
 
@@ -114,6 +118,7 @@ class _Preparacion:
     variables: VariablesResueltas
     contexto: ContextoProyecto
     es_con_plan: bool = True
+    es_con_cache: bool = True
     token_github: str | None = None
     # Servidor MCP de GitHub de mcp.json (None: no hay) y sus herramientas para el modelo.
     servidor_github: ServidorMCP | None = None
@@ -181,6 +186,14 @@ class _Reporte:
         consola.mostrar_validacion(validacion)
         self.registro.registrar_validacion(validacion)
 
+    def cache(self, cache: EstadoCache) -> None:
+        consola.mostrar_cache(cache)
+        self.registro.registrar_cache(cache)
+
+    def instalacion(self, instalacion: Instalacion) -> None:
+        consola.mostrar_instalacion(instalacion)
+        self.registro.registrar_instalacion(instalacion)
+
 
 @app.command()
 def run(
@@ -216,6 +229,10 @@ def run(
             help="No darle al modelo las herramientas de GitHub por MCP (ahorra tokens).",
         ),
     ] = False,
+    sin_cache: Annotated[
+        bool,
+        typer.Option("--sin-cache", help=AYUDA_SIN_CACHE),
+    ] = False,
 ) -> None:
     """Procesa un ticket y genera el código en el repo objetivo."""
     if sin_plan and aprobar_plan:
@@ -223,6 +240,7 @@ def run(
         raise typer.Exit(1)
     prep = _preparar_ejecucion(ticket, (repo or Path.cwd()).resolve())
     prep.es_con_plan = not sin_plan
+    prep.es_con_cache = not sin_cache
     limites = prep.config_proyecto.limites if prep.config_proyecto else None
     max_pasos = max_pasos or (limites.max_pasos if limites else MAX_PASOS_POR_DEFECTO)
     registro = RegistroPasos(prep.repo, prep.ticket, secretos=prep.secretos)
@@ -623,7 +641,16 @@ def _ejecutar(
         )
         return resultado, comparar(antes, tomar_instantanea(prep.repo))
     # El with garantiza que los contenedores se borran aunque algo falle o haya Ctrl+C.
-    with EntornoDocker(prep.repo, prep.config_proyecto, prep.ticket, prep.variables) as entorno:
+    entorno_docker = EntornoDocker(
+        prep.repo,
+        prep.config_proyecto,
+        prep.ticket,
+        prep.variables,
+        usar_cache=prep.es_con_cache,
+        al_cache=reporte.cache,
+        al_instalar=reporte.instalacion,
+    )
+    with entorno_docker as entorno:
         with consola.estado("Preparando Docker...") as estado:
             entorno.iniciar(al_avanzar=partial(consola.actualizar_estado, estado))
         return _ejecutar_con_validacion(
@@ -711,6 +738,10 @@ def init(
             help="Después, levantar el entorno con harness.yaml, instalar y correr los tests.",
         ),
     ] = False,
+    sin_cache: Annotated[
+        bool,
+        typer.Option("--sin-cache", help=f"Con --verificar. {AYUDA_SIN_CACHE}"),
+    ] = False,
 ) -> None:
     """Genera AGENTS.md y harness.yaml si faltan (el modelo analiza el repo)."""
     raiz = (repo or Path.cwd()).resolve()
@@ -723,7 +754,7 @@ def init(
     else:
         consola.mostrar_aviso("El repo ya tiene AGENTS.md y harness.yaml: no hay nada que generar.")
     if verificar:
-        _verificar_init(raiz)
+        _verificar_init(raiz, usar_cache=not sin_cache)
 
 
 def _generar_archivos_init(repo: Path, faltantes: list[str]) -> None:
@@ -751,7 +782,7 @@ def _generar_archivos_init(repo: Path, faltantes: list[str]) -> None:
     consola.mostrar_fin_init(resultado, str(registro.ruta))
 
 
-def _verificar_init(repo: Path) -> None:
+def _verificar_init(repo: Path, usar_cache: bool) -> None:
     try:
         # Las referencias ${NOMBRE} de harness.yaml se resuelven con el .env.
         cargar_env()
@@ -760,8 +791,15 @@ def _verificar_init(repo: Path) -> None:
             raise ErrorConfigProyecto("El repo no tiene harness.yaml: no hay nada que verificar.")
         variables = resolver_variables(config_proyecto)
         with consola.estado("Verificando harness.yaml...") as estado:
+            # Sin log: init --verificar solo muestra la caché y el tiempo de instalación.
             resultado = verificar_config(
-                repo, config_proyecto, variables, partial(consola.actualizar_estado, estado)
+                repo,
+                config_proyecto,
+                variables,
+                partial(consola.actualizar_estado, estado),
+                usar_cache=usar_cache,
+                al_cache=consola.mostrar_cache,
+                al_instalar=consola.mostrar_instalacion,
             )
     except (ErrorConfigProyecto, ErrorVariables, ErrorDocker) as error:
         consola.mostrar_error(str(error))
