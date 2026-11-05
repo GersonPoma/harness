@@ -1,0 +1,404 @@
+{
+ "key": "TAREAS-2",
+ "fields": {
+  "summary": "Crear tareas",
+  "description": {
+   "type": "doc",
+   "version": 1,
+   "content": [
+    {
+     "type": "heading",
+     "attrs": {
+      "level": 2,
+      "localId": "b68549743870"
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "Descripción"
+      }
+     ]
+    },
+    {
+     "type": "paragraph",
+     "content": [
+      {
+       "type": "text",
+       "text": "Como usuario de la API quiero crear tareas nuevas enviando solo el título."
+      }
+     ],
+     "attrs": {
+      "localId": "21116140d52c"
+     }
+    },
+    {
+     "type": "paragraph",
+     "content": [
+      {
+       "type": "text",
+       "text": "Agregar el endpoint "
+      },
+      {
+       "type": "text",
+       "text": "POST /tareas",
+       "marks": [
+        {
+         "type": "code"
+        }
+       ]
+      },
+      {
+       "type": "text",
+       "text": "."
+      }
+     ],
+     "attrs": {
+      "localId": "00cc4ae2bb1f"
+     }
+    },
+    {
+     "type": "heading",
+     "attrs": {
+      "level": 2,
+      "localId": "e7d1e4e9ce71"
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "Criterios de aceptación"
+      }
+     ]
+    },
+    {
+     "type": "bulletList",
+     "content": [
+      {
+       "type": "listItem",
+       "attrs": {
+        "localId": "7c466d0464a5"
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "Recibe un JSON "
+          },
+          {
+           "type": "text",
+           "text": "{\"titulo\": \"...\"}",
+           "marks": [
+            {
+             "type": "code"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "text": " y devuelve la tarea creada con código "
+          },
+          {
+           "type": "text",
+           "text": "201",
+           "marks": [
+            {
+             "type": "strong"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "text": "."
+          }
+         ],
+         "attrs": {
+          "localId": "f51cf92a90a4"
+         }
+        }
+       ]
+      },
+      {
+       "type": "listItem",
+       "attrs": {
+        "localId": "e92215b7d011"
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "El id lo asigna el repositorio (autoincremental); la tarea nueva tiene "
+          },
+          {
+           "type": "text",
+           "text": "completada: false",
+           "marks": [
+            {
+             "type": "code"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "text": "."
+          }
+         ],
+         "attrs": {
+          "localId": "33f4fedd8960"
+         }
+        }
+       ]
+      },
+      {
+       "type": "listItem",
+       "attrs": {
+        "localId": "f80d5e8f8f5a"
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "Validación del título:"
+          }
+         ],
+         "attrs": {
+          "localId": "7c2dd74b16cf"
+         }
+        },
+        {
+         "type": "bulletList",
+         "content": [
+          {
+           "type": "listItem",
+           "attrs": {
+            "localId": "f7b747392f20"
+           },
+           "content": [
+            {
+             "type": "paragraph",
+             "content": [
+              {
+               "type": "text",
+               "text": "obligatorio;"
+              }
+             ],
+             "attrs": {
+              "localId": "66586e112443"
+             }
+            }
+           ]
+          },
+          {
+           "type": "listItem",
+           "attrs": {
+            "localId": "ae3ea4da5cc0"
+           },
+           "content": [
+            {
+             "type": "paragraph",
+             "content": [
+              {
+               "type": "text",
+               "text": "mínimo 1 carácter y máximo 100 caracteres;"
+              }
+             ],
+             "attrs": {
+              "localId": "2a9678731885"
+             }
+            }
+           ]
+          },
+          {
+           "type": "listItem",
+           "attrs": {
+            "localId": "76661caacbdc"
+           },
+           "content": [
+            {
+             "type": "paragraph",
+             "content": [
+              {
+               "type": "text",
+               "text": "si no cumple, la API responde "
+              },
+              {
+               "type": "text",
+               "text": "422",
+               "marks": [
+                {
+                 "type": "strong"
+                }
+               ]
+              },
+              {
+               "type": "text",
+               "text": "."
+              }
+             ],
+             "attrs": {
+              "localId": "2f969630ad4e"
+             }
+            }
+           ]
+          }
+         ],
+         "attrs": {
+          "localId": "cf09cfaf602a"
+         }
+        }
+       ]
+      },
+      {
+       "type": "listItem",
+       "attrs": {
+        "localId": "4a96c58c435d"
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "El largo máximo se define en una constante "
+          },
+          {
+           "type": "text",
+           "text": "LARGO_MAXIMO_TITULO",
+           "marks": [
+            {
+             "type": "code"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "text": "."
+          }
+         ],
+         "attrs": {
+          "localId": "ee6dca14478a"
+         }
+        }
+       ]
+      },
+      {
+       "type": "listItem",
+       "attrs": {
+        "localId": "a22ac427abc4"
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "Se usa un modelo de entrada "
+          },
+          {
+           "type": "text",
+           "text": "TareaCrear",
+           "marks": [
+            {
+             "type": "code"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "text": " (no el modelo "
+          },
+          {
+           "type": "text",
+           "text": "Tarea",
+           "marks": [
+            {
+             "type": "code"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "text": ")."
+          }
+         ],
+         "attrs": {
+          "localId": "bafc78dc76c2"
+         }
+        }
+       ]
+      },
+      {
+       "type": "listItem",
+       "attrs": {
+        "localId": "2b662419a605"
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "Tests: creación correcta, título vacío, título de 101 caracteres, cuerpo sin título."
+          }
+         ],
+         "attrs": {
+          "localId": "31a90c50291e"
+         }
+        }
+       ]
+      },
+      {
+       "type": "listItem",
+       "attrs": {
+        "localId": "4c25ce0464ef"
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "Después de crear, la tarea aparece en "
+          },
+          {
+           "type": "text",
+           "text": "GET /tareas",
+           "marks": [
+            {
+             "type": "code"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "text": "."
+          }
+         ],
+         "attrs": {
+          "localId": "6c3a9e4ffa5c"
+         }
+        }
+       ]
+      }
+     ],
+     "attrs": {
+      "localId": "f7d60cae6503"
+     }
+    }
+   ]
+  },
+  "issuetype": {
+   "name": "Tarea"
+  },
+  "priority": {
+   "name": "Medium"
+  },
+  "status": {
+   "name": "Por hacer"
+  }
+ }
+}

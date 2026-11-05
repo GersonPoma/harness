@@ -1,0 +1,389 @@
+{
+ "key": "TAREAS-4",
+ "fields": {
+  "summary": "Prioridad de las tareas",
+  "description": {
+   "type": "doc",
+   "version": 1,
+   "content": [
+    {
+     "type": "paragraph",
+     "content": [
+      {
+       "type": "text",
+       "text": "Como usuario quiero que cada tarea tenga una prioridad para saber qué hacer primero."
+      }
+     ],
+     "attrs": {
+      "localId": "186b5726b90d"
+     }
+    },
+    {
+     "type": "paragraph",
+     "content": [
+      {
+       "type": "text",
+       "text": "Las prioridades posibles son:"
+      }
+     ],
+     "attrs": {
+      "localId": "4c8e2d8d0359"
+     }
+    },
+    {
+     "type": "table",
+     "attrs": {
+      "isNumberColumnEnabled": false,
+      "layout": "align-start",
+      "localId": "00ddd683-9f88-426b-aed0-88aab3233b6b"
+     },
+     "content": [
+      {
+       "type": "tableRow",
+       "attrs": {
+        "localId": "6ce3fd27aa8a"
+       },
+       "content": [
+        {
+         "type": "tableHeader",
+         "attrs": {
+          "localId": "de39aa6bbe03"
+         },
+         "content": [
+          {
+           "type": "paragraph",
+           "content": [
+            {
+             "type": "text",
+             "text": "Valor",
+             "marks": [
+              {
+               "type": "strong"
+              }
+             ]
+            }
+           ],
+           "attrs": {
+            "localId": "d3948d569939"
+           }
+          }
+         ]
+        },
+        {
+         "type": "tableHeader",
+         "attrs": {
+          "localId": "8b590487c908"
+         },
+         "content": [
+          {
+           "type": "paragraph",
+           "content": [
+            {
+             "type": "text",
+             "text": "¿Por defecto?",
+             "marks": [
+              {
+               "type": "strong"
+              }
+             ]
+            }
+           ],
+           "attrs": {
+            "localId": "c1aa559c4b04"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "tableRow",
+       "attrs": {
+        "localId": "c0fad400a22d"
+       },
+       "content": [
+        {
+         "type": "tableCell",
+         "attrs": {
+          "localId": "5e842eb0df58"
+         },
+         "content": [
+          {
+           "type": "paragraph",
+           "content": [
+            {
+             "type": "text",
+             "text": "alta"
+            }
+           ],
+           "attrs": {
+            "localId": "b76309bc475f"
+           }
+          }
+         ]
+        },
+        {
+         "type": "tableCell",
+         "attrs": {
+          "localId": "160d4577c6bf"
+         },
+         "content": [
+          {
+           "type": "paragraph",
+           "content": [
+            {
+             "type": "text",
+             "text": "no"
+            }
+           ],
+           "attrs": {
+            "localId": "d173dc46e057"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "tableRow",
+       "attrs": {
+        "localId": "73006ddc24b1"
+       },
+       "content": [
+        {
+         "type": "tableCell",
+         "attrs": {
+          "localId": "21e816260e62"
+         },
+         "content": [
+          {
+           "type": "paragraph",
+           "content": [
+            {
+             "type": "text",
+             "text": "media"
+            }
+           ],
+           "attrs": {
+            "localId": "809159305b2e"
+           }
+          }
+         ]
+        },
+        {
+         "type": "tableCell",
+         "attrs": {
+          "localId": "ce7e5405ef15"
+         },
+         "content": [
+          {
+           "type": "paragraph",
+           "content": [
+            {
+             "type": "text",
+             "text": "sí"
+            }
+           ],
+           "attrs": {
+            "localId": "382fa6b60e5f"
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "tableRow",
+       "attrs": {
+        "localId": "55759ce5859e"
+       },
+       "content": [
+        {
+         "type": "tableCell",
+         "attrs": {
+          "localId": "11319bebc116"
+         },
+         "content": [
+          {
+           "type": "paragraph",
+           "content": [
+            {
+             "type": "text",
+             "text": "baja"
+            }
+           ],
+           "attrs": {
+            "localId": "52f7e1a35abe"
+           }
+          }
+         ]
+        },
+        {
+         "type": "tableCell",
+         "attrs": {
+          "localId": "e493ec8199b5"
+         },
+         "content": [
+          {
+           "type": "paragraph",
+           "content": [
+            {
+             "type": "text",
+             "text": "no"
+            }
+           ],
+           "attrs": {
+            "localId": "a02b4f2adb00"
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "type": "paragraph",
+     "content": [
+      {
+       "type": "text",
+       "text": "Si al crear una tarea no se indica prioridad, debe quedar en media."
+      }
+     ],
+     "attrs": {
+      "localId": "84e15b2475ed"
+     }
+    },
+    {
+     "type": "paragraph",
+     "content": [
+      {
+       "type": "text",
+       "text": "Criterios de aceptación:"
+      }
+     ],
+     "attrs": {
+      "localId": "5ebcb2b1c0e9"
+     }
+    },
+    {
+     "type": "bulletList",
+     "content": [
+      {
+       "type": "listItem",
+       "attrs": {
+        "localId": "ce9cbd159423"
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "Toda tarea tiene el campo prioridad con uno de los valores: alta, media, baja."
+          }
+         ],
+         "attrs": {
+          "localId": "4b2e733fe651"
+         }
+        }
+       ]
+      },
+      {
+       "type": "listItem",
+       "attrs": {
+        "localId": "40c57b77eae3"
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "El valor por defecto es media."
+          }
+         ],
+         "attrs": {
+          "localId": "538c5a6d95af"
+         }
+        }
+       ]
+      },
+      {
+       "type": "listItem",
+       "attrs": {
+        "localId": "5aae299f0e7b"
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "Un valor distinto a los permitidos se rechaza con 422."
+          }
+         ],
+         "attrs": {
+          "localId": "dc4f9a02a6c2"
+         }
+        }
+       ]
+      },
+      {
+       "type": "listItem",
+       "attrs": {
+        "localId": "3edb1a84bb89"
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "El campo aparece en todas las respuestas que devuelven tareas."
+          }
+         ],
+         "attrs": {
+          "localId": "6c16d5103435"
+         }
+        }
+       ]
+      },
+      {
+       "type": "listItem",
+       "attrs": {
+        "localId": "8b5c64bce8fa"
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "Tests del valor por defecto y del valor inválido."
+          }
+         ],
+         "attrs": {
+          "localId": "709d2a88493e"
+         }
+        }
+       ]
+      }
+     ],
+     "attrs": {
+      "localId": "25dba3dbfed0"
+     }
+    }
+   ]
+  },
+  "issuetype": {
+   "name": "Tarea"
+  },
+  "priority": {
+   "name": "Medium"
+  },
+  "status": {
+   "name": "Por hacer"
+  }
+ }
+}

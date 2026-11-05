@@ -1,0 +1,131 @@
+{
+ "key": "TAREAS-3",
+ "fields": {
+  "summary": "Completar tareas y filtrarlas",
+  "description": {
+   "type": "doc",
+   "version": 1,
+   "content": [
+    {
+     "type": "paragraph",
+     "content": [
+      {
+       "type": "text",
+       "text": "Como usuario de la API quiero marcar tareas como completadas y poder listar solo las pendientes o solo las completadas."
+      }
+     ],
+     "attrs": {
+      "localId": "1684194f35aa"
+     }
+    },
+    {
+     "type": "paragraph",
+     "content": [
+      {
+       "type": "text",
+       "text": "Criterios de aceptación:"
+      }
+     ],
+     "attrs": {
+      "localId": "95b23808bb16"
+     }
+    },
+    {
+     "type": "taskList",
+     "content": [
+      {
+       "type": "taskItem",
+       "content": [
+        {
+         "type": "text",
+         "text": "PATCH /tareas/{id}/completar marca la tarea como completada y la devuelve con código 200."
+        }
+       ],
+       "attrs": {
+        "localId": "573db82c-cb1f-4cc5-9cbd-84520a368a88",
+        "state": "TODO"
+       }
+      },
+      {
+       "type": "taskItem",
+       "content": [
+        {
+         "type": "text",
+         "text": "Si la tarea no existe, devuelve 404 con {\"detail\": \"Tarea no encontrada\"}."
+        }
+       ],
+       "attrs": {
+        "localId": "bc27f243-0640-43d1-b149-7ea32138abd6",
+        "state": "TODO"
+       }
+      },
+      {
+       "type": "taskItem",
+       "content": [
+        {
+         "type": "text",
+         "text": "Completar una tarea que ya estaba completada no da error (devuelve 200)."
+        }
+       ],
+       "attrs": {
+        "localId": "da99a322-3c36-443e-93c2-db670087a287",
+        "state": "TODO"
+       }
+      },
+      {
+       "type": "taskItem",
+       "content": [
+        {
+         "type": "text",
+         "text": "GET /tareas acepta el parámetro opcional completada: con completada=true solo las completadas, con completada=false solo las pendientes, y sin parámetro todas, como hasta ahora."
+        }
+       ],
+       "attrs": {
+        "localId": "9a5f58a3-7831-4567-aa89-93827ea01813",
+        "state": "TODO"
+       }
+      },
+      {
+       "type": "taskItem",
+       "content": [
+        {
+         "type": "text",
+         "text": "El filtrado se hace en el repositorio, no en main.py."
+        }
+       ],
+       "attrs": {
+        "localId": "af1c1fea-4266-43ae-8e72-f61da44d047b",
+        "state": "TODO"
+       }
+      },
+      {
+       "type": "taskItem",
+       "content": [
+        {
+         "type": "text",
+         "text": "Tests para cada caso."
+        }
+       ],
+       "attrs": {
+        "localId": "799c7c9b-5ec7-4d32-b81f-971f9ba29aee",
+        "state": "DONE"
+       }
+      }
+     ],
+     "attrs": {
+      "localId": "44ada17f-69de-4d2b-b399-8590db6e9156"
+     }
+    }
+   ]
+  },
+  "issuetype": {
+   "name": "Tarea"
+  },
+  "priority": {
+   "name": "Medium"
+  },
+  "status": {
+   "name": "Por hacer"
+  }
+ }
+}

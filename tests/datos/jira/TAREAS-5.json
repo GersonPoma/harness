@@ -1,0 +1,258 @@
+{
+ "key": "TAREAS-5",
+ "fields": {
+  "summary": "Eliminar tareas",
+  "description": {
+   "type": "doc",
+   "version": 1,
+   "content": [
+    {
+     "type": "paragraph",
+     "content": [
+      {
+       "type": "text",
+       "text": "Como usuario de la API quiero eliminar tareas que ya no necesito."
+      }
+     ],
+     "attrs": {
+      "localId": "b68eb8d8cfa7"
+     }
+    },
+    {
+     "type": "panel",
+     "content": [
+      {
+       "type": "paragraph",
+       "content": [
+        {
+         "type": "text",
+         "text": "Agregar el endpoint DELETE /tareas/{id}."
+        }
+       ],
+       "attrs": {
+        "localId": "389624743d85"
+       }
+      }
+     ],
+     "attrs": {
+      "panelType": "info",
+      "localId": "ce3b231870de"
+     }
+    },
+    {
+     "type": "paragraph",
+     "content": [
+      {
+       "type": "text",
+       "text": "Criterios de aceptación:"
+      }
+     ],
+     "attrs": {
+      "localId": "025cb10ca893"
+     }
+    },
+    {
+     "type": "orderedList",
+     "attrs": {
+      "order": 1,
+      "localId": "9f79dda17cb0"
+     },
+     "content": [
+      {
+       "type": "listItem",
+       "attrs": {
+        "localId": "90646a026c3c"
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "Si la tarea existe, se elimina y la API responde 204 sin cuerpo."
+          }
+         ],
+         "attrs": {
+          "localId": "ca4ef9cc5a73"
+         }
+        }
+       ]
+      },
+      {
+       "type": "listItem",
+       "attrs": {
+        "localId": "a53b63fd2739"
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "Si no existe, responde 404 con el detalle de abajo."
+          }
+         ],
+         "attrs": {
+          "localId": "01f612279afc"
+         }
+        }
+       ]
+      },
+      {
+       "type": "listItem",
+       "attrs": {
+        "localId": "3c08910f59bc"
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "Después de eliminarla, ya no aparece en GET /tareas."
+          }
+         ],
+         "attrs": {
+          "localId": "e3603be57bb2"
+         }
+        }
+       ]
+      },
+      {
+       "type": "listItem",
+       "attrs": {
+        "localId": "66dc2a6de386"
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "Los ids de las tareas que quedan no cambian."
+          }
+         ],
+         "attrs": {
+          "localId": "ca498d8c3cdf"
+         }
+        }
+       ]
+      },
+      {
+       "type": "listItem",
+       "attrs": {
+        "localId": "cc1ca1d66322"
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "Tests para cada caso."
+          }
+         ],
+         "attrs": {
+          "localId": "ed19d08bc4f0"
+         }
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "type": "paragraph",
+     "content": [
+      {
+       "type": "text",
+       "text": "Respuesta cuando no existe:"
+      }
+     ],
+     "attrs": {
+      "localId": "1e68369bda40"
+     }
+    },
+    {
+     "type": "codeBlock",
+     "attrs": {
+      "language": "json",
+      "localId": "a8e22820-db45-4861-a8f2-8683bcdef040",
+      "wrap": true
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "{\"detail\": \"Tarea no encontrada\"}"
+      }
+     ]
+    },
+    {
+     "type": "paragraph",
+     "content": [
+      {
+       "type": "text",
+       "text": "Referencia:"
+      }
+     ],
+     "attrs": {
+      "localId": "6bb372bed62d"
+     }
+    },
+    {
+     "type": "paragraph",
+     "content": [
+      {
+       "type": "text",
+       "text": "códigos de estado en FastAPI",
+       "marks": [
+        {
+         "type": "link",
+         "attrs": {
+          "href": "https://fastapi.tiangolo.com/tutorial/response-status-code/"
+         }
+        }
+       ]
+      }
+     ],
+     "attrs": {
+      "localId": "5b02afde4097"
+     }
+    },
+    {
+     "type": "paragraph",
+     "content": [
+      {
+       "type": "text",
+       "text": "Revisar con "
+      },
+      {
+       "type": "mention",
+       "attrs": {
+        "id": "anonimizado",
+        "text": "@Persona de Prueba",
+        "accessLevel": "",
+        "localId": "0f9ae5f1-610f-4f9c-be85-8681fec6ee47"
+       }
+      },
+      {
+       "type": "text",
+       "text": " "
+      }
+     ],
+     "attrs": {
+      "localId": "e91705c0f8d5"
+     }
+    }
+   ]
+  },
+  "issuetype": {
+   "name": "Tarea"
+  },
+  "priority": {
+   "name": "Medium"
+  },
+  "status": {
+   "name": "Por hacer"
+  }
+ }
+}

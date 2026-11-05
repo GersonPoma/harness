@@ -1,0 +1,304 @@
+{
+ "key": "TAREAS-1",
+ "fields": {
+  "summary": "Obtener una tarea por su id",
+  "description": {
+   "type": "doc",
+   "version": 1,
+   "content": [
+    {
+     "type": "paragraph",
+     "content": [
+      {
+       "type": "text",
+       "text": "Como usuario de la API quiero consultar una tarea específica por su id, para ver su detalle sin tener que traer la lista completa."
+      }
+     ],
+     "attrs": {
+      "localId": "8edfb857dd9b"
+     }
+    },
+    {
+     "type": "paragraph",
+     "content": [
+      {
+       "type": "text",
+       "text": "Agregar el endpoint "
+      },
+      {
+       "type": "text",
+       "text": "GET /tareas/{id}",
+       "marks": [
+        {
+         "type": "code"
+        }
+       ]
+      },
+      {
+       "type": "text",
+       "text": "."
+      }
+     ],
+     "attrs": {
+      "localId": "cb0f3d2fd456"
+     }
+    },
+    {
+     "type": "heading",
+     "attrs": {
+      "level": 2,
+      "localId": "4f3e53e78b92"
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "Criterios de aceptación"
+      }
+     ]
+    },
+    {
+     "type": "bulletList",
+     "content": [
+      {
+       "type": "listItem",
+       "attrs": {
+        "localId": "4e253b11cc94"
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "[ ] "
+          },
+          {
+           "type": "text",
+           "text": "GET /tareas/{id}",
+           "marks": [
+            {
+             "type": "code"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "text": " devuelve la tarea con código "
+          },
+          {
+           "type": "text",
+           "text": "200",
+           "marks": [
+            {
+             "type": "strong"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "text": " si existe."
+          }
+         ],
+         "attrs": {
+          "localId": "12d1cc98b796"
+         }
+        }
+       ]
+      },
+      {
+       "type": "listItem",
+       "attrs": {
+        "localId": "a9a6a2824792"
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "[ ] Si el id no existe, devuelve "
+          },
+          {
+           "type": "text",
+           "text": "404",
+           "marks": [
+            {
+             "type": "strong"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "text": " con "
+          },
+          {
+           "type": "text",
+           "text": "{\"detail\": \"Tarea no encontrada\"}",
+           "marks": [
+            {
+             "type": "code"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "text": "."
+          }
+         ],
+         "attrs": {
+          "localId": "c3a9b14365ff"
+         }
+        }
+       ]
+      },
+      {
+       "type": "listItem",
+       "attrs": {
+        "localId": "28f60bb38603"
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "[ ] La búsqueda se implementa como método "
+          },
+          {
+           "type": "text",
+           "text": "obtener_por_id",
+           "marks": [
+            {
+             "type": "code"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "text": " de "
+          },
+          {
+           "type": "text",
+           "text": "RepositorioTareas",
+           "marks": [
+            {
+             "type": "code"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "text": ", que devuelve "
+          },
+          {
+           "type": "text",
+           "text": "None",
+           "marks": [
+            {
+             "type": "code"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "text": " si no encuentra la tarea."
+          }
+         ],
+         "attrs": {
+          "localId": "b9d4e03e8f98"
+         }
+        }
+       ]
+      },
+      {
+       "type": "listItem",
+       "attrs": {
+        "localId": "a0d53943511f"
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "[ ] Tests para ambos casos (existe / no existe)."
+          }
+         ],
+         "attrs": {
+          "localId": "fe6b9a0e7d0e"
+         }
+        }
+       ]
+      }
+     ],
+     "attrs": {
+      "localId": "64da8dec94d7"
+     }
+    },
+    {
+     "type": "heading",
+     "attrs": {
+      "level": 2,
+      "localId": "46f2c8d7a452"
+     },
+     "content": [
+      {
+       "type": "text",
+       "text": "Notas técnicas"
+      }
+     ]
+    },
+    {
+     "type": "bulletList",
+     "content": [
+      {
+       "type": "listItem",
+       "attrs": {
+        "localId": "0656e1bc33d2"
+       },
+       "content": [
+        {
+         "type": "paragraph",
+         "content": [
+          {
+           "type": "text",
+           "text": "Respetar las capas descritas en "
+          },
+          {
+           "type": "text",
+           "text": "AGENTS.md",
+           "marks": [
+            {
+             "type": "code"
+            }
+           ]
+          },
+          {
+           "type": "text",
+           "text": "."
+          }
+         ],
+         "attrs": {
+          "localId": "013d315b55ef"
+         }
+        }
+       ]
+      }
+     ],
+     "attrs": {
+      "localId": "b492111b4a08"
+     }
+    }
+   ]
+  },
+  "issuetype": {
+   "name": "Tarea"
+  },
+  "priority": {
+   "name": "Medium"
+  },
+  "status": {
+   "name": "Por hacer"
+  }
+ }
+}
