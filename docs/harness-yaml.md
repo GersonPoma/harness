@@ -43,6 +43,7 @@ docker:
     - pip install -r requirements-dev.txt
   reinstalar_si_cambia:
     - requirements*.txt
+  cache: true                       # caché de dependencias entre ejecuciones (por defecto)
 
 comandos:
   tests: pytest -q
@@ -113,6 +114,25 @@ archivos_protegidos:
 | `directorio_trabajo` | texto | no | `/app` | Ruta dentro del contenedor donde se monta el repo. Todos los comandos corren ahí. |
 | `instalar` | texto o lista de texto | no | `[]` | Comandos de instalación. Corren **una vez**, en orden, al crear el contenedor. Si uno falla, la ejecución se detiene con error. |
 | `reinstalar_si_cambia` | lista de globs | no | `[]` | Si el modelo modifica alguno de estos archivos (por ejemplo `requirements.txt`), el harness vuelve a ejecutar `instalar` antes del siguiente comando. |
+| `cache` | booleano | no | `true` | Guarda lo que descargan pip, uv, npm, Maven y Gradle en el volumen de Docker `harness-cache-<proyecto>`, que sobrevive entre ejecuciones. Con `false`, cada ejecución descarga todo de nuevo. Ver [Caché de dependencias](#caché-de-dependencias). |
+
+#### Caché de dependencias
+
+- El volumen `harness-cache-<proyecto>` se monta en `/harness-cache` del contenedor del
+  proyecto, **fuera del repo**: lo descargado nunca aparece en el repo, en Git ni en el PR.
+  Por eso `directorio_trabajo` no puede ser `/harness-cache`, estar dentro de esa ruta ni
+  contenerla.
+- Cada herramienta se redirige con su variable: `PIP_CACHE_DIR`, `UV_CACHE_DIR` (y
+  `UV_LINK_MODE=copy`), `npm_config_cache`, `GRADLE_USER_HOME` y, para Maven,
+  `MAVEN_OPTS=-Dmaven.repo.local=/harness-cache/maven`. Si `variables_entorno` ya define una,
+  se usa la del proyecto; si define `MAVEN_OPTS` sin `maven.repo.local`, la opción se agrega
+  al final.
+- Solo se guardan descargas: no se monta la caché del usuario (`~/.m2`, `~/.gradle`), no se
+  guardan secretos, y antes de instalar se borran `init.d/` y `gradle.properties` de la caché
+  de Gradle (Gradle los ejecutaría en cada build).
+- El volumen se crea la primera vez y **nunca se borra solo**. Para una ejecución sin caché:
+  `harness run --sin-cache` o `harness init --verificar --sin-cache`. Si otra ejecución del
+  mismo proyecto está viva, la nueva corre sin caché y lo avisa.
 
 ### `comandos`
 
@@ -210,6 +230,7 @@ Variables que se pasan al **contenedor del proyecto** (no a los servicios).
   en la rama.
 - El commit es de una línea: `<TICKET>: <título del ticket>` (la primera línea del ticket).
 - `harness run --sin-push` hace solo el commit local; `--sin-pr`, commit y push sin PR.
+  `--sin-cache` no usa la caché de dependencias (ver [`docker`](#docker)).
 - Sin `harness.yaml` no hay validación, y por eso tampoco rama, commit ni push.
 
 ### `limites`
@@ -290,6 +311,8 @@ AGENTS.md" pasa desapercibido y el modelo trabajaría sin las convenciones del p
 - `version` distinta de `1` → error: "versión de harness.yaml no soportada".
 - Nombres de `proyecto` y `servicios[].nombre` fuera de `[a-z0-9-]+`, o servicios repetidos →
   error.
+- `docker.directorio_trabajo` igual a `/harness-cache`, dentro de esa ruta o que la contenga
+  → error: "no puede coincidir con la caché de dependencias (/harness-cache)".
 - Si no existe `harness.yaml`, el harness avisa y sugiere `harness init`.
 
 ## Implementación

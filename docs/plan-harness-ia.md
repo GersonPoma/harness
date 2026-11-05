@@ -272,9 +272,11 @@ AL EMPEZAR LA EJECUCIÓN (una sola vez)
      --name harness-PROJ-123-db -e POSTGRES_PASSWORD -e POSTGRES_DB postgres:16
 3. esperar a que "pg_isready" responda                 ← Postgres tarda unos segundos
 4. docker run -d --network harness-PROJ-123 --name proyecto \
-     -e DATABASE_URL \
-     -v <repo>:/app -w /app <imagen> sleep infinity    ← queda vivo toda la ejecución
+     -e DATABASE_URL -e PIP_CACHE_DIR -e MAVEN_OPTS ... \
+     -v <repo>:/app -v harness-cache-<proyecto>:/harness-cache \
+     -w /app <imagen> sleep infinity                   ← queda vivo toda la ejecución
 5. docker exec proyecto <docker.instalar>              ← dependencias UNA sola vez
+                                                         (lo descargado queda en la caché)
 
 CADA VEZ QUE EL MODELO CORRE TESTS O UN COMANDO
 6. docker exec proyecto <comando>                      ← mismo contenedor, sin reinstalar
@@ -290,6 +292,8 @@ AL TERMINAR (siempre, en un try/finally)
   línea de comandos.
 - Un solo contenedor vivo + `docker exec` evita reinstalar dependencias en cada `pytest`,
   que sería muy lento.
+- El volumen de caché (fase 8) evita descargarlas de nuevo en cada **ejecución**: ver
+  [Caché de dependencias](#caché-de-dependencias).
 
 ### En `harness.yaml`
 
@@ -318,6 +322,78 @@ variables_entorno:                  # se pasan al contenedor del proyecto
   verdad, se escribe como `${NOMBRE_VARIABLE}` y el harness lo toma de la máquina del usuario.
 - El harness no exige `pyproject.toml` ni `uv` en el proyecto objetivo: se adapta a lo que
   use (`pip` + `requirements.txt`, `uv`, Maven, npm...) mediante `docker.instalar`.
+
+### Caché de dependencias
+
+El contenedor del proyecto se crea de cero en cada ejecución, y lo que descargaban pip, Maven o
+Gradle se borraba con él. Desde la fase 8 esas descargas quedan en un **volumen de Docker por
+proyecto**, `harness-cache-<proyecto>`, que sobrevive entre ejecuciones. El contenedor sigue
+siendo nuevo cada vez: lo que se instala dentro (site-packages, `target/`) no se guarda.
+
+- **Dónde:** el volumen se monta en `/harness-cache`, fuera del repo, y cada herramienta se
+  redirige a su subcarpeta con su propia variable. Así no importa el usuario ni el HOME de la
+  imagen, y no hace falta adivinar el stack: la variable de una herramienta que el proyecto
+  no usa no hace nada.
+
+  | Herramienta | Variable | Subcarpeta |
+  |---|---|---|
+  | pip | `PIP_CACHE_DIR` | `/harness-cache/pip` |
+  | uv | `UV_CACHE_DIR` (y `UV_LINK_MODE=copy`) | `/harness-cache/uv` |
+  | npm | `npm_config_cache` | `/harness-cache/npm` |
+  | Maven | `MAVEN_OPTS=-Dmaven.repo.local=…` (solo el repositorio, no `settings.xml`) | `/harness-cache/maven` |
+  | Gradle | `GRADLE_USER_HOME` (dependencias y la distribución del wrapper) | `/harness-cache/gradle` |
+
+  Si el proyecto ya define una en `variables_entorno`, se respeta la suya (y `MAVEN_OPTS` se
+  combina). Verificado en las tres imágenes de prueba (`python:3.12-slim`,
+  `maven:3.9-eclipse-temurin-21`, `gradle:8.14-jdk21`), que corren como root; con otro
+  usuario, el harness le da la caché con `chown` (sin `-R`). En la imagen de Gradle,
+  `/root/.gradle` apunta a un `VOLUME` anónimo que se borraba con el contenedor: por eso
+  library-api descargaba todo en cada corrida.
+- **Cómo se apaga:** `docker.cache: false` en `harness.yaml` (para el proyecto) o
+  `--sin-cache` en `harness run` / `harness init --verificar` (para una ejecución). En los dos
+  casos el volumen no se toca.
+- **Vida del volumen:** se crea la primera vez (`docker volume create` con las etiquetas
+  `harness=1` y `harness.cache=<proyecto>`) y **nunca se borra solo**: `docker rm -f -v` borra
+  los volúmenes anónimos, no uno con nombre. Se borra a mano o con `harness limpiar --cache`
+  (fase 11). La caché solo crece; `reinstalar_si_cambia` sigue igual, pero solo baja lo nuevo.
+- **Seguridad:**
+  - no puede colar archivos al repo: `docker.directorio_trabajo` no puede coincidir con
+    `/harness-cache` (error de validación), y los montajes de solo lectura de `.git`,
+    `harness.yaml` y `.harness` no cambian;
+  - no guarda secretos: nunca se monta la caché del usuario (`~/.m2`, `~/.gradle`, `.npmrc`,
+    `pip.conf`), solo se redirigen las cachés y el harness no escribe nada en el volumen;
+  - no guarda configuración que se ejecute: antes de instalar se borran `init.d/` y
+    `gradle.properties` de la caché de Gradle, que Gradle correría en cada build;
+  - **riesgo conocido:** un comando del modelo podría modificar un artefacto ya descargado y
+    la corrida siguiente del mismo proyecto lo usaría. Lo acotan que el código corre solo en
+    Docker, que el volumen es de un solo proyecto, `--sin-cache` y `harness limpiar --cache`.
+- **Ejecuciones simultáneas del mismo proyecto:** Maven y pip no siempre toleran dos
+  escrituras a la vez. El contenedor lleva la etiqueta `harness.proyecto=<proyecto>`; si al
+  arrancar hay otro vivo, se avisa ("Esta ejecución corre sin caché de dependencias: otra
+  ejecución de tienda-api la está usando (…)") y esa ejecución sigue sin caché. **Riesgo
+  conocido:** dos ejecuciones que arrancan en el mismo segundo pueden no verse.
+- **Consola y log:** "Caché de dependencias: volumen harness-cache-tienda-api (nuevo: esta
+  vez se descarga todo)." o "(reutilizado).", y "Dependencias instaladas en 8 s." (o
+  "reinstaladas … (cambió pom.xml)"). En el log, los eventos `cache` (volumen, si se usó, si
+  se creó, motivo) e `instalacion` (segundos, si es reinstalación, si terminó bien).
+
+**Resultados** (fase 8, `harness init --verificar`, que instala y corre los tests sin modelo
+ni rama; el tiempo es el de `docker.instalar`):
+
+| Proyecto | Sin caché | Con caché, 1.ª vez (volumen nuevo) | Con caché, reutilizada | Tamaño del volumen |
+|---|---|---|---|---|
+| tienda-api (Maven) | 51 s | 43 s | 8 s (4 s en las siguientes) | 81 MB |
+| library-api (Gradle) | 2 min 33 s | 2 min 23 s | 17 s | 319 MB |
+| tareas-api (pip) | no se midió | | | |
+
+- **tareas-api (pip) no se midió:** que pip usa `/harness-cache/pip` se comprobó en el paso 0
+  (`pip cache dir`), y el test con Docker real comprueba que la caché sobrevive entre
+  ejecuciones. Con pip la mejora es menor: se ahorra la descarga, pero instala igual.
+- **Dos ejecuciones a la vez no se probaron con Docker real:** lo cubren los tests unitarios,
+  con un `docker ps` simulado que devuelve otro contenedor del proyecto.
+- **Ctrl+C** en tienda-api (durante los tests, porque la instalación con caché tardó 4 s): no
+  quedó ningún contenedor con `label=harness=1`, los dos volúmenes `harness-cache-*` siguieron
+  y la corrida siguiente reutilizó la caché.
 
 ### Diseño del código
 
@@ -977,12 +1053,20 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
   - [x] **Pruebas reales en tareas-api:** REST (TAREAS-3), MCP por Docker (TAREAS-4), MCP
         remoto (TAREAS-5), `--sin-pr` sin comentario (TAREAS-2), ticket inexistente sin
         rama (TAREAS-99) y Ctrl+C sin contenedores ni rama (TAREAS-1).
-- [ ] **8.** Caché de dependencias. Con Gradle sobre Windows cada ejecución tarda varios
-      minutos solo en descargar dependencias.
-  - [ ] **Volumen de caché para dependencias** (clave nueva, por ejemplo `docker.cache`):
-        `/root/.m2` para Maven, la caché de pip o de npm. Guarda solo librerías descargadas,
-        nunca datos de la base. En tienda-api, cada ejecución tarda ~2 minutos solo en
-        descargar dependencias.
+- [ ] **8.** Caché de dependencias (ver [Caché de dependencias](#caché-de-dependencias))
+  - [x] **Volumen por proyecto** `harness-cache-<proyecto>`, montado en `/harness-cache`
+        (fuera del repo), con las variables de pip, uv, npm, Maven y Gradle; se respetan las
+        que el proyecto ya define. Guarda solo librerías descargadas, nunca datos de la base.
+  - [x] **`docker.cache`** en `harness.yaml` (por defecto `true`) y **`--sin-cache`** en
+        `run` e `init --verificar`. El volumen se crea con etiquetas y nunca se borra solo.
+  - [x] **Seguridad:** `directorio_trabajo` no puede pisar la caché, sin la caché del
+        usuario ni secretos, sin `init.d`/`gradle.properties` de Gradle, y `chown` si la
+        imagen no corre como root.
+  - [x] **Ejecuciones simultáneas:** si hay otra viva del mismo proyecto, esta corre sin
+        caché, con aviso.
+  - [x] **Avisos y log:** la caché usada (o por qué no) y los segundos de cada instalación.
+  - [x] **Prueba real:** tienda-api de 51 s a 8 s (81 MB) y library-api de 2 min 33 s a
+        17 s (319 MB); Ctrl+C sin contenedores y con la caché intacta.
 - [ ] **9.** Memoria y continuidad: manejo de contexto (recorte + resumen),
       `.harness/memory.md` con `save_memory`, y `harness resume`
   - [ ] **Cambio automático de proveedor al agotarse la cuota.** Lista de respaldo de
@@ -1107,6 +1191,11 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
   - [ ] **Etiquetas propias en contenedores y redes** (`harness=1`, `harness.ticket=...`):
         listar con `docker ps -a --filter label=harness=1` y limpiar cualquier resto huérfano
         del harness, no solo los que tienen el mismo nombre.
+  - [ ] **`_limpiar_restos` no debe matar otra ejecución viva.** Hoy borra los contenedores
+        con el mismo nombre que la ejecución nueva: con dos `init --verificar` simultáneos
+        del mismo proyecto (los dos se llaman `harness-<proyecto>-init`), o el mismo ticket
+        desde dos clones, la segunda mata los contenedores de la primera. Limpiar solo los
+        restos ya detenidos, o agregarle al nombre un sufijo propio de cada ejecución.
   - [x] **Cortar la espera de `listo_cuando` si el servicio ya murió** (`docker inspect`
         muestra `Running=false`), en vez de esperar el timeout completo. Ejemplo: con
         `POSTGRES_PASSWORD` vacío, PostgreSQL se cierra al instante, pero se esperan igual
@@ -1117,13 +1206,16 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         (`.pytest_cache/`, `*.egg-info/`, archivos que escribe un comando del modelo) queda
         con dueño root en la máquina del usuario. Ojo: `docker.instalar` con `pip install`
         necesita entonces un entorno virtual o `--user`, porque no podrá escribir en el
-        Python del sistema de la imagen.
+        Python del sistema de la imagen. La caché de dependencias ya hace `chown` de
+        `/harness-cache` al usuario de la imagen: con `--user` hay que dársela a ese usuario.
   - [ ] **Imágenes sin el comando `timeout`:** hoy cada comando corre con
         `timeout -s KILL` dentro del contenedor; si la imagen no lo trae, queda solo el
         timeout del lado del host. Las imágenes basadas en Debian o Alpine lo traen; una
         imagen mínima (distroless) no, y sus comandos fallarían con "timeout: not found".
   - [ ] **Comando `harness limpiar`:** borra los contenedores, redes y volúmenes
-        huérfanos del harness; con `--cache`, los volúmenes de caché de dependencias;
+        huérfanos del harness; con `--cache`, los volúmenes de caché de dependencias (los
+        de la etiqueta `harness.cache`, nunca por patrón de nombre; todos o el de un
+        proyecto con `--proyecto`), **mostrando el tamaño de cada uno antes de borrar**;
         con `--imagenes`, solo las imágenes usadas por los `harness.yaml`, sin tocar las
         de otros proyectos. Las imágenes se descargan una sola vez y Docker las reutiliza;
         lo que se repite en cada ejecución son las dependencias (ver volumen de caché).

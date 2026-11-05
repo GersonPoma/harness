@@ -60,6 +60,7 @@ harness/
     ├── config.py           # .env: proveedor, modelo, tokens
     ├── config_proyecto.py  # harness.yaml del repo objetivo
     ├── entorno_docker.py   # contenedores del proyecto y sus servicios
+    ├── cache_dependencias.py  # volumen de caché de dependencias por proyecto
     ├── entrega.py          # rama, commit, push y PR
     ├── git.py              # git del host
     ├── github.py           # PR por la API REST
