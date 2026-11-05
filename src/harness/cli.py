@@ -450,6 +450,8 @@ def resume(
     limites = prep.config_proyecto.limites if prep.config_proyecto else None
     presupuesto = max_pasos or (limites.max_pasos if limites else MAX_PASOS_POR_DEFECTO)
     reporte = _empezar_registro(prep)
+    # La memoria de la rama de hoy: el system prompt se regenera con ella al retomar.
+    consola.mostrar_memoria(prep.memoria)
     es_herramientas_github = not sin_herramientas_github and leer_herramientas_github_modelo()
     with ExitStack() as pila:
         conectar = partial(_conectar_mcp, prep, pila, reporte, es_herramientas_github)

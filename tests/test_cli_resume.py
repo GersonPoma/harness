@@ -100,6 +100,18 @@ def test_retoma_un_corte_por_limite_y_termina(
     assert resume["motivo_corte"] == MOTIVO_LIMITE_PASOS
 
 
+def test_al_retomar_la_memoria_de_la_rama_va_al_prompt(
+    monkeypatch: pytest.MonkeyPatch, repo: Path
+) -> None:
+    guardar = LlamadaHerramienta("m1", "guardar_memoria", {"nota": "Los tests usan DB_URL."})
+    _run(monkeypatch, repo, [pedir(guardar)], "--sin-plan", "--max-pasos", "1")
+
+    codigo, salida, proveedor, _ = _resume(monkeypatch, repo, [terminar()])
+    assert codigo == 0
+    assert "Memoria del proyecto cargada (1 nota)." in salida
+    assert "Los tests usan DB_URL." in proveedor.conversaciones[0][0].contenido
+
+
 def test_otro_corte_al_retomar_se_puede_retomar_otra_vez(
     monkeypatch: pytest.MonkeyPatch, repo: Path
 ) -> None:
