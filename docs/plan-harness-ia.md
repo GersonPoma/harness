@@ -1053,7 +1053,7 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
   - [x] **Pruebas reales en tareas-api:** REST (TAREAS-3), MCP por Docker (TAREAS-4), MCP
         remoto (TAREAS-5), `--sin-pr` sin comentario (TAREAS-2), ticket inexistente sin
         rama (TAREAS-99) y Ctrl+C sin contenedores ni rama (TAREAS-1).
-- [ ] **8.** Caché de dependencias (ver [Caché de dependencias](#caché-de-dependencias))
+- [x] **8.** Caché de dependencias (ver [Caché de dependencias](#caché-de-dependencias))
   - [x] **Volumen por proyecto** `harness-cache-<proyecto>`, montado en `/harness-cache`
         (fuera del repo), con las variables de pip, uv, npm, Maven y Gradle; se respetan las
         que el proyecto ya define. Guarda solo librerías descargadas, nunca datos de la base.
