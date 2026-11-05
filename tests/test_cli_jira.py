@@ -257,6 +257,17 @@ def test_harness_ticket_con_error(monkeypatch: pytest.MonkeyPatch) -> None:
 # --- El prompt ----------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("ticket", ["# TAREAS-4: De Jira\n\n**Tipo:** Tarea", "# Ticket local"])
+def test_el_ticket_del_mensaje_es_la_fuente_de_verdad(ticket: str) -> None:
+    # En la prueba real el modelo leyó tickets/TAREAS-4.md del repo teniendo ya el de Jira.
+    (sistema, _) = crear_mensajes_iniciales(ticket)
+    indicacion = (
+        "El ticket completo ya está en el mensaje del usuario. No busques el ticket en archivos "
+        "del repositorio; si encuentras una copia, la del mensaje es la que vale."
+    )
+    assert indicacion in " ".join(sistema.contenido.split())
+
+
 def test_el_prompt_explica_los_criterios_marcados_como_hechos() -> None:
     (sistema, _) = crear_mensajes_iniciales("ticket")
     contenido = " ".join(sistema.contenido.split())

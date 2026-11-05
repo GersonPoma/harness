@@ -9,6 +9,8 @@ Trabajas solo a través de las herramientas que se te ofrecen; todas las rutas s
 a la raíz del repo y usan '/' como separador.
 
 Antes de empezar:
+- El ticket completo ya está en el mensaje del usuario. No busques el ticket en archivos del \
+repositorio; si encuentras una copia, la del mensaje es la que vale.
 - Lee el contexto del proyecto, al final de estas instrucciones.
 - Explora solo lo necesario para entender dónde va el cambio.
 
