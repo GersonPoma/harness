@@ -225,6 +225,10 @@ class RegistroPasos:
             "paso": paso,
         })
 
+    def registrar_memoria(self, nota: str) -> None:
+        """Registra que el modelo guardó una nota (su largo: el texto queda en memory.md)."""
+        self._escribir({"evento": "memoria", "caracteres": len(nota)})
+
     def registrar_aviso(self, mensaje: str) -> None:
         """Registra un aviso que no corta la ejecución (por ejemplo, una respuesta vacía)."""
         self._escribir({"evento": "aviso", "mensaje": mensaje})

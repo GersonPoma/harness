@@ -762,3 +762,65 @@ def test_el_paso_de_proponer_plan_no_repite_el_plan(
     _, salida = _correr(monkeypatch, repo_sin_yaml, [proponer(), _escribir("nuevo.py"), terminar()])
     assert "proponer_plan(resumen=<24 caracteres>" not in salida
     assert "archivos=<1 elementos>" in salida and "pasos=<1 elementos>" in salida
+
+
+# --- Memoria del proyecto ------------------------------------------------------------------
+
+
+def _guardar_memoria(nota: str) -> RespuestaModelo:
+    return pedir(LlamadaHerramienta("m1", "guardar_memoria", {"nota": nota}))
+
+
+def test_el_modelo_guarda_una_nota_y_la_siguiente_ejecucion_la_ve(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    respuestas = [_guardar_memoria("Los tests necesitan DB_URL."), terminar()]
+    codigo, salida = _correr(monkeypatch, repo_sin_yaml, respuestas, "--sin-plan")
+    assert codigo == 0
+    assert "Memoria: nota guardada en .harness/memory.md: - Los tests necesitan DB_URL." in (
+        " ".join(salida.split())
+    )
+    memoria = (repo_sin_yaml / ".harness" / "memory.md").read_text(encoding="utf-8")
+    assert "- Los tests necesitan DB_URL. (T-1, " in memoria
+    (evento,) = [e for e in _eventos_del_log(repo_sin_yaml) if e["evento"] == "memoria"]
+    assert evento["caracteres"] > 0 and "DB_URL" not in str(evento)
+
+    # Otra ejecución desde el mismo repo (en Git: la misma rama) trae la nota en el prompt.
+    for log in (repo_sin_yaml / ".harness" / "logs").glob("*.jsonl"):
+        log.unlink()
+    proveedor = ProveedorFalso([terminar()])
+    _, salida = _correr(monkeypatch, repo_sin_yaml, proveedor, "--sin-plan", "--desde-cero")
+    assert "Memoria del proyecto cargada (1 nota)." in salida
+    assert "Los tests necesitan DB_URL." in proveedor.conversaciones[0][0].contenido
+
+
+def test_guardar_memoria_no_esta_en_la_ronda_de_plan(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    proveedor = ProveedorFalso([proponer(), _escribir("nuevo.py"), terminar()])
+    _correr(monkeypatch, repo_sin_yaml, proveedor)
+    assert "guardar_memoria" not in proveedor.herramientas[0]
+    assert "guardar_memoria" in proveedor.herramientas[1]
+
+
+def test_la_memoria_no_cuenta_como_fuera_del_plan(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    respuestas = [proponer(), _escribir("nuevo.py"), _guardar_memoria("Una nota."), terminar()]
+    codigo, salida = _correr(monkeypatch, repo_sin_yaml, respuestas)
+    assert codigo == 0
+    assert "no estaban en el plan" not in salida
+    assert _eventos_del_log(repo_sin_yaml)[-1]["fuera_del_plan"] == []
+
+
+@requiere_git
+def test_avisa_si_el_gitignore_ignora_la_memoria(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    (repo_sin_yaml / ".gitignore").write_text(".harness/\n", encoding="utf-8")
+    iniciar_repo(repo_sin_yaml)
+    respuestas = [_guardar_memoria("uno"), _guardar_memoria("dos"), terminar()]
+    _, salida = _correr(monkeypatch, repo_sin_yaml, respuestas, "--sin-plan")
+    aviso = ".harness/memory.md está ignorado por el .gitignore: la nota no entrará en el commit."
+    # Una sola vez, aunque se guarden varias notas.
+    assert " ".join(salida.split()).count(aviso) == 1

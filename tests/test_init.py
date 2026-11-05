@@ -188,6 +188,10 @@ def test_cli_init_sin_nada_que_generar(monkeypatch: pytest.MonkeyPatch, repo_vac
     assert codigo == 0
     assert "no hay nada que generar" in salida
     assert proveedor.conversaciones == []
+    # Igual deja el .gitignore con los logs y las sesiones (no .harness/ entero).
+    assert "Agregado al .gitignore: .harness/logs/, .harness/sessions/." in salida
+    gitignore = (repo_vacio / ".gitignore").read_text(encoding="utf-8")
+    assert ".harness/logs/" in gitignore and "memory.md sí se sube" in gitignore
 
 
 def test_cli_init_verificar_ok(monkeypatch: pytest.MonkeyPatch, repo_vacio: Path) -> None:

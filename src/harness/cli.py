@@ -75,7 +75,21 @@ from harness.herramientas.remotas import (
     PREFIJO_GITHUB,
     crear_herramientas_mcp,
 )
-from harness.init import ErrorInit, archivos_faltantes, ejecutar_init, verificar_config
+from harness.init import (
+    ErrorInit,
+    archivos_faltantes,
+    asegurar_gitignore,
+    ejecutar_init,
+    verificar_config,
+)
+from harness.memoria import (
+    RUTA_MEMORIA,
+    Memoria,
+    cargar_memoria,
+    crear_herramienta_memoria,
+    esta_ignorada,
+    notas_nuevas,
+)
 from harness.plan import Plan
 from harness.planificacion import ErrorPlan, calcular_pasos_plan
 from harness.prompts import crear_mensajes_iniciales
@@ -153,6 +167,8 @@ class _Preparacion:
     reanudacion: Reanudacion | None = None
     # Con harness resume: el texto del ticket tal como lo recibió el modelo la primera vez.
     texto_guardado: str | None = None
+    # .harness/memory.md de la rama actual (lo que dejaron los tickets ya mergeados).
+    memoria: Memoria = field(default_factory=Memoria)
     token_github: str | None = None
     # Servidor MCP de GitHub de mcp.json (None: no hay) y sus herramientas para el modelo.
     servidor_github: ServidorMCP | None = None
@@ -203,6 +219,7 @@ class _Reporte:
         # Los modelos que respondieron, en orden (más de uno si se pasó al respaldo).
         self.modelos_usados = [modelo] if modelo else []
         self.sesion: SesionEnCurso | None = None
+        self._es_memoria_revisada = False
 
     def paso(self, paso: Paso) -> None:
         self._ultimo_paso = paso.numero
@@ -243,6 +260,17 @@ class _Reporte:
         self.registro.registrar_validacion(validacion)
         if self.sesion:
             self.sesion.validacion()
+
+    def nota_guardada(self, repo: Path, nota: str) -> None:
+        consola.mostrar_nota_guardada(nota)
+        self.registro.registrar_memoria(nota)
+        if not self._es_memoria_revisada:
+            self._es_memoria_revisada = True
+            if esta_ignorada(repo):
+                self.aviso(
+                    f"{RUTA_MEMORIA} está ignorado por el .gitignore: la nota no entrará en el "
+                    "commit. Ignora solo .harness/logs/ y .harness/sessions/."
+                )
 
     def cache(self, cache: EstadoCache) -> None:
         consola.mostrar_cache(cache)
@@ -315,6 +343,7 @@ def run(
     if prep.datos_ticket.es_recortado:
         reporte.aviso(_aviso_recorte_ticket(prep.datos_ticket))
     consola.mostrar_contexto(prep.contexto)
+    consola.mostrar_memoria(prep.memoria)
     _avisar_recorte_plan(prep, max_pasos, reporte)
     es_herramientas_github = not sin_herramientas_github and leer_herramientas_github_modelo()
     # El servidor MCP se abre en el preflight y se cierra al salir del with: también con
@@ -859,8 +888,9 @@ def _hacer_entrega(
         comandos = prep.config_proyecto.comandos
         modelo = ", después ".join(reporte.modelos_usados)
         # El resumen lo escribió el modelo: podría repetir un secreto que vio en una salida.
+        notas = notas_nuevas(prep.repo, config.base)
         cuerpo = ocultar_secretos(
-            crear_cuerpo_pr(resultado, cambios, comandos, modelo), prep.secretos
+            crear_cuerpo_pr(resultado, cambios, comandos, modelo, notas), prep.secretos
         )
         return PedidoPullRequest(repo_github, config.rama, config.base, mensaje, cuerpo)
 
@@ -1033,6 +1063,7 @@ def _preparar_ejecucion(
         )
     _avisar_secretos_cortos([config, *respaldo], variables, servidor_github, servidor_jira)
     contexto = cargar_agents_md(repo)
+    memoria = cargar_memoria(repo)
     # Para ejecuciones sin nadie mirando la consola: el aviso de "falta AGENTS.md" no alcanza.
     if config_proyecto and config_proyecto.requiere_agents_md and not contexto.tiene_contenido:
         consola.mostrar_error(MENSAJE_REQUIERE_AGENTS)
@@ -1041,7 +1072,7 @@ def _preparar_ejecucion(
         repo, datos_ticket, config, config_proyecto,
         variables or VariablesResueltas(), contexto, token_github=leer_token_github(),
         servidor_github=servidor_github, config_jira=config_jira, servidor_jira=servidor_jira,
-        respaldo=respaldo,
+        respaldo=respaldo, memoria=memoria,
     )
 
 
@@ -1111,7 +1142,7 @@ def _ejecutar(
         resultado = ejecutar_ticket(
             proveedor,
             mensajes,
-            crear_herramientas(prep.repo, extras=prep.herramientas_github),
+            crear_herramientas(prep.repo, extras=_herramientas_extra(prep, reporte)),
             max_pasos,
             al_paso=reporte.paso,
             al_aviso=reporte.aviso,
@@ -1164,7 +1195,11 @@ def _ejecutar_con_validacion(
         proveedor,
         mensajes,
         crear_herramientas(
-            prep.repo, config_proyecto, ejecutor, entorno.marcar_cambio, prep.herramientas_github
+            prep.repo,
+            config_proyecto,
+            ejecutor,
+            entorno.marcar_cambio,
+            _herramientas_extra(prep, reporte),
         ),
         max_pasos,
         validar=partial(validar_proyecto, ejecutor, comandos.tests, comandos.lint),
@@ -1185,12 +1220,21 @@ def _mensajes_iniciales(prep: _Preparacion, hay_validacion: bool) -> list[Mensaj
         prep.contexto,
         hay_validacion=hay_validacion,
         hay_github_mcp=bool(prep.herramientas_github),
+        memoria=prep.memoria,
     )
     if prep.reanudacion is None:
         return mensajes
     # El system prompt se regenera: AGENTS.md, la memoria o el propio prompt pueden haber
     # cambiado desde el corte.
     return [mensajes[0], *prep.reanudacion.mensajes]
+
+
+def _herramientas_extra(prep: _Preparacion, reporte: _Reporte) -> list[Herramienta]:
+    """Las de GitHub por MCP y guardar_memoria (solo en la implementación, no en el plan)."""
+    memoria = crear_herramienta_memoria(
+        prep.repo, prep.ticket, prep.secretos, partial(reporte.nota_guardada, prep.repo)
+    )
+    return [*prep.herramientas_github, memoria]
 
 
 def _repo_al_empezar(prep: _Preparacion) -> Instantanea:
@@ -1263,6 +1307,9 @@ def init(
         _generar_archivos_init(raiz, faltantes)
     else:
         consola.mostrar_aviso("El repo ya tiene AGENTS.md y harness.yaml: no hay nada que generar.")
+    agregadas = asegurar_gitignore(raiz)
+    if agregadas:
+        consola.mostrar_gitignore(agregadas)
     if verificar:
         _verificar_init(raiz, usar_cache=not sin_cache)
 

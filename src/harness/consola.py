@@ -20,6 +20,7 @@ from harness.entorno_docker import MOTIVO_SIN_CACHE, Instalacion, ResultadoComan
 from harness.entrega import ConfigEntrega, ResultadoEntrega
 from harness.github import PullRequest
 from harness.init import ResultadoInit
+from harness.memoria import MAX_CARACTERES_MEMORIA, RUTA_MEMORIA, Memoria
 from harness.plan import Plan, archivos_fuera_del_plan
 from harness.proveedores.base import MOTIVO_CAIDO, MOTIVO_CUOTA_DIARIA, MOTIVO_LIMITE
 from harness.proveedores.respaldo import CambioProveedor
@@ -125,6 +126,25 @@ def mostrar_retomando(clave: str, motivo: str, pasos: int) -> None:
 def mostrar_rama_retomada(config: ConfigEntrega) -> None:
     """La rama de la ejecución que se retoma (ya existía: no se crea)."""
     consola.print(f"[dim]Se sigue en la rama {escape(config.rama)}.[/]")
+
+
+def mostrar_memoria(memoria: Memoria) -> None:
+    """Si el repo tiene memoria del proyecto, cuántas notas trae."""
+    if memoria.texto is None:
+        return
+    notas = memoria.notas
+    plural = "s" if notas != 1 else ""
+    consola.print(f"[dim]Memoria del proyecto cargada ({notas} nota{plural}).[/]")
+    if memoria.es_recortada:
+        mostrar_aviso(
+            f"{RUTA_MEMORIA} tiene {memoria.caracteres_originales} caracteres: el modelo "
+            f"recibe los primeros {MAX_CARACTERES_MEMORIA}. Conviene depurarla."
+        )
+
+
+def mostrar_nota_guardada(nota: str) -> None:
+    """La nota que el modelo agregó a la memoria del proyecto."""
+    consola.print(f"[dim]Memoria: nota guardada en {RUTA_MEMORIA}: {escape(nota)}[/]")
 
 
 def mostrar_como_retomar(clave: str) -> None:
@@ -439,6 +459,11 @@ def mostrar_inicio_init(repo: str, proveedor: str, modelo: str, faltantes: list[
         f"[bold green]Init[/] {escape(repo)}  [bold green]Genera[/] {escape(', '.join(faltantes))}"
         f"\n[bold green]Modelo[/] {escape(proveedor)} / {escape(modelo)}"
     )
+
+
+def mostrar_gitignore(agregadas: list[str]) -> None:
+    """Las líneas que init agregó al .gitignore del repo."""
+    consola.print(f"[dim]Agregado al .gitignore: {escape(', '.join(agregadas))}.[/]")
 
 
 def mostrar_fin_init(resultado: ResultadoInit, ruta_log: str) -> None:

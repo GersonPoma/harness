@@ -44,6 +44,9 @@ LINEA_REQUIERE_AGENTS = (
     f"{CLAVE_REQUIERE_AGENTS}: false  # true = harness run se detiene si falta AGENTS.md\n"
 )
 PATRON_LINEA_PROYECTO = re.compile(r"^proyecto:.*(?:\n|$)", re.MULTILINE)
+NOMBRE_GITIGNORE = ".gitignore"
+LINEAS_GITIGNORE = (".harness/logs/", ".harness/sessions/")
+COMENTARIO_GITIGNORE = "# Datos locales del harness (.harness/memory.md sí se sube)"
 
 
 class ErrorInit(Exception):
@@ -59,6 +62,25 @@ class ResultadoInit:
     tokens_entrada: int = 0
     tokens_salida: int = 0
     texto_final: str | None = None
+
+
+def asegurar_gitignore(repo: Path) -> list[str]:
+    """Agrega al .gitignore (o lo crea) los logs y las sesiones del harness, si faltan.
+
+    Solo esas dos: .harness/memory.md se sube a Git, así que .harness/ entero no se ignora.
+    Nunca reescribe lo que ya tiene el archivo. Devuelve las líneas agregadas.
+    """
+    ruta = repo / NOMBRE_GITIGNORE
+    actual = ruta.read_text(encoding="utf-8", errors="replace") if ruta.is_file() else ""
+    presentes = {linea.strip().rstrip("/") for linea in actual.splitlines()}
+    faltantes = [linea for linea in LINEAS_GITIGNORE if linea.rstrip("/") not in presentes]
+    if not faltantes:
+        return []
+    separador = "\n" if actual and not actual.endswith("\n") else ""
+    bloque = "\n".join([COMENTARIO_GITIGNORE, *faltantes])
+    espacio = "\n" if actual.strip() else ""
+    ruta.write_text(f"{actual}{separador}{espacio}{bloque}\n", encoding="utf-8")
+    return faltantes
 
 
 def archivos_faltantes(repo: Path) -> list[str]:

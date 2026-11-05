@@ -253,8 +253,8 @@ Además de las que se pongan aquí, **siempre** están protegidas, aunque no se 
 - `harness.yaml`: para que el modelo no pueda aflojar sus propios límites.
 - `.git/**`
 - `.harness/sessions/**` y `.harness/logs/**`
-
-`.harness/memory.md` no está protegido: lo modifica la herramienta `guardar_memoria`.
+- `.harness/memory.md`: solo cambia nota por nota, con la herramienta `guardar_memoria`
+  (nunca reescrito entero con `escribir_archivo`).
 
 Hay además archivos que el modelo **no puede ni leer**, igual que `.git/`:
 

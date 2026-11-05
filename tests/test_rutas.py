@@ -69,13 +69,18 @@ def test_rechaza_symlink_a_un_env(repo: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "ruta", ["harness.yaml", "HARNESS.YAML", ".harness/logs/x.jsonl", ".harness/sessions/T.json"]
+    "ruta",
+    [
+        "harness.yaml", "HARNESS.YAML", ".harness/logs/x.jsonl", ".harness/sessions/T.json",
+        # La memoria solo cambia nota por nota, con guardar_memoria.
+        ".harness/memory.md",
+    ],
 )
 def test_escritura_protegida(repo: Path, ruta: str) -> None:
     with pytest.raises(ErrorRuta, match="protegido"):
         validar_escritura(repo, resolver_ruta(repo, ruta))
 
 
-@pytest.mark.parametrize("ruta", ["src/nuevo.py", "docs/harness.yaml", ".harness/memory.md"])
+@pytest.mark.parametrize("ruta", ["src/nuevo.py", "docs/harness.yaml", "docs/memory.md"])
 def test_escritura_permitida(repo: Path, ruta: str) -> None:
     validar_escritura(repo, resolver_ruta(repo, ruta))

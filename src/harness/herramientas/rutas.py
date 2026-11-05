@@ -7,8 +7,9 @@ from harness.globs import coincide_alguno
 from harness.secretos import es_archivo_de_secretos
 
 # Siempre protegidos contra escritura (docs/harness-yaml.md, archivos_protegidos).
-# harness.yaml para que el modelo no pueda aflojar sus propios límites.
-ARCHIVOS_PROTEGIDOS = ("harness.yaml",)
+# harness.yaml para que el modelo no pueda aflojar sus propios límites; la memoria, para que
+# solo cambie nota por nota con guardar_memoria (nunca reescrita entera).
+ARCHIVOS_PROTEGIDOS = ("harness.yaml", ".harness/memory.md")
 CARPETAS_PROTEGIDAS = (".git", ".harness/sessions", ".harness/logs")
 # .git ni siquiera se puede leer: no aporta al modelo y puede contener credenciales.
 CARPETAS_PROHIBIDAS = (".git",)

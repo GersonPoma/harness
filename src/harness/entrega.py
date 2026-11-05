@@ -359,7 +359,11 @@ def _dejar_pr_a_mano(
 
 
 def crear_cuerpo_pr(
-    resultado: ResultadoEjecucion, cambios: CambiosRepo, comandos: ConfigComandos, modelo: str
+    resultado: ResultadoEjecucion,
+    cambios: CambiosRepo,
+    comandos: ConfigComandos,
+    modelo: str,
+    notas_memoria: list[str] | None = None,
 ) -> str:
     """Descripción del PR en Markdown: resumen del modelo, plan, validación y cambios."""
     resumen = (resultado.texto_final or "").strip() or "_El modelo no dejó un resumen._"
@@ -368,9 +372,22 @@ def crear_cuerpo_pr(
         f"## Plan\n\n{_plan_en_markdown(resultado)}",
         f"## Validación\n\n{_validacion_en_markdown(resultado, comandos)}",
         f"## Cambios\n\n{_cambios_en_markdown(cambios)}",
-        f"---\n_Generado por harness con `{modelo}`. Revísalo antes de aprobarlo._",
     ]
+    if notas_memoria:
+        secciones.append(f"## Memoria del proyecto\n\n{_memoria_en_markdown(notas_memoria)}")
+    secciones.append(f"---\n_Generado por harness con `{modelo}`. Revísalo antes de aprobarlo._")
     return "\n\n".join(secciones)
+
+
+def _memoria_en_markdown(notas: list[str]) -> str:
+    # La memoria pasa por la revisión del PR: recién mergeada la ven los tickets siguientes.
+    lineas = [
+        "Notas nuevas en `.harness/memory.md`. Estas notas valen para los próximos tickets "
+        "cuando se mergee este PR: revísalas como el resto del código.",
+        "",
+        *notas,
+    ]
+    return "\n".join(lineas)
 
 
 def _plan_en_markdown(resultado: ResultadoEjecucion) -> str:
