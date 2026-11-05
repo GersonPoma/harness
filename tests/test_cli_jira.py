@@ -10,6 +10,8 @@ from typer.testing import CliRunner
 
 from harness import cli, jira
 from harness.config import ConfigJira
+from harness.github import PullRequest
+from harness.jira import comentario_adf
 from harness.prompts import crear_mensajes_iniciales
 from harness.ticket import MAX_CARACTERES_DESCRIPCION
 from harness.tipos import Rol
@@ -17,6 +19,7 @@ from tests.datos.servidor_mcp_jira_falso import VAR_COMENTARIOS, VAR_ESTILO
 from tests.falsos import ProveedorFalso, terminar
 from tests.git_prueba import git, requiere_git
 from tests.test_cli import (  # noqa: F401 - repo_sin_yaml es un fixture
+    _con_github_al_empezar,
     _correr,
     _correr_con_entrega,
     _eventos_del_log,
@@ -43,17 +46,28 @@ def _con_jira(
     issue: dict | None = None,
     respuesta_myself: httpx.Response | None = None,
     respuesta_issue: httpx.Response | None = None,
+    comentarios: list[str] | None = None,
+    respuesta_comentar: httpx.Response | None = None,
 ) -> list[httpx.Request]:
-    """Jira simulado: /myself y el issue. Devuelve los pedidos que recibió."""
+    """Jira simulado: /myself, el issue y sus comentarios. Devuelve los pedidos que recibió.
+
+    `comentarios` son los textos que ya tiene el ticket; los que se agregan se suman ahí.
+    """
     monkeypatch.setenv("JIRA_URL", "https://ejemplo.atlassian.net")
     monkeypatch.setenv("JIRA_EMAIL", "yo@ejemplo.com")
     monkeypatch.setenv("JIRA_API_TOKEN", TOKEN_JIRA)
     pedidos: list[httpx.Request] = []
+    existentes = comentarios if comentarios is not None else []
 
     def responder(pedido: httpx.Request) -> httpx.Response:
         pedidos.append(pedido)
         if pedido.url.path.endswith("/myself"):
             return respuesta_myself or httpx.Response(200, json={"accountId": "yo"})
+        if pedido.url.path.endswith("/comment") and pedido.method == "GET":
+            cuerpos = [{"body": comentario_adf(texto, "")} for texto in existentes]
+            return httpx.Response(200, json={"comments": cuerpos, "total": len(cuerpos)})
+        if pedido.url.path.endswith("/comment"):
+            return respuesta_comentar or httpx.Response(201, json={"id": "1"})
         return respuesta_issue or httpx.Response(200, json=issue or _issue(3))
 
     transporte = httpx.MockTransport(responder)
@@ -376,3 +390,120 @@ def test_una_variable_corta_de_harness_yaml_tiene_su_propio_aviso(
     )
     assert salida_plana.count(aviso) == 1
     assert "CLAVE_DB_PRUEBA es demasiado corto para ser un token real" not in salida_plana
+
+
+# --- Comentario con el link del PR --------------------------------------------------------
+
+URL_PR = "https://github.com/gerson/demo/pull/3"
+
+
+def _con_pr(monkeypatch: pytest.MonkeyPatch, es_borrador: bool = True) -> None:
+    """El PR se crea por la API REST (simulada) en un remoto que parece de GitHub."""
+    monkeypatch.setenv("GITHUB_TOKEN", "github-token-falso-0123")
+    _con_github_al_empezar(monkeypatch)
+    pr = PullRequest(URL_PR, es_borrador=es_borrador, es_borrador_rechazado=not es_borrador)
+    monkeypatch.setattr("harness.entrega.github.crear_pull_request", lambda pedido, token: pr)
+
+
+def _comentarios_enviados(pedidos: list[httpx.Request]) -> list[dict]:
+    return [json.loads(p.content)["body"] for p in pedidos
+            if p.method == "POST" and p.url.path.endswith("/comment")]
+
+
+@requiere_git
+def test_despues_del_pr_comenta_el_link_por_rest(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path  # noqa: F811
+) -> None:
+    pedidos = _con_jira(monkeypatch)
+    _con_pr(monkeypatch)
+    codigo, salida, _ = _correr_con_entrega(monkeypatch, repo_sin_yaml, True, ticket="TAREAS-3")
+
+    assert codigo == 0
+    assert _comentarios_enviados(pedidos) == [
+        comentario_adf("Pull request en borrador creado por harness: ", URL_PR)
+    ]
+    salida_plana = " ".join(salida.split())
+    assert ("✓ Comentario en TAREAS-3 (por la API REST): "
+            "https://ejemplo.atlassian.net/browse/TAREAS-3") in salida_plana
+    (evento,) = [e for e in _eventos_del_log(repo_sin_yaml) if e["evento"] == "jira_comentario"]
+    assert (evento["estado"], evento["camino"]) == ("comentado", "rest")
+
+
+@requiere_git
+def test_si_el_borrador_no_se_admitio_el_comentario_no_dice_borrador(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path  # noqa: F811
+) -> None:
+    pedidos = _con_jira(monkeypatch)
+    _con_pr(monkeypatch, es_borrador=False)
+    _correr_con_entrega(monkeypatch, repo_sin_yaml, True, ticket="TAREAS-3")
+    (comentario,) = _comentarios_enviados(pedidos)
+    assert comentario["content"][0]["content"][0]["text"] == "Pull request creado por harness: "
+
+
+@requiere_git
+def test_si_el_ticket_ya_tiene_el_link_no_comenta_otra_vez(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path  # noqa: F811
+) -> None:
+    pedidos = _con_jira(monkeypatch, comentarios=[f"Pull request en borrador: {URL_PR}"])
+    _con_pr(monkeypatch)
+    codigo, salida, _ = _correr_con_entrega(monkeypatch, repo_sin_yaml, True, ticket="TAREAS-3")
+
+    assert codigo == 0 and _comentarios_enviados(pedidos) == []
+    assert "El ticket TAREAS-3 ya tiene el link del PR: no se comenta otra vez." in (
+        " ".join(salida.split())
+    )
+
+
+@requiere_git
+def test_si_el_comentario_falla_solo_avisa(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path  # noqa: F811
+) -> None:
+    rechazo = httpx.Response(403, json={"errorMessages": ["No tienes permiso para comentar."]})
+    _con_jira(monkeypatch, respuesta_comentar=rechazo)
+    _con_pr(monkeypatch)
+    codigo, salida, _ = _correr_con_entrega(monkeypatch, repo_sin_yaml, True, ticket="TAREAS-3")
+
+    # El código está validado, subido y el PR existe: el comentario no cambia el resultado.
+    assert codigo == 0
+    salida_plana = " ".join(salida.split())
+    assert "No se pudo comentar en TAREAS-3: Jira no agregó el comentario" in salida_plana
+    assert f"Agrégalo a mano: {URL_PR}" in salida_plana
+
+
+@requiere_git
+@pytest.mark.parametrize("opcion", ["--sin-pr", "--sin-push"])
+def test_sin_pr_no_comenta(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path, opcion: str  # noqa: F811
+) -> None:
+    pedidos = _con_jira(monkeypatch)
+    _con_pr(monkeypatch)
+    codigo, salida, _ = _correr_con_entrega(
+        monkeypatch, repo_sin_yaml, True, opcion, ticket="TAREAS-3"
+    )
+    assert codigo == 0 and "Comentario" not in salida
+    assert not [p for p in pedidos if p.url.path.endswith("/comment")]
+
+
+@requiere_git
+def test_un_ticket_local_no_comenta(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path  # noqa: F811
+) -> None:
+    pedidos = _con_jira(monkeypatch)
+    _con_pr(monkeypatch)
+    codigo, _, _ = _correr_con_entrega(monkeypatch, repo_sin_yaml, True)
+    assert codigo == 0 and pedidos == []
+
+
+@requiere_git
+def test_comenta_por_mcp(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, repo_sin_yaml: Path  # noqa: F811
+) -> None:
+    pedidos = _con_jira(monkeypatch)
+    _con_pr(monkeypatch)
+    _mcp_json(monkeypatch, tmp_path, {"jira": _jira_falso(tmp_path)})
+    codigo, salida, _ = _correr_con_entrega(monkeypatch, repo_sin_yaml, True, ticket="TAREAS-3")
+
+    assert codigo == 0 and _comentarios_enviados(pedidos) == []
+    guardados = json.loads((tmp_path / "comentarios.json").read_text(encoding="utf-8"))
+    assert guardados == {"TAREAS-3": [f"Pull request en borrador creado por harness: {URL_PR}"]}
+    assert "✓ Comentario en TAREAS-3 (por MCP)" in " ".join(salida.split())

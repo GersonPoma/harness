@@ -7,6 +7,7 @@ from typing import Any
 
 from harness.bucle import Paso
 from harness.cambios import CambiosRepo
+from harness.comentario_pr import ResultadoComentario
 from harness.config_mcp import ServidorMCP
 from harness.carpetas import CARPETA_LOGS
 from harness.contexto import ContextoProyecto
@@ -139,6 +140,16 @@ class RegistroPasos:
             "caracteres": len(ticket.descripcion),
             "es_recortado": ticket.es_recortado,
             "caracteres_originales": ticket.caracteres_originales,
+        })
+
+    def registrar_comentario_jira(self, clave: str, resultado: ResultadoComentario) -> None:
+        """Registra si se comentó el link del PR en Jira, por dónde, o por qué no."""
+        self._escribir({
+            "evento": "jira_comentario",
+            "ticket": clave,
+            "estado": resultado.estado,
+            "camino": resultado.camino,
+            "error": resultado.error,
         })
 
     def registrar_rama(self, config: ConfigEntrega) -> None:

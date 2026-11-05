@@ -118,6 +118,19 @@ def comentar(
         raise ErrorJira(f"Jira no agregó el comentario en {clave}: {_describir(respuesta)}")
 
 
+def texto_comentario_pr(es_borrador: bool) -> str:
+    """Comienzo del comentario con el link del PR, según cómo quedó el PR."""
+    tipo = "Pull request en borrador" if es_borrador else "Pull request"
+    return f"{tipo} creado por harness: "
+
+
+def comentario_adf(texto: str, url: str) -> dict[str, Any]:
+    """El comentario en ADF (lo que pide la API REST v3): el texto y la URL como enlace."""
+    enlace = {"type": "text", "text": url, "marks": [{"type": "link", "attrs": {"href": url}}]}
+    parrafo = {"type": "paragraph", "content": [{"type": "text", "text": texto}, enlace]}
+    return {"type": "doc", "version": 1, "content": [parrafo]}
+
+
 def _a_ticket(config: ConfigJira, clave: str, campos: dict[str, Any]) -> Ticket:
     descripcion, originales = limitar_descripcion(adf_a_markdown(campos.get("description")))
     return Ticket(

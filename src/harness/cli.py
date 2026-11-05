@@ -12,6 +12,7 @@ from harness import consola, github
 from harness.bucle import MAX_PASOS_POR_DEFECTO, ErrorRespuestaVacia, Paso
 from harness.cambios import CambiosRepo, comparar, tomar_instantanea
 from harness.cliente_mcp import ErrorMCP, SesionMCP
+from harness.comentario_pr import comentar_pr_en_jira
 from harness.config import (
     RUTA_MCP,
     VAR_JIRA_TOKEN,
@@ -468,7 +469,22 @@ def _entregar(
         raise typer.Exit(1) from error
     reporte.registro.registrar_entrega(entrega)
     consola.mostrar_entrega(entrega, config)
+    # Solo con un PR (creado o que ya existía) y un ticket de Jira. Si el comentario falla,
+    # solo se avisa: no cambia el código de salida.
+    if entrega.pull_request is not None and prep.config_jira is not None:
+        _comentar_en_jira(prep, entrega.pull_request, reporte)
     return entrega.error_pr is None
+
+
+def _comentar_en_jira(prep: _Preparacion, pull_request: PullRequest, reporte: _Reporte) -> None:
+    """El link del PR en el ticket de Jira, por MCP o por la API REST, sin repetirlo."""
+    resultado = comentar_pr_en_jira(
+        prep.config_jira, prep.ticket, pull_request, prep.comentarios_jira, reporte.aviso
+    )
+    reporte.registro.registrar_comentario_jira(prep.ticket, resultado)
+    consola.mostrar_comentario_jira(
+        prep.ticket, prep.datos_ticket.url or "", pull_request.url, resultado
+    )
 
 
 def _crear_pr_por_mcp(prep: _Preparacion, reporte: _Reporte) -> CrearPr:

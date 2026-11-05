@@ -10,6 +10,7 @@ from rich.status import Status
 
 from harness.bucle import Paso
 from harness.cambios import CambiosRepo
+from harness.comentario_pr import COMENTADO, POR_MCP, SIN_URL, YA_ESTABA, ResultadoComentario
 from harness.contexto import MAX_CARACTERES_AGENTS, ContextoProyecto
 from harness.ejecucion import ResultadoEjecucion, Validacion
 from harness.entorno_docker import ResultadoComando
@@ -182,6 +183,26 @@ def mostrar_github_mcp(servidor: str, transporte: str, herramientas: int, es_pr:
 def mostrar_github_mcp_sin_uso() -> None:
     """Hay servidor MCP, pero ni el modelo lo usa (--sin-herramientas-github) ni hay PR."""
     consola.print("[dim]GitHub por MCP: sin herramientas para el modelo y sin PR.[/]")
+
+
+def mostrar_comentario_jira(
+    clave: str, url_ticket: str, url_pr: str, resultado: ResultadoComentario
+) -> None:
+    """Cómo quedó el comentario con el link del PR en el ticket de Jira."""
+    if resultado.estado == COMENTADO:
+        camino = "por MCP" if resultado.camino == POR_MCP else "por la API REST"
+        consola.print(
+            f"[bold green]✓ Comentario[/] en {escape(clave)} ({camino}): {escape(url_ticket)}",
+            soft_wrap=True,
+        )
+    elif resultado.estado == YA_ESTABA:
+        mostrar_aviso(f"El ticket {clave} ya tiene el link del PR: no se comenta otra vez.")
+    elif resultado.estado == SIN_URL:
+        mostrar_aviso(f"No se comenta en {clave}: no se supo la URL exacta del PR.")
+    else:
+        mostrar_aviso(
+            f"No se pudo comentar en {clave}: {resultado.error} Agrégalo a mano: {url_pr}"
+        )
 
 
 def mostrar_jira_mcp(servidor: str, transporte: str) -> None:
