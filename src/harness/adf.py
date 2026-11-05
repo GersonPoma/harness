@@ -20,6 +20,7 @@ TITULO_PANEL_POR_DEFECTO = "Nota"
 ESTADO_TAREA_HECHA = "DONE"
 MAX_NIVEL_TITULO = 6
 MILISEGUNDOS_POR_SEGUNDO = 1000
+NEGRITA = "**"
 
 
 def adf_a_markdown(documento: Any) -> str:
@@ -167,8 +168,10 @@ def _tabla(nodo: dict) -> str:
         return ""
     columnas = max(len(fila) for fila in filas)
     filas = [fila + [""] * (columnas - len(fila)) for fila in filas]
-    # Markdown necesita una cabecera: es la primera fila, tenga tableHeader o no.
+    # Markdown necesita una cabecera: es la primera fila, tenga tableHeader o no. Jira pone en
+    # negrita los tableHeader; en Markdown la cabecera ya se distingue, así que sobra.
     cabecera, *cuerpo = filas
+    cabecera = [_sin_negrita_entera(celda) for celda in cabecera]
     lineas = [_fila(cabecera), _fila(["---"] * columnas)]
     lineas += [_fila(fila) for fila in cuerpo]
     return "\n".join(lineas)
@@ -177,6 +180,13 @@ def _tabla(nodo: dict) -> str:
 def _celda(celda: Any) -> str:
     texto = _unir_bloques(_hijos(celda)) if isinstance(celda, dict) else ""
     return " ".join(texto.split()).replace("|", "\\|")
+
+
+def _sin_negrita_entera(celda: str) -> str:
+    """"**Valor**" -> "Valor"; deja igual "**a** y b" o "**a** **b**" (negrita solo en partes)."""
+    interior = celda[len(NEGRITA):-len(NEGRITA)]
+    es_entera = celda.startswith(NEGRITA) and celda.endswith(NEGRITA) and NEGRITA not in interior
+    return interior if es_entera and interior.strip() else celda
 
 
 def _fila(celdas: list[str]) -> str:

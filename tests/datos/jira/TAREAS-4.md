@@ -2,7 +2,7 @@ Como usuario quiero que cada tarea tenga una prioridad para saber qué hacer pri
 
 Las prioridades posibles son:
 
-| **Valor** | **¿Por defecto?** |
+| Valor | ¿Por defecto? |
 | --- | --- |
 | alta | no |
 | media | sí |

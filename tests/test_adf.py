@@ -272,3 +272,25 @@ def test_un_adf_roto_no_falla(documento: Any) -> None:
 def test_documento_vacio() -> None:
     assert adf_a_markdown(_doc()) == ""
     assert adf_a_markdown(None) == ""
+
+
+def test_la_cabecera_de_una_tabla_pierde_la_negrita_entera() -> None:
+    def celda(tipo: str, *textos: dict) -> dict:
+        return {"type": tipo, "content": [_parrafo(*textos)]}
+
+    documento = _doc({"type": "table", "content": [
+        {"type": "tableRow", "content": [
+            celda("tableHeader", _texto("Valor", "strong")),
+            celda("tableHeader", _texto("Uno", "strong"), _texto(" y dos")),
+            celda("tableHeader", _texto("a", "strong"), _texto(" "), _texto("b", "strong")),
+        ]},
+        {"type": "tableRow", "content": [
+            celda("tableCell", _texto("dato", "strong")),
+            celda("tableCell", _texto("x")),
+            celda("tableCell", _texto("y")),
+        ]},
+    ]})
+    # Solo la cabecera, y solo cuando la celda es toda negrita; en el cuerpo se respeta.
+    assert adf_a_markdown(documento) == (
+        "| Valor | **Uno** y dos | **a** **b** |\n| --- | --- | --- |\n| **dato** | x | y |"
+    )

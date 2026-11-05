@@ -199,3 +199,13 @@ def test_url_ticket() -> None:
 
 def test_la_config_no_muestra_el_token_ni_el_email() -> None:
     assert "token-secreto" not in repr(CONFIG) and "yo@ejemplo.com" not in repr(CONFIG)
+
+
+@pytest.mark.parametrize("numero", range(1, 6))
+def test_los_tickets_reales_traen_sus_datos_y_una_linea_en_blanco(numero: int) -> None:
+    jira = JiraFalso(httpx.Response(200, json=_issue(numero)))
+    markdown = leer_ticket(CONFIG, f"TAREAS-{numero}", jira.transporte).a_markdown()
+    cabecera, descripcion = markdown.split("\n**Estado:** Por hacer\n\n", 1)
+    # Los datos, cada uno en su línea, y una línea en blanco antes de la descripción.
+    assert cabecera.endswith("**Tipo:** Tarea\n**Prioridad:** Medium")
+    assert descripcion == (DATOS_JIRA / f"TAREAS-{numero}.md").read_text(encoding="utf-8").strip()
