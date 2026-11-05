@@ -1,5 +1,6 @@
 import io
 import os
+import re
 import subprocess
 import sys
 import tomllib
@@ -190,3 +191,66 @@ def test_un_aviso_largo_tampoco_llega_a_la_ultima_columna(monkeypatch: pytest.Mo
 @pytest.mark.parametrize("legacy", [True, False])
 def test_el_ancho_es_uno_menos_que_el_de_la_terminal(legacy: bool) -> None:
     assert consola.ConsolaSinUltimaColumna(width=100, legacy_windows=legacy).width == 99
+
+
+# --- Indicador animado --------------------------------------------------------------------
+
+
+def _terminal_grabada(monkeypatch: pytest.MonkeyPatch) -> Console:
+    grabadora = consola.ConsolaSinUltimaColumna(record=True, width=80, force_terminal=True)
+    monkeypatch.setattr(consola, "consola", grabadora)
+    return grabadora
+
+
+def test_el_indicador_deja_su_linea_y_no_borra_lo_que_sigue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    grabadora = _terminal_grabada(monkeypatch)
+    with consola.estado("Leyendo TAREAS-1 de Jira..."):
+        pass
+    grabadora.print("# TAREAS-1: título\n\n**Tipo:** Tarea\n**Prioridad:** Medium")
+
+    # Uno transitorio habría borrado su línea al cerrarse (subiendo el cursor): este la deja.
+    assert grabadora.export_text().splitlines() == [
+        "Leyendo TAREAS-1 de Jira...",
+        "# TAREAS-1: título",
+        "",
+        "**Tipo:** Tarea",
+        "**Prioridad:** Medium",
+    ]
+
+
+def test_el_indicador_queda_con_su_ultimo_mensaje(monkeypatch: pytest.MonkeyPatch) -> None:
+    grabadora = _terminal_grabada(monkeypatch)
+    with consola.estado("Preparando Docker...") as indicador:
+        consola.actualizar_estado(indicador, "Instalando dependencias [1/2]...")
+    assert grabadora.export_text().splitlines() == ["Instalando dependencias [1/2]..."]
+
+
+def test_fuera_de_una_terminal_el_indicador_no_dibuja_nada(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    grabadora = consola.ConsolaSinUltimaColumna(record=True, width=80)
+    monkeypatch.setattr(consola, "consola", grabadora)
+    with consola.estado("Conectando con el servidor MCP github..."):
+        pass
+    assert grabadora.export_text() == ""
+
+
+def test_al_cerrar_no_sube_el_cursor_ni_borra_lineas(monkeypatch: pytest.MonkeyPatch) -> None:
+    def cerrar(con_rich: bool) -> str:
+        salida = io.StringIO()
+        terminal = consola.ConsolaSinUltimaColumna(
+            file=salida, width=80, force_terminal=True, color_system=None
+        )
+        monkeypatch.setattr(consola, "consola", terminal)
+        with terminal.status("Leyendo...") if con_rich else consola.estado("Leyendo..."):
+            pass
+        terminal.print("línea siguiente")
+        return salida.getvalue()
+
+    # \x1b[2K borra una línea y \x1b[nA sube el cursor: con eso el transitorio de Rich borraba.
+    assert "\x1b[2K" in cerrar(con_rich=True)
+    nuestro = cerrar(con_rich=False)
+    assert "\x1b[2K" not in nuestro and not re.search(r"\x1b\[\d*A", nuestro)
+    assert nuestro.endswith("Leyendo...\n\x1b[?25hlínea siguiente\n")

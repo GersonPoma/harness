@@ -5,8 +5,10 @@ from typing import Any
 
 from rich.console import Console, ConsoleDimensions
 from rich.markup import escape
+from rich.live import Live
 from rich.panel import Panel
-from rich.status import Status
+from rich.spinner import Spinner
+from rich.text import Text
 
 from harness.bucle import Paso
 from harness.cambios import CambiosRepo
@@ -29,6 +31,9 @@ SIMBOLOS_ACCION = {"crear": "[green]+[/]", "modificar": "[yellow]~[/]", "elimina
 RESPUESTAS_SI = ("s", "si", "sí")
 RESPUESTAS_NO = ("n", "no")
 LINEAS_VERIFICACION = 15
+# Los mismos que usa console.status de Rich.
+SPINNER_INDICADOR = "dots"
+REFRESCOS_POR_SEGUNDO_INDICADOR = 12.5
 
 
 class ConsolaSinUltimaColumna(Console):
@@ -409,14 +414,53 @@ def mostrar_aviso(mensaje: str) -> None:
     consola.print(f"[yellow]{escape(mensaje)}[/]")
 
 
-def estado(mensaje: str) -> Status:
+class Indicador:
+    """Indicador animado mientras dura una tarea larga (instalar dependencias, conectar...).
+
+    No es transitorio a propósito: al cerrarse, uno transitorio sube el cursor tantas líneas
+    como medía y las borra, y si la terminal no tiene el cursor donde Rich supone, borra una
+    línea que no es suya (pasó en Windows Terminal). Este deja su último mensaje escrito, sin
+    el spinner, como una línea más, y nunca sube el cursor al cerrar. Fuera de una terminal no
+    dibuja nada.
+    """
+
+    def __init__(self, mensaje: str) -> None:
+        self._mensaje = mensaje
+        self._spinner = Spinner(SPINNER_INDICADOR, text=Text(mensaje))
+        self._live: Live | None = None
+        if consola.is_terminal:
+            self._live = Live(
+                self._spinner,
+                console=consola,
+                transient=False,
+                refresh_per_second=REFRESCOS_POR_SEGUNDO_INDICADOR,
+            )
+
+    def update(self, mensaje: str) -> None:
+        """Cambia el mensaje (por ejemplo, cada etapa de la preparación de Docker)."""
+        self._mensaje = mensaje
+        self._spinner.update(text=Text(mensaje))
+
+    def __enter__(self) -> "Indicador":
+        if self._live is not None:
+            self._live.start()
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        if self._live is not None:
+            # La última imagen, sin el spinner, queda como una línea propia (stop la dibuja).
+            self._live.update(Text(self._mensaje, style="dim"))
+            self._live.stop()
+
+
+def estado(mensaje: str) -> Indicador:
     """Indicador animado mientras dura una tarea larga (instalar dependencias...)."""
-    return consola.status(escape(mensaje))
+    return Indicador(mensaje)
 
 
-def actualizar_estado(estado: Status, mensaje: str) -> None:
+def actualizar_estado(estado: Indicador, mensaje: str) -> None:
     """Cambia el texto del indicador animado (cada etapa de la preparación de Docker)."""
-    estado.update(escape(mensaje))
+    estado.update(mensaje)
 
 
 def mostrar_error(mensaje: str) -> None:

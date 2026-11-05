@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext
 from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
@@ -578,17 +578,21 @@ def _avisar_secretos_cortos(
         consola.mostrar_aviso(aviso)
 
 
-def _obtener_ticket(texto: str) -> tuple[Ticket, ConfigJira | None]:
+def _obtener_ticket(
+    texto: str, con_indicador: bool = True
+) -> tuple[Ticket, ConfigJira | None]:
     """El ticket de un .md local o de Jira (y la configuración de Jira, para comentar después).
 
     De Jira se lee siempre por la API REST: su ADF pasa por nuestro conversor sin perder nada.
+    Sin indicador cuando lo que sigue es imprimir el ticket entero (harness ticket).
     Lanza ErrorTicket, ErrorConfiguracion o ErrorJira.
     """
     origen = resolver_origen(texto)
     if origen.ruta is not None:
         return crear_ticket_local(origen.ruta), None
     config_jira = leer_config_jira()
-    with consola.estado(f"Leyendo {origen.clave} de Jira..."):
+    mensaje = f"Leyendo {origen.clave} de Jira..."
+    with consola.estado(mensaje) if con_indicador else nullcontext():
         verificar_credenciales(config_jira)
         return leer_ticket(config_jira, origen.clave), config_jira
 
@@ -780,7 +784,7 @@ def ver_ticket(
     """Muestra el ticket tal como lo recibe el modelo, sin ejecutar nada."""
     try:
         cargar_env()
-        datos, _ = _obtener_ticket(ticket)
+        datos, _ = _obtener_ticket(ticket, con_indicador=False)
     except (ErrorTicket, ErrorConfiguracion, ErrorJira) as error:
         consola.mostrar_error(str(error))
         raise typer.Exit(1) from error

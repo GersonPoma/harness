@@ -526,3 +526,13 @@ def test_harness_mcp_jira_rest_fuerza_la_api_rest(
     assert "✓ Comentario en TAREAS-3 (por la API REST)" in salida_plana
     assert len(_comentarios_enviados(pedidos)) == 1
     assert not (tmp_path / "comentarios.json").exists()
+
+
+def test_harness_ticket_no_usa_el_indicador_animado(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Lo que sigue es imprimir el ticket entero: no hay nada que animar ni que borrar.
+    _con_jira(monkeypatch, _issue(1))
+    monkeypatch.setattr(cli, "cargar_env", lambda: None)
+    usados: list[str] = []
+    monkeypatch.setattr(cli.consola, "estado", lambda mensaje: usados.append(mensaje))
+    resultado = CliRunner().invoke(cli.app, ["ticket", "TAREAS-1"])
+    assert resultado.exit_code == 0 and usados == []
