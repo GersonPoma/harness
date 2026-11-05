@@ -18,6 +18,7 @@ from harness.config import (
     ErrorConfiguracion,
     cargar_config,
     cargar_env,
+    leer_config_jira,
     leer_herramientas_github_modelo,
     leer_token_github,
 )
@@ -54,6 +55,7 @@ from harness.git import ErrorGit
 from harness.herramientas import crear_herramientas, crear_herramientas_lectura
 from harness.herramientas.comandos import EjecutorComandos, validar_proyecto
 from harness.herramientas.protegidos import GuardiaProtegidos
+from harness.jira import ErrorJira, leer_ticket, verificar_credenciales
 from harness.herramientas.remotas import (
     HERRAMIENTAS_LECTURA_GITHUB,
     PREFIJO_GITHUB,
@@ -67,7 +69,13 @@ from harness.proveedores.base import ErrorProveedor, ProveedorLLM
 from harness.proveedores.fabrica import crear_proveedor
 from harness.registro import RegistroPasos
 from harness.tipos import Herramienta
-from harness.ticket import ErrorTicket, leer_ticket_local, titulo_ticket
+from harness.ticket import (
+    MAX_CARACTERES_DESCRIPCION,
+    ErrorTicket,
+    Ticket,
+    crear_ticket_local,
+    resolver_origen,
+)
 from harness.variables import (
     ErrorVariables,
     VariablesResueltas,
@@ -89,8 +97,7 @@ class _Preparacion:
     """Todo lo que se valida antes de gastar pedidos al modelo o crear contenedores."""
 
     repo: Path
-    ticket: str
-    texto_ticket: str
+    datos_ticket: Ticket
     config: ConfigModelo
     config_proyecto: ConfigProyecto | None
     variables: VariablesResueltas
@@ -102,18 +109,30 @@ class _Preparacion:
     herramientas_github: list[Herramienta] = field(default_factory=list)
     # Abierta solo si el PR se crea por MCP (el servidor tiene create_pull_request).
     sesion_github: SesionMCP | None = None
+    # Solo si el ticket vino de Jira.
+    token_jira: str | None = None
+
+    @property
+    def ticket(self) -> str:
+        """Clave del ticket: nombre de la rama, del log y del commit."""
+        return self.datos_ticket.clave
+
+    @property
+    def texto_ticket(self) -> str:
+        """El ticket tal como lo recibe el modelo."""
+        return self.datos_ticket.a_markdown()
 
     @property
     def titulo(self) -> str:
-        """Título del ticket (su primera línea), para el commit."""
-        return titulo_ticket(self.texto_ticket, self.ticket)
+        """Título del ticket, para el commit."""
+        return self.datos_ticket.titulo
 
     @property
     def secretos(self) -> list[str]:
         """Lo que nunca se escribe en el log ni se le muestra al modelo."""
-        token = [self.token_github] if self.token_github else []
+        tokens = [t for t in (self.token_github, self.token_jira) if t]
         mcp = list(self.servidor_github.secretos) if self.servidor_github else []
-        return [self.config.api_key, *self.variables.secretos, *token, *mcp]
+        return [self.config.api_key, *self.variables.secretos, *tokens, *mcp]
 
 
 class _Reporte:
@@ -149,7 +168,10 @@ class _Reporte:
 
 @app.command()
 def run(
-    ticket: Annotated[Path, typer.Argument(help="Ruta a un ticket local (.md).")],
+    ticket: Annotated[
+        str,
+        typer.Argument(help="Clave de Jira (PROYECTO-123) o ruta a un ticket local (.md)."),
+    ],
     repo: Annotated[
         Path | None, typer.Option(help="Repo objetivo; por defecto, la carpeta actual.")
     ] = None,
@@ -189,7 +211,13 @@ def run(
     max_pasos = max_pasos or (limites.max_pasos if limites else MAX_PASOS_POR_DEFECTO)
     registro = RegistroPasos(prep.repo, prep.ticket, secretos=prep.secretos)
     registro.registrar_inicio(prep.config.proveedor, prep.config.modelo, prep.contexto)
+    registro.registrar_ticket(prep.datos_ticket)
     consola.mostrar_inicio(prep.ticket, str(prep.repo), prep.config.proveedor, prep.config.modelo)
+    consola.mostrar_ticket(prep.datos_ticket)
+    if prep.datos_ticket.es_recortado:
+        aviso = _aviso_recorte_ticket(prep.datos_ticket)
+        registro.registrar_aviso(aviso)
+        consola.mostrar_aviso(aviso)
     consola.mostrar_contexto(prep.contexto)
 
     reporte = _Reporte(registro, aprobar_plan)
@@ -416,20 +444,25 @@ def _cerrar_rama(
     consola.mostrar_entrega(entrega, config)
 
 
-def _preparar_ejecucion(ticket: Path, repo: Path) -> _Preparacion:
-    """Valida repo, ticket, configuración y harness.yaml antes de gastar pedidos al modelo."""
+def _preparar_ejecucion(ticket: str, repo: Path) -> _Preparacion:
+    """Valida repo, ticket, configuración y harness.yaml antes de gastar pedidos al modelo.
+
+    Un ticket de Jira se lee aquí, antes de todo lo de Git: sin ticket no hay nada que hacer,
+    y así un error nunca deja una rama creada.
+    """
     if not repo.is_dir():
         consola.mostrar_error(f"No existe la carpeta del repo: {repo}")
         raise typer.Exit(1)
     try:
-        texto_ticket = leer_ticket_local(ticket)
         # cargar_config carga el .env: después ya se pueden resolver los ${NOMBRE}.
         config = cargar_config()
         config_proyecto = cargar_config_proyecto(repo)
         variables = resolver_variables(config_proyecto) if config_proyecto else None
         servidor_github = elegir_servidor_github(cargar_config_mcp(RUTA_MCP))
+        datos_ticket, token_jira = _obtener_ticket(ticket)
     except (
-        ErrorTicket, ErrorConfiguracion, ErrorConfigProyecto, ErrorVariables, ErrorConfigMCP
+        ErrorTicket, ErrorConfiguracion, ErrorConfigProyecto, ErrorVariables, ErrorConfigMCP,
+        ErrorJira,
     ) as error:
         consola.mostrar_error(str(error))
         raise typer.Exit(1) from error
@@ -445,9 +478,31 @@ def _preparar_ejecucion(ticket: Path, repo: Path) -> _Preparacion:
         consola.mostrar_error(MENSAJE_REQUIERE_AGENTS)
         raise typer.Exit(1)
     return _Preparacion(
-        repo, ticket.stem, texto_ticket, config, config_proyecto,
+        repo, datos_ticket, config, config_proyecto,
         variables or VariablesResueltas(), contexto, token_github=leer_token_github(),
-        servidor_github=servidor_github,
+        servidor_github=servidor_github, token_jira=token_jira,
+    )
+
+
+def _obtener_ticket(texto: str) -> tuple[Ticket, str | None]:
+    """El ticket de un .md local o de Jira (y el token de Jira, para ocultarlo).
+
+    De Jira se lee siempre por la API REST: su ADF pasa por nuestro conversor sin perder nada.
+    Lanza ErrorTicket, ErrorConfiguracion o ErrorJira.
+    """
+    origen = resolver_origen(texto)
+    if origen.ruta is not None:
+        return crear_ticket_local(origen.ruta), None
+    config_jira = leer_config_jira()
+    with consola.estado(f"Leyendo {origen.clave} de Jira..."):
+        verificar_credenciales(config_jira)
+        return leer_ticket(config_jira, origen.clave), config_jira.token
+
+
+def _aviso_recorte_ticket(ticket: Ticket) -> str:
+    return (
+        f"La descripción de {ticket.clave} tiene {ticket.caracteres_originales} caracteres: "
+        f"el modelo recibe los primeros {MAX_CARACTERES_DESCRIPCION}."
     )
 
 
@@ -619,6 +674,26 @@ def _verificar_init(repo: Path) -> None:
     consola.mostrar_verificacion(resultado, ocultar_secretos(resultado.salida, variables.secretos))
     if resultado.codigo != 0 or resultado.es_tiempo_agotado:
         raise typer.Exit(1)
+
+
+@app.command(name="ticket")
+def ver_ticket(
+    ticket: Annotated[
+        str,
+        typer.Argument(help="Clave de Jira (PROYECTO-123) o ruta a un ticket local (.md)."),
+    ],
+) -> None:
+    """Muestra el ticket tal como lo recibe el modelo, sin ejecutar nada."""
+    try:
+        cargar_env()
+        datos, _ = _obtener_ticket(ticket)
+    except (ErrorTicket, ErrorConfiguracion, ErrorJira) as error:
+        consola.mostrar_error(str(error))
+        raise typer.Exit(1) from error
+    consola.mostrar_ticket(datos)
+    if datos.es_recortado:
+        consola.mostrar_aviso(_aviso_recorte_ticket(datos))
+    consola.mostrar_texto_ticket(datos.a_markdown())
 
 
 @app.command()

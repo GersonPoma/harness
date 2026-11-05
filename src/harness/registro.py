@@ -14,6 +14,7 @@ from harness.ejecucion import ResultadoEjecucion, Validacion
 from harness.entrega import ConfigEntrega, ResultadoEntrega
 from harness.init import ResultadoInit
 from harness.plan import Plan, archivos_fuera_del_plan
+from harness.ticket import Ticket
 from harness.variables import ocultar_secretos
 
 
@@ -120,6 +121,19 @@ class RegistroPasos:
             "herramientas": herramientas,
             "es_pr": es_pr,
             "error": error,
+        })
+
+    def registrar_ticket(self, ticket: Ticket) -> None:
+        """Registra qué ticket se procesa y de dónde vino (nunca datos del autor)."""
+        self._escribir({
+            "evento": "ticket",
+            "ticket": ticket.clave,
+            "titulo": ticket.titulo,
+            "fuente": ticket.fuente,
+            "url": ticket.url,
+            "caracteres": len(ticket.descripcion),
+            "es_recortado": ticket.es_recortado,
+            "caracteres_originales": ticket.caracteres_originales,
         })
 
     def registrar_rama(self, config: ConfigEntrega) -> None:

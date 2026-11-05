@@ -17,6 +17,7 @@ from harness.entrega import ConfigEntrega, ResultadoEntrega
 from harness.github import PullRequest
 from harness.init import ResultadoInit
 from harness.plan import Plan, archivos_fuera_del_plan
+from harness.ticket import FUENTE_LOCAL, Ticket
 
 MAX_CARACTERES_RESUMEN = 120
 MAX_CARACTERES_ARGUMENTO = 60
@@ -72,6 +73,23 @@ def mostrar_inicio(ticket: str, repo: str, proveedor: str, modelo: str) -> None:
         f"[bold green]Ticket[/] {escape(ticket)}  [bold green]Repo[/] {escape(repo)}\n"
         f"[bold green]Modelo[/] {escape(proveedor)} / {escape(modelo)}"
     )
+
+
+def mostrar_ticket(ticket: Ticket) -> None:
+    """De dónde vino el ticket: archivo local, o Jira con su título y su página."""
+    if ticket.fuente == FUENTE_LOCAL:
+        consola.print(f"[dim]Ticket {escape(ticket.clave)} desde un archivo local.[/]")
+        return
+    consola.print(
+        f"[bold green]Jira[/] {escape(ticket.clave)}: {escape(ticket.titulo)} (leído por la "
+        f"API REST) {escape(ticket.url or '')}",
+        soft_wrap=True,
+    )
+
+
+def mostrar_texto_ticket(texto: str) -> None:
+    """El ticket completo, sin markup ni ajuste de líneas: para copiarlo o compararlo."""
+    consola.print(texto, markup=False, highlight=False, soft_wrap=True)
 
 
 def mostrar_contexto(contexto: ContextoProyecto) -> None:

@@ -20,6 +20,13 @@ de seguridad: ver abajo).
 - No puedes modificar harness.yaml ni nada dentro de .git/.
 - No puedes leer ni escribir archivos .env o .env.* (pueden tener secretos); .env.example sí.
 
+Criterios del ticket:
+- Los criterios marcados como hechos ("- [x]") son cosas que el ticket da por cumplidas en el \
+código actual. Verifica en el código que de verdad lo estén: si lo están, no las rehagas; si \
+no, trátalas como pendientes.
+- Agrega o actualiza siempre los tests de lo que cambias, aunque el criterio de tests esté \
+marcado como hecho.
+
 Límites de seguridad:
 - Tus herramientas solo acceden al repo objetivo. Si una herramienta rechaza algo por \
 seguridad (ruta fuera del repo, archivo protegido), no busques otra forma de hacerlo: \

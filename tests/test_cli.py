@@ -33,12 +33,14 @@ def _correr(
     respuestas: list[RespuestaModelo] | ProveedorFalso,
     *opciones: str,
     entrada: str | None = None,
+    ticket: str | None = None,
 ) -> tuple[int, str]:
     config = ConfigModelo("gemini", "modelo-x", None, "clave")
     proveedor = respuestas if isinstance(respuestas, ProveedorFalso) else ProveedorFalso(respuestas)
     monkeypatch.setattr(cli, "cargar_config", lambda: config)
     monkeypatch.setattr(cli, "crear_proveedor", lambda *_: proveedor)
-    argumentos = ["run", str(repo.parent / "T-1.md"), "--repo", str(repo), *opciones]
+    ticket = ticket or str(repo.parent / "T-1.md")
+    argumentos = ["run", ticket, "--repo", str(repo), *opciones]
     resultado = CliRunner().invoke(cli.app, argumentos, input=entrada)
     return resultado.exit_code, resultado.output
 
@@ -56,7 +58,7 @@ def test_tres_respuestas_vacias_terminan_con_codigo_1(
     assert codigo == 1
     assert "respondió vacío (sin texto ni herramientas) 3 veces seguidas" in salida
     eventos = [e["evento"] for e in _eventos_del_log(repo_sin_yaml)]
-    assert eventos == ["inicio", "aviso", "aviso", "error"]
+    assert eventos == ["inicio", "ticket", "aviso", "aviso", "error"]
 
 
 def test_al_final_lista_los_archivos_cambiados(
@@ -261,6 +263,7 @@ def _correr_con_entrega(
     url_github: str | None = None,
     antes_de_correr: Callable[[Path, Path], None] | None = None,
     entrada: str | None = None,
+    ticket: str | None = None,
 ) -> tuple[int, str, Path]:
     """Repo Git con remoto local; la ejecución (falsa) escribe un archivo y valida o no."""
     (repo / "harness.yaml").write_text(YAML_CON_DOCKER, encoding="utf-8")
@@ -280,7 +283,7 @@ def _correr_con_entrega(
         return resultado, CambiosRepo(creados=["tareas.py"])
 
     monkeypatch.setattr(cli, "_ejecutar", ejecutar_falso)
-    codigo, salida = _correr(monkeypatch, repo, [], *opciones, entrada=entrada)
+    codigo, salida = _correr(monkeypatch, repo, [], *opciones, entrada=entrada, ticket=ticket)
     return codigo, salida, remoto
 
 

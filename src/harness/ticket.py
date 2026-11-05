@@ -1,9 +1,12 @@
 """Tickets: un .md local o un issue de Jira, normalizados al mismo formato para el modelo."""
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 EXTENSIONES_TICKET = {".md"}
+# Clave de Jira: letras del proyecto, guion y número (TAREAS-1). Se aceptan minúsculas.
+PATRON_CLAVE_JIRA = re.compile(r"^[A-Za-z][A-Za-z0-9_]*-\d+$")
 FUENTE_LOCAL = "local"
 FUENTE_JIRA = "jira"
 # Una descripción enorme se come el contexto del modelo en cada pedido; con esto entra de sobra
@@ -48,6 +51,40 @@ class Ticket:
         datos = [("Tipo", self.tipo), ("Prioridad", self.prioridad), ("Estado", self.estado)]
         lineas += [f"**{nombre}:** {valor}" for nombre, valor in datos if valor]
         return "\n".join(lineas).strip() + f"\n\n{self.descripcion}".rstrip()
+
+
+@dataclass(frozen=True)
+class OrigenTicket:
+    """De dónde sale el ticket: un archivo local (ruta) o Jira (ruta None)."""
+
+    clave: str
+    ruta: Path | None = None
+
+
+def resolver_origen(texto: str) -> OrigenTicket:
+    """Si el archivo existe, es local; si no, y tiene forma de clave (PROYECTO-123), es Jira."""
+    ruta = Path(texto)
+    if ruta.is_file():
+        return OrigenTicket(ruta.stem, ruta)
+    if PATRON_CLAVE_JIRA.match(texto.strip()):
+        return OrigenTicket(texto.strip().upper())
+    raise ErrorTicket(
+        f"No existe el archivo '{texto}' y no parece una clave de Jira (por ejemplo "
+        "PROYECTO-123)."
+    )
+
+
+def crear_ticket_local(ruta: Path) -> Ticket:
+    """Ticket de un .md local: el archivo completo es lo que recibe el modelo."""
+    texto = leer_ticket_local(ruta)
+    descripcion, originales = limitar_descripcion(texto)
+    return Ticket(
+        clave=ruta.stem,
+        titulo=titulo_ticket(texto, ruta.stem),
+        descripcion=descripcion,
+        fuente=FUENTE_LOCAL,
+        caracteres_originales=originales,
+    )
 
 
 def limitar_descripcion(texto: str) -> tuple[str, int | None]:
