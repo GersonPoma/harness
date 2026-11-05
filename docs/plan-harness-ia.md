@@ -1013,6 +1013,25 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         implementar. Configurable por proyecto en el `harness.yaml`, porque gasta pedidos.
         Habría detectado el `ProductoRepository` usado desde ventas en TIENDA-3, aunque los
         tests pasaban.
+  - [ ] **Alcance de más.** Caso real en TAREAS-3 (`TAREAS-3-20261105-093236.jsonl`):
+        - Al reescribir `main.py` completo (paso 3), el modelo agregó `POST /tareas`, que es
+          de TAREAS-2 (no mergeado). Ni el ticket, ni el plan, ni los tests lo usan.
+        - Para sostenerlo creó `TareaCrear` en `modelos.py` (paso 6), fuera del plan y sin la
+          validación completa de TAREAS-2. Los tests fallaron con `NameError: TareaCrear`
+          (paso 10, faltaba importarlo en `main.py`) y, en vez de quitar el endpoint, agregó
+          el import (paso 12). Terminó con tests verdes y un endpoint que nadie pidió.
+        - El harness solo avisó "Archivos que cambiaron y no estaban en el plan".
+
+        Propuestas:
+        1. **Justificar o revertir lo que está fuera del plan:** si cambian archivos fuera del
+           plan, antes de validar el harness le pide al modelo que justifique cada cambio
+           contra el ticket o que lo revierta. La justificación va a la descripción del PR.
+        2. **El paso de revisión** (el ítem anterior) compara el diff con los criterios del
+           ticket y marca el código que no corresponde a ningún criterio.
+        3. **Indicación en el prompt:** implementar solo lo que piden los criterios; ante un
+           error, preferir quitar lo que sobra antes que agregar más.
+        4. **`editar_archivo`** (abajo) reduce el riesgo: reescribir un archivo entero invita
+           a agregar cosas de más.
   - [ ] **`harness init --verificar` con corrección:** si la verificación falla (la
         instalación o los tests), devolverle el error al modelo para que corrija el
         `harness.yaml` generado, con un límite de intentos. Hoy solo informa el resultado.
