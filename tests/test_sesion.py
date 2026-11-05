@@ -11,6 +11,7 @@ from harness.sesion import (
     ErrorSesion,
     Sesion,
     SesionEnCurso,
+    armar_reanudacion,
     cargar_sesion,
     descartar_sesion,
     guardar_sesion,
@@ -43,7 +44,10 @@ def _sesion(**cambios) -> Sesion:
             Mensaje(Rol.HERRAMIENTA, "print('hola')", id_llamada="c1"),
         ],
         "pasos": 4,
-        "plan": {"resumen": "r", "archivos": [], "pasos": ["a"], "tests": []},
+        "plan": {
+            "resumen": "r", "pasos": ["a"], "tests": [],
+            "archivos": [{"ruta": "a.py", "accion": "modificar", "motivo": "m"}],
+        },
         "rama": {"nombre": "feature/TAREAS-3", "base": "main", "head_al_cortar": "abc"},
         "repo_al_empezar": {"a.py": "h1"},
     }
@@ -145,3 +149,32 @@ def test_si_no_se_puede_guardar_avisa_una_vez(
     en_curso.guardar()
     en_curso.paso(5)
     assert avisos == ["No se pudo guardar la sesión para harness resume: No queda espacio"]
+
+
+def test_armar_reanudacion_tras_un_ctrl_c_a_mitad_de_paso() -> None:
+    a_medias = Mensaje(Rol.ASISTENTE, None, [_llamada("c2")])
+    sesion = _sesion(validaciones=1, tokens_entrada=50)
+    sesion.mensajes.append(a_medias)
+    reanudacion = armar_reanudacion(sesion, "se canceló con Ctrl+C", ["app.py"])
+
+    # Sin el system prompt (se regenera) y sin la llamada que quedó sin resultado.
+    assert reanudacion.mensajes[0].contenido == "Implementa el ticket"
+    assert a_medias not in reanudacion.mensajes
+    # El último es un resultado de herramienta: la nota va dentro, no como mensaje aparte.
+    ultimo = reanudacion.mensajes[-1]
+    assert ultimo.rol == Rol.HERRAMIENTA and ultimo.id_llamada == "c1"
+    assert ultimo.contenido.startswith("print('hola')\n\nLa ejecución se cortó (se canceló")
+    assert "app.py" in ultimo.contenido
+    continuacion = reanudacion.continuacion
+    assert (continuacion.pasos, continuacion.validaciones, continuacion.tokens_entrada) == (
+        4, 1, 50,
+    )
+    assert continuacion.plan.resumen == "r"
+
+
+def test_armar_reanudacion_despues_de_un_mensaje_del_asistente() -> None:
+    sesion = _sesion(plan=None)
+    sesion.mensajes.append(Mensaje(Rol.ASISTENTE, "Terminé."))
+    reanudacion = armar_reanudacion(sesion, "los tests no pasaron", [])
+    assert reanudacion.mensajes[-1].rol == Rol.USUARIO
+    assert reanudacion.continuacion.plan is None

@@ -62,14 +62,17 @@ def ejecutar_ticket(
     al_validar: Callable[[Validacion], None] | None = None,
     al_aviso: Callable[[str], None] | None = None,
     planificacion: Planificacion | None = None,
+    continuacion: ResultadoEjecucion | None = None,
 ) -> ResultadoEjecucion:
     """Planifica (si se pide), implementa y valida; si la validación falla, el modelo corrige.
 
     `max_pasos` es el total de todas las vueltas, plan incluido. Se vuelve de la validación a
     la implementación como mucho `max_intentos_validacion` veces.
+    `continuacion` es lo que ya se hizo antes de un corte (harness resume): los pasos, los
+    tokens y las validaciones siguen contando desde ahí, y el plan ya está aprobado.
     """
-    resultado = ResultadoEjecucion(None, 0, 0, 0, False, None, 0)
-    if planificacion and not _planificar(
+    resultado = continuacion or ResultadoEjecucion(None, 0, 0, 0, False, None, 0)
+    if continuacion is None and planificacion and not _planificar(
         resultado, proveedor, mensajes, planificacion, max_pasos, al_paso, al_aviso
     ):
         return resultado

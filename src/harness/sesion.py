@@ -17,7 +17,10 @@ from pathlib import Path
 from typing import Any
 
 from harness.cambios import Instantanea, tomar_instantanea
+from harness.ejecucion import ResultadoEjecucion
 from harness.git import ErrorGit, ejecutar_git
+from harness.plan import Plan
+from harness.prompts import crear_mensaje_retomar
 from harness.tipos import LlamadaHerramienta, Mensaje, Rol
 from harness.variables import ocultar_secretos
 
@@ -143,6 +146,38 @@ class SesionEnCurso:
             if self._al_fallar and not self._es_fallo_avisado:
                 self._al_fallar(f"No se pudo guardar la sesión para harness resume: {error}")
             self._es_fallo_avisado = True
+
+
+@dataclass
+class Reanudacion:
+    """Lo que harness resume le pasa a la ejecución para seguir desde el corte."""
+
+    # La conversación sin el system prompt (se regenera con el AGENTS.md y la memoria de hoy).
+    mensajes: list[Mensaje]
+    # Pasos, tokens, validaciones y plan ya hechos: siguen contando desde ahí.
+    continuacion: ResultadoEjecucion
+    # Para calcular los cambios del ticket completo, no solo los de esta parte.
+    repo_al_empezar: Instantanea
+
+
+def armar_reanudacion(sesion: Sesion, motivo: str, cambiados: list[str]) -> Reanudacion:
+    """Prepara la conversación guardada para seguir: sin llamadas a medias y con la nota."""
+    mensajes = quitar_llamadas_sin_respuesta(sesion.mensajes)[1:]
+    nota = crear_mensaje_retomar(motivo, cambiados)
+    if mensajes and mensajes[-1].rol == Rol.HERRAMIENTA:
+        # Dentro del último resultado y no como mensaje aparte: algunos proveedores no aceptan
+        # un mensaje de usuario entre los resultados de herramientas y la siguiente respuesta.
+        ultimo = mensajes[-1]
+        mensajes[-1] = Mensaje(Rol.HERRAMIENTA, f"{ultimo.contenido}\n\n{nota}",
+                               id_llamada=ultimo.id_llamada)
+    else:
+        mensajes.append(Mensaje(Rol.USUARIO, nota))
+    plan = Plan.model_validate(sesion.plan) if sesion.plan else None
+    continuacion = ResultadoEjecucion(
+        None, sesion.pasos, sesion.tokens_entrada, sesion.tokens_salida, False, None,
+        sesion.validaciones, plan,
+    )
+    return Reanudacion(mensajes, continuacion, sesion.repo_al_empezar)
 
 
 def cabeza(repo: Path) -> str | None:

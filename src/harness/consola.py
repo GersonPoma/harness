@@ -114,6 +114,19 @@ def describir_corte(motivo: str | None) -> str:
     return TEXTOS_CORTE.get(motivo or "", "quedó a medias")
 
 
+def mostrar_retomando(clave: str, motivo: str, pasos: int) -> None:
+    """Al empezar harness resume: qué se retoma y desde dónde."""
+    consola.print(
+        f"[bold green]Se retoma[/] {escape(clave)}: {escape(motivo)}, después de {pasos} "
+        f"paso{'s' if pasos != 1 else ''}."
+    )
+
+
+def mostrar_rama_retomada(config: ConfigEntrega) -> None:
+    """La rama de la ejecución que se retoma (ya existía: no se crea)."""
+    consola.print(f"[dim]Se sigue en la rama {escape(config.rama)}.[/]")
+
+
 def mostrar_como_retomar(clave: str) -> None:
     """Al final de una ejecución que no terminó: cómo seguir sin empezar de cero."""
     consola.print(f"Para retomarla: [bold]harness resume {escape(clave)}[/]")

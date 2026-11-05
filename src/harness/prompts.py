@@ -311,6 +311,20 @@ def crear_seccion_contexto(contexto: ContextoProyecto) -> str:
     return seccion
 
 
+def crear_mensaje_retomar(motivo: str, cambiados: list[str]) -> str:
+    """Lo que recibe el modelo al retomar una ejecución cortada (harness resume)."""
+    texto = (
+        f"La ejecución se cortó ({motivo}) y se retoma ahora. Los archivos del repo son la "
+        "fuente de verdad: vuelve a leer lo que necesites antes de seguir con el ticket."
+    )
+    if cambiados:
+        texto += (
+            " Desde el corte cambiaron estos archivos (los cambió una persona): "
+            f"{', '.join(cambiados)}. Léelos antes de tocarlos."
+        )
+    return texto
+
+
 def crear_mensaje_validacion_fallida(informe: str, intento: int, max_intentos: int) -> str:
     """Mensaje que recibe el modelo cuando los tests o el lint fallan al terminar."""
     return (

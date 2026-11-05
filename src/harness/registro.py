@@ -203,6 +203,17 @@ class RegistroPasos:
             "es_ok": instalacion.es_ok,
         })
 
+    def registrar_resume(
+        self, estado: str, motivo_corte: str | None, cambios_desde_el_corte: list[str]
+    ) -> None:
+        """Registra que esta ejecución retoma otra cortada, y desde qué estado."""
+        self._escribir({
+            "evento": "resume",
+            "estado": estado,
+            "motivo_corte": motivo_corte,
+            "cambios_desde_el_corte": cambios_desde_el_corte,
+        })
+
     def registrar_cambio_proveedor(self, cambio: CambioProveedor, paso: int) -> None:
         """Registra que la conversación pasó al siguiente proveedor de respaldo."""
         self._escribir({

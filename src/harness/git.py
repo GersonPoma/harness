@@ -78,6 +78,11 @@ def archivos_sin_commitear(repo: Path) -> list[str]:
     return [linea[3:] for linea in salida.splitlines() if linea.strip()]
 
 
+def rama_actual(repo: Path) -> str:
+    """La rama en la que está el repo ("" si HEAD no está en una rama)."""
+    return ejecutar_git(repo, "branch", "--show-current")
+
+
 def existe_rama_local(repo: Path, rama: str) -> bool:
     """True si la rama existe en el repo local."""
     try:

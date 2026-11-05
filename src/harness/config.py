@@ -1,7 +1,7 @@
 """Configuración del modelo, leída del .env del repo del harness (hasta harness config)."""
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -102,23 +102,37 @@ def leer_respaldo() -> list[ConfigModelo]:
     return respaldo
 
 
-def _leer_entrada_respaldo(entrada: str) -> ConfigModelo:
+def elegir_modelo(
+    base: ConfigModelo, proveedor: str | None, modelo: str | None
+) -> ConfigModelo:
+    """El modelo de --proveedor / --modelo (harness resume); sin ellos, el del .env.
+
+    Sin --proveedor, --modelo cambia solo el modelo del proveedor del .env.
+    """
+    if proveedor is None:
+        return replace(base, modelo=modelo) if modelo else base
+    if not modelo:
+        raise ErrorConfiguracion("Con --proveedor hace falta también --modelo.")
+    return _leer_entrada_respaldo(f"{proveedor}:{modelo}", "--proveedor")
+
+
+def _leer_entrada_respaldo(entrada: str, origen: str = VAR_RESPALDO) -> ConfigModelo:
     # Sin ':' será el nombre de un perfil de config.toml (fase 12); hoy solo proveedor:modelo.
     proveedor, separador, modelo = entrada.partition(":")
     proveedor, modelo = proveedor.strip().lower(), modelo.strip()
     if not separador or not modelo:
         raise ErrorConfiguracion(
-            f"'{entrada}' en {VAR_RESPALDO} no es proveedor:modelo "
+            f"'{entrada}' en {origen} no es proveedor:modelo "
             "(por ejemplo openrouter:qwen/qwen3-coder:free)."
         )
     if proveedor not in PRESETS or proveedor == PROVEEDOR_PERSONALIZADO:
         conocidos = ", ".join(p for p in PRESETS if p != PROVEEDOR_PERSONALIZADO)
         raise ErrorConfiguracion(
-            f"Proveedor '{proveedor}' no válido en {VAR_RESPALDO}. Opciones: {conocidos}."
+            f"Proveedor '{proveedor}' no válido en {origen}. Opciones: {conocidos}."
         )
     preset = PRESETS[proveedor]
     variable = preset.variable_api_key
-    api_key = _leer_obligatoria(variable, f"la API key de '{proveedor}' (de {VAR_RESPALDO})")
+    api_key = _leer_obligatoria(variable, f"la API key de '{proveedor}' (de {origen})")
     return ConfigModelo(proveedor, modelo, preset.base_url, api_key, variable)
 
 
