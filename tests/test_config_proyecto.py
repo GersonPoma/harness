@@ -171,3 +171,37 @@ def test_no_ejecuta_codigo_del_yaml(tmp_path: Path) -> None:
     # yaml.load con estas etiquetas ejecutaría código; safe_load las rechaza.
     error = _error(tmp_path, "!!python/object/apply:os.system ['echo hackeado']\n")
     assert "no es YAML válido" in error
+
+
+# --- docker.cache -------------------------------------------------------------------------
+
+
+def test_cache_activada_por_defecto(tmp_path: Path) -> None:
+    assert _cargar(tmp_path, MINIMO).docker.cache is True
+
+
+def test_cache_desactivada(tmp_path: Path) -> None:
+    contenido = MINIMO.replace("  imagen: python:3.12-slim", "  imagen: x\n  cache: false")
+    assert _cargar(tmp_path, contenido).docker.cache is False
+
+
+def test_cache_tiene_que_ser_booleano(tmp_path: Path) -> None:
+    contenido = MINIMO.replace("  imagen: python:3.12-slim", "  imagen: x\n  cache: 'no'")
+    assert "docker.cache" in _error(tmp_path, contenido)
+
+
+@pytest.mark.parametrize("directorio", ["/harness-cache", "/harness-cache/app", "/"])
+def test_directorio_de_trabajo_no_puede_pisar_la_cache(tmp_path: Path, directorio: str) -> None:
+    contenido = MINIMO.replace(
+        "  imagen: python:3.12-slim", f"  imagen: x\n  directorio_trabajo: {directorio}"
+    )
+    error = _error(tmp_path, contenido)
+    assert "docker.directorio_trabajo" in error
+    assert "no puede coincidir con la caché de dependencias (/harness-cache)" in error
+
+
+def test_directorio_de_trabajo_con_nombre_parecido_vale(tmp_path: Path) -> None:
+    contenido = MINIMO.replace(
+        "  imagen: python:3.12-slim", "  imagen: x\n  directorio_trabajo: /harness-cache-app"
+    )
+    assert _cargar(tmp_path, contenido).docker.directorio_trabajo == "/harness-cache-app"

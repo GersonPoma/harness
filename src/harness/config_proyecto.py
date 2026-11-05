@@ -1,6 +1,6 @@
 """Carga y validación de harness.yaml del repo objetivo (docs/harness-yaml.md)."""
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Annotated
 
 import yaml
@@ -17,6 +17,8 @@ from pydantic_core import ErrorDetails
 NOMBRE_ARCHIVO = "harness.yaml"
 VERSION_SOPORTADA = 1
 PATRON_NOMBRE = r"^[a-z0-9-]+$"
+# Dónde se monta, dentro del contenedor, el volumen con la caché de dependencias.
+RUTA_CACHE = "/harness-cache"
 
 Entero = Annotated[int, Field(ge=1)]
 Nombre = Annotated[str, Field(pattern=PATRON_NOMBRE)]
@@ -39,11 +41,22 @@ class ConfigDocker(_Modelo):
     directorio_trabajo: str = "/app"
     instalar: list[str] = []
     reinstalar_si_cambia: list[str] = []
+    cache: bool = True
 
     @field_validator("instalar", mode="before")
     @classmethod
     def _texto_a_lista(cls, valor: object) -> object:
         return [valor] if isinstance(valor, str) else valor
+
+    @field_validator("directorio_trabajo")
+    @classmethod
+    def _fuera_de_la_cache(cls, valor: str) -> str:
+        # El repo y la caché de dependencias son montajes distintos: si uno contuviera al otro,
+        # lo descargado aparecería dentro del repo (o el repo dentro de la caché).
+        trabajo, cache = PurePosixPath(valor), PurePosixPath(RUTA_CACHE)
+        if trabajo == cache or cache in trabajo.parents or trabajo in cache.parents:
+            raise ValueError(f"no puede coincidir con la caché de dependencias ({RUTA_CACHE})")
+        return valor
 
 
 class ConfigComandos(_Modelo):

@@ -16,7 +16,18 @@ from pathlib import Path
 from types import TracebackType
 from typing import Protocol
 
-from harness.config_proyecto import NOMBRE_ARCHIVO, ConfigProyecto, ConfigServicio
+from harness.cache_dependencias import (
+    COMANDO_USUARIO,
+    ETIQUETA_CACHE,
+    ETIQUETA_PROYECTO,
+    MOTIVO_DESACTIVADA,
+    EstadoCache,
+    comando_preparar,
+    es_usuario_valido,
+    nombre_volumen,
+    variables_cache,
+)
+from harness.config_proyecto import NOMBRE_ARCHIVO, RUTA_CACHE, ConfigProyecto, ConfigServicio
 from harness.globs import coincide_alguno
 from harness.secretos import buscar_archivos_de_secretos
 from harness.variables import VariablesResueltas, resolver_variables
@@ -39,6 +50,7 @@ MONTAJES_SOLO_LECTURA = (".git", NOMBRE_ARCHIVO, ".harness")
 # -v borra también los volúmenes anónimos: imágenes como postgres declaran un VOLUME y Docker
 # crea uno por contenedor que, sin -v, queda huérfano ocupando disco.
 BORRAR_CONTENEDORES = ["docker", "rm", "-f", "-v"]
+MOTIVO_SIN_CACHE = "--sin-cache"
 
 
 class EjecutorProceso(Protocol):
@@ -101,6 +113,7 @@ class EntornoDocker:
         ejecutar: EjecutorProceso = ejecutar_proceso,
         reloj: Callable[[], float] = time.monotonic,
         dormir: Callable[[float], None] = time.sleep,
+        usar_cache: bool = True,
     ) -> None:
         self._repo = repo.resolve()
         self._config = config
@@ -108,6 +121,10 @@ class EntornoDocker:
         self._ejecutar = ejecutar
         self._reloj = reloj
         self._dormir = dormir
+        self._usar_cache = usar_cache
+        # Qué pasó con la caché de dependencias; se decide en iniciar().
+        self.cache = EstadoCache()
+        self._variables_cache: dict[str, str] = {}
         # El contenedor del proyecto y la red comparten nombre (Docker los separa por tipo).
         self.nombre = f"harness-{config.proyecto}-{_nombre_seguro(ticket)}"
         self._contenedores: list[str] = []
@@ -145,8 +162,12 @@ class EntornoDocker:
             if servicio.listo_cuando:
                 avisar(f"Esperando a que el servicio {servicio.nombre} esté listo...")
                 self._esperar_listo(servicio)
+        self.cache = self._preparar_cache()
         avisar(f"Creando el contenedor del proyecto ({self._config.docker.imagen})...")
-        self._correr(self.nombre, self._argumentos_proyecto(), self._variables.proyecto)
+        variables = {**self._variables.proyecto, **self._variables_cache}
+        self._correr(self.nombre, self._argumentos_proyecto(), variables)
+        if self.cache.es_usada:
+            self._preparar_volumen()
         avisar("Instalando dependencias...")
         self._instalar()
 
@@ -288,13 +309,76 @@ class EntornoDocker:
             f"{logs.strip() or '(sin salida)'}"
         )
 
+    def _preparar_cache(self) -> EstadoCache:
+        """Decide si se usa la caché y, si se usa, crea el volumen si todavía no existe."""
+        proyecto = self._config.proyecto
+        if not self._usar_cache:
+            return EstadoCache(motivo=MOTIVO_SIN_CACHE)
+        if not self._config.docker.cache:
+            return EstadoCache(motivo=MOTIVO_DESACTIVADA)
+        otra = self._otra_ejecucion()
+        if otra:
+            # Maven y pip no siempre toleran dos escrituras a la vez en su caché.
+            return EstadoCache(motivo=f"otra ejecución de {proyecto} la está usando ({otra})")
+        volumen = nombre_volumen(proyecto)
+        inspeccion = ["docker", "volume", "inspect", volumen]
+        es_creado = self._ejecutar(inspeccion, TIMEOUT_DOCKER_SEGUNDOS)[0] != 0
+        if es_creado:
+            codigo, salida = self._ejecutar(
+                ["docker", "volume", "create", "--label", "harness=1",
+                 "--label", f"{ETIQUETA_CACHE}={proyecto}", volumen],
+                TIMEOUT_DOCKER_SEGUNDOS,
+            )
+            if codigo != 0:
+                # La caché solo acelera: sin ella la ejecución sigue como antes.
+                motivo = f"no se pudo crear el volumen {volumen}: {salida.strip()}"
+                return EstadoCache(motivo=motivo)
+        self._variables_cache, respetadas = variables_cache(self._variables.proyecto)
+        return EstadoCache(volumen, es_creado, variables_respetadas=tuple(respetadas))
+
+    def _otra_ejecucion(self) -> str | None:
+        """El contenedor de otra ejecución viva del mismo proyecto, si la hay."""
+        codigo, salida = self._ejecutar(
+            ["docker", "ps", "--filter", f"label={ETIQUETA_PROYECTO}={self._config.proyecto}",
+             "--format", "{{.Names}}"],
+            TIMEOUT_DOCKER_SEGUNDOS,
+        )
+        if codigo != 0:
+            return None
+        otros = [nombre for nombre in salida.split() if nombre != self.nombre]
+        return otros[0] if otros else None
+
+    def _preparar_volumen(self) -> None:
+        """Deja la caché lista para el usuario de la imagen, sin configuración ejecutable."""
+        codigo, salida = self._ejecutar(
+            ["docker", "exec", self.nombre, "sh", "-c", COMANDO_USUARIO], TIMEOUT_DOCKER_SEGUNDOS
+        )
+        usuario = salida.strip()
+        if codigo == 0 and es_usuario_valido(usuario):
+            codigo, salida = self._ejecutar(
+                ["docker", "exec", "-u", "0", self.nombre, "sh", "-c", comando_preparar(usuario)],
+                TIMEOUT_DOCKER_SEGUNDOS,
+            )
+            if codigo == 0:
+                return
+        raise ErrorDocker(
+            f"No se pudo preparar la caché de dependencias ({salida.strip() or 'sin salida'}). "
+            f"Se puede desactivar con docker.cache: false en {NOMBRE_ARCHIVO}."
+        )
+
     def _argumentos_proyecto(self) -> list[str]:
         destino = self._config.docker.directorio_trabajo
-        argumentos = ["docker", "run", "-d", "--name", self.nombre, "--label", "harness=1"]
+        argumentos = [
+            "docker", "run", "-d", "--name", self.nombre, "--label", "harness=1",
+            "--label", f"{ETIQUETA_PROYECTO}={self._config.proyecto}",
+        ]
         if self._red:
             argumentos += ["--network", self._red]
-        argumentos += _argumentos_variables(self._variables.proyecto)
+        argumentos += _argumentos_variables({**self._variables.proyecto, **self._variables_cache})
         argumentos += ["--mount", f"type=bind,source={self._repo},target={destino}"]
+        if self.cache.volumen:
+            volumen = f"type=volume,source={self.cache.volumen},target={RUTA_CACHE}"
+            argumentos += ["--mount", volumen]
         for ruta in MONTAJES_SOLO_LECTURA:
             origen = self._repo / ruta
             if ruta == ".harness":

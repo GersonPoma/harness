@@ -4,6 +4,7 @@ Solo estas:  uv run pytest -m docker
 """
 
 import subprocess
+import uuid
 from pathlib import Path
 
 import pytest
@@ -38,7 +39,7 @@ def _config(timeout: int = 60) -> ConfigProyecto:
     return ConfigProyecto.model_validate({
         "version": 1,
         "proyecto": "prueba",
-        "docker": {"imagen": IMAGEN},
+        "docker": {"imagen": IMAGEN, "cache": False},
         "comandos": {"tests": "python -c 'print(1)'"},
         "limites": {"timeout_comando_segundos": timeout},
     })
@@ -125,7 +126,7 @@ def test_servicio_en_red_privada(repo: Path) -> None:
     config = ConfigProyecto.model_validate({
         "version": 1,
         "proyecto": "prueba",
-        "docker": {"imagen": IMAGEN},
+        "docker": {"imagen": IMAGEN, "cache": False},
         "comandos": {"tests": "true"},
         "servicios": [{
             "nombre": "cache",
@@ -156,9 +157,50 @@ def test_verificar_config_de_init(repo: Path) -> None:
     config = ConfigProyecto.model_validate({
         "version": 1,
         "proyecto": "prueba",
-        "docker": {"imagen": IMAGEN, "instalar": "python -c 'open(\"instalado\", \"w\")'"},
+        "docker": {
+            "imagen": IMAGEN, "cache": False,
+            "instalar": "python -c 'open(\"instalado\", \"w\")'",
+        },
         "comandos": {"tests": "python -c 'import os; assert os.path.exists(\"instalado\")'"},
     })
     resultado = verificar_config(repo, config, VariablesResueltas())
     assert resultado.codigo == 0, resultado.salida
     assert "harness-prueba-init" not in _nombres_contenedores()
+
+
+def test_la_cache_sobrevive_entre_ejecuciones(repo: Path) -> None:
+    # Un proyecto con nombre único: el test crea su propio volumen y borra solo ese.
+    proyecto = f"prueba-cache-{uuid.uuid4().hex[:8]}"
+    volumen = f"harness-cache-{proyecto}"
+    config = ConfigProyecto.model_validate({
+        "version": 1,
+        "proyecto": proyecto,
+        "docker": {"imagen": IMAGEN},
+        "comandos": {"tests": "true"},
+    })
+    try:
+        with EntornoDocker(repo, config, "uno") as entorno:
+            entorno.iniciar()
+            assert entorno.cache.es_creado
+            escribir = entorno.ejecutar(
+                'echo hola > "$PIP_CACHE_DIR/marca" && mkdir -p "$GRADLE_USER_HOME/init.d" '
+                '&& touch "$GRADLE_USER_HOME/init.d/x.gradle"'
+            )
+            assert escribir.codigo == 0, escribir.salida
+        inspeccion = subprocess.run(
+            ["docker", "volume", "inspect", "-f", "{{json .Labels}}", volumen],
+            capture_output=True, text=True,
+        )
+        assert inspeccion.returncode == 0, "cerrar() no debe borrar el volumen"
+        assert f'"harness.cache":"{proyecto}"' in inspeccion.stdout
+        with EntornoDocker(repo, config, "dos") as entorno:
+            entorno.iniciar()
+            assert entorno.cache.es_usada and not entorno.cache.es_creado
+            leer = entorno.ejecutar('cat "$PIP_CACHE_DIR/marca"; ls "$GRADLE_USER_HOME"')
+            assert leer.salida.startswith("hola"), leer.salida
+            # La configuración que Gradle ejecutaría en cada build no sobrevive.
+            assert "init.d" not in leer.salida
+        # Nada de la caché aparece en el repo.
+        assert not (repo / "marca").exists() and not list(repo.rglob("marca"))
+    finally:
+        subprocess.run(["docker", "volume", "rm", "-f", volumen], capture_output=True)

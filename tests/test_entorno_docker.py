@@ -3,6 +3,12 @@ from pathlib import Path
 
 import pytest
 
+from harness.cache_dependencias import (
+    COMANDO_USUARIO,
+    EstadoCache,
+    comando_preparar,
+    variables_cache,
+)
 from harness.config_proyecto import ConfigComandos, ConfigDocker, ConfigProyecto
 from harness.entorno_docker import (
     CODIGO_MATADO,
@@ -24,6 +30,13 @@ CONFIG = ConfigProyecto(
 )
 
 
+# Sin otra ejecución viva del proyecto, y la imagen corre como root.
+RESPUESTAS_POR_DEFECTO = {"ps": (0, ""), COMANDO_USUARIO: (0, "0:0\n")}
+# Lo que corre antes de instalar cuando se usa la caché (el volumen ya existe).
+PREPARAR_CACHE = ["ps", "volume"]
+PREPARAR_VOLUMEN = [f"exec {COMANDO_USUARIO}", f"exec {comando_preparar('0:0')}"]
+
+
 class DockerFalso:
     """Imita el CLI de docker: guarda los argumentos y responde según el subcomando."""
 
@@ -42,7 +55,7 @@ class DockerFalso:
         self.variables.append(dict(variables or {}))
         clave = argumentos[1] if argumentos[1] != "exec" else argumentos[-1]
         cola = self._respuestas.get(clave)
-        return cola.pop(0) if cola else (0, "ok")
+        return cola.pop(0) if cola else RESPUESTAS_POR_DEFECTO.get(clave, (0, "ok"))
 
     def subcomandos(self) -> list[str]:
         return [a[1] if a[1] != "exec" else f"exec {a[-1]}" for a in self.llamadas]
@@ -59,7 +72,8 @@ def test_iniciar_crea_contenedor_e_instala(repo: Path) -> None:
     with _iniciar(repo, docker) as entorno:
         assert entorno.nombre == "harness-tareas-api-tareas-1"
         assert docker.subcomandos() == [
-            "version", "rm", "image", "run", "exec pip install -e .", "exec pip install pytest",
+            "version", "rm", "image", *PREPARAR_CACHE, "run", *PREPARAR_VOLUMEN,
+            "exec pip install -e .", "exec pip install pytest",
         ]
     assert docker.llamadas[-1] == ["docker", "rm", "-f", "-v", "harness-tareas-api-tareas-1"]
 
@@ -140,7 +154,7 @@ def test_reinstala_si_cambia_un_archivo_de_dependencias(repo: Path) -> None:
     entorno.marcar_cambio("pyproject.toml")
     entorno.ejecutar("pytest")
     entorno.ejecutar("pytest")
-    assert docker.subcomandos()[6:] == [
+    assert docker.subcomandos()[10:] == [
         "exec pytest",
         "exec pip install -e .", "exec pip install pytest", "exec pytest",
         "exec pytest",
@@ -190,8 +204,8 @@ def test_servicios_en_red_privada_antes_que_el_proyecto(repo: Path) -> None:
         entorno.iniciar(al_avanzar=avisos.append)
     assert docker.subcomandos() == [
         "version", "rm", "network", "image", "image", "network", "run",
-        "exec pg_isready -h 127.0.0.1", "run", "exec pip install -r requirements.txt",
-        "rm", "network",
+        "exec pg_isready -h 127.0.0.1", *PREPARAR_CACHE, "run", *PREPARAR_VOLUMEN,
+        "exec pip install -r requirements.txt", "rm", "network",
     ]
     assert docker.llamadas[1] == ["docker", "rm", "-f", "-v", CONTENEDOR, SERVICIO]
     assert docker.llamadas[5] == [
@@ -221,7 +235,9 @@ def test_argumentos_del_servicio_y_del_proyecto(repo: Path) -> None:
         "--network", CONTENEDOR, "--network-alias", "db",
         "-e", "POSTGRES_PASSWORD", "postgres:16",
     ]
-    assert proyecto[7:11] == ["--network", CONTENEDOR, "-e", "DATABASE_URL"]
+    assert proyecto[7:13] == [
+        "--label", "harness.proyecto=notas-api", "--network", CONTENEDOR, "-e", "DATABASE_URL",
+    ]
 
 
 def test_los_valores_de_las_variables_no_van_en_la_linea_de_comandos(repo: Path) -> None:
@@ -230,9 +246,8 @@ def test_los_valores_de_las_variables_no_van_en_la_linea_de_comandos(repo: Path)
     assert not any("secreta" in argumento for a in docker.llamadas for argumento in a)
     indices = [i for i, a in enumerate(docker.llamadas) if a[1] == "run"]
     assert docker.variables[indices[0]] == {"POSTGRES_PASSWORD": "secreta"}
-    assert docker.variables[indices[1]] == {
-        "DATABASE_URL": "postgresql://postgres:secreta@db/notas",
-    }
+    proyecto = {"DATABASE_URL": "postgresql://postgres:secreta@db/notas"}
+    assert docker.variables[indices[1]] == {**proyecto, **variables_cache(proyecto)[0]}
 
 
 def test_espera_hasta_que_el_servicio_responde(repo: Path) -> None:
@@ -360,3 +375,154 @@ def test_si_docker_inspect_falla_se_sigue_esperando(repo: Path) -> None:
     docker = DockerFalso(respuestas)
     _entorno_servicios(repo, docker, dormir=_sin_dormir).iniciar()
     assert docker.subcomandos().count("exec pg_isready -h 127.0.0.1") == 2
+
+
+# --- Caché de dependencias ----------------------------------------------------------------
+
+
+def _run_proyecto(docker: DockerFalso) -> list[str]:
+    return [a for a in docker.llamadas if a[1] == "run"][-1]
+
+
+def _montajes_de(argumentos: list[str]) -> list[str]:
+    return [argumentos[i + 1] for i, a in enumerate(argumentos) if a == "--mount"]
+
+
+def test_la_cache_se_monta_fuera_del_repo_con_sus_variables(repo: Path) -> None:
+    docker = DockerFalso()
+    entorno = _iniciar(repo, docker)
+    run = _run_proyecto(docker)
+    assert "type=volume,source=harness-cache-tareas-api,target=/harness-cache" in _montajes_de(run)
+    assert entorno.cache == EstadoCache("harness-cache-tareas-api", es_creado=False)
+    indice = docker.llamadas.index(run)
+    assert docker.variables[indice] == {
+        "PIP_CACHE_DIR": "/harness-cache/pip",
+        "UV_CACHE_DIR": "/harness-cache/uv",
+        "UV_LINK_MODE": "copy",
+        "npm_config_cache": "/harness-cache/npm",
+        "GRADLE_USER_HOME": "/harness-cache/gradle",
+        "MAVEN_OPTS": "-Dmaven.repo.local=/harness-cache/maven",
+    }
+    # Los valores van por el entorno del proceso, como las demás variables.
+    assert "-e" in run and "PIP_CACHE_DIR" in run and "/harness-cache/pip" not in run
+
+
+def test_la_cache_no_toca_los_montajes_de_solo_lectura(repo: Path) -> None:
+    docker = DockerFalso()
+    _iniciar(repo, docker)
+    raiz = repo.resolve()
+    montajes = _montajes_de(_run_proyecto(docker))
+    assert montajes[0] == f"type=bind,source={raiz},target=/app"
+    for ruta in (".git", "harness.yaml", ".harness"):
+        assert f"type=bind,source={raiz / ruta},target=/app/{ruta},readonly" in montajes
+
+
+def test_crea_el_volumen_si_no_existe_con_sus_etiquetas(repo: Path) -> None:
+    docker = DockerFalso({"volume": [(1, "Error: no such volume"), (0, "")]})
+    entorno = _iniciar(repo, docker)
+    volumenes = [a for a in docker.llamadas if a[1] == "volume"]
+    assert volumenes == [
+        ["docker", "volume", "inspect", "harness-cache-tareas-api"],
+        ["docker", "volume", "create", "--label", "harness=1",
+         "--label", "harness.cache=tareas-api", "harness-cache-tareas-api"],
+    ]
+    assert entorno.cache.es_creado
+
+
+def test_si_no_se_puede_crear_el_volumen_sigue_sin_cache(repo: Path) -> None:
+    docker = DockerFalso({"volume": [(1, ""), (1, "no space left on device")]})
+    entorno = _iniciar(repo, docker)
+    assert not entorno.cache.es_usada
+    assert "no space left on device" in entorno.cache.motivo
+    assert not any("type=volume" in m for m in _montajes_de(_run_proyecto(docker)))
+    assert "exec pip install -e ." in docker.subcomandos()
+
+
+def test_cerrar_nunca_borra_el_volumen(repo: Path) -> None:
+    docker = DockerFalso({"volume": [(1, ""), (0, "")]})
+    _iniciar(repo, docker).cerrar()
+    assert not any(a[1] == "volume" and a[2] == "rm" for a in docker.llamadas)
+    assert not any("harness-cache-tareas-api" in a for a in docker.llamadas if a[1] == "rm")
+
+
+@pytest.mark.parametrize(
+    ("config", "kwargs", "motivo"),
+    [
+        (CONFIG, {"usar_cache": False}, "--sin-cache"),
+        (
+            CONFIG.model_copy(update={"docker": CONFIG.docker.model_copy(update={"cache": False})}),
+            {},
+            "docker.cache: false en harness.yaml",
+        ),
+    ],
+)
+def test_sin_cache_no_hay_volumen_ni_variables(
+    repo: Path, config: ConfigProyecto, kwargs: dict, motivo: str
+) -> None:
+    docker = DockerFalso()
+    with EntornoDocker(repo, config, "TAREAS-1", ejecutar=docker, **kwargs) as entorno:
+        entorno.iniciar()
+        assert entorno.cache == EstadoCache(motivo=motivo)
+    assert docker.subcomandos()[:5] == [
+        "version", "rm", "image", "run", "exec pip install -e .",
+    ]
+    assert docker.variables[docker.subcomandos().index("run")] == {}
+
+
+def test_otra_ejecucion_del_proyecto_corre_sin_cache(repo: Path) -> None:
+    otra = "harness-tareas-api-tareas-2"
+    docker = DockerFalso({"ps": [(0, f"harness-tareas-api-tareas-1\n{otra}\n")]})
+    entorno = _iniciar(repo, docker)
+    assert entorno.cache == EstadoCache(
+        motivo=f"otra ejecución de tareas-api la está usando ({otra})"
+    )
+    ps = next(a for a in docker.llamadas if a[1] == "ps")
+    assert ps[2:4] == ["--filter", "label=harness.proyecto=tareas-api"]
+    assert "volume" not in docker.subcomandos()
+
+
+def test_el_contenedor_lleva_la_etiqueta_del_proyecto(repo: Path) -> None:
+    docker = DockerFalso()
+    _iniciar(repo, docker, usar_cache=False)
+    assert "harness.proyecto=tareas-api" in _run_proyecto(docker)
+
+
+def test_con_otro_usuario_le_da_la_cache_y_borra_la_configuracion_de_gradle(repo: Path) -> None:
+    docker = DockerFalso({COMANDO_USUARIO: [(0, "1000:1000\n")]})
+    _iniciar(repo, docker)
+    preparar = next(a for a in docker.llamadas if a[:4] == ["docker", "exec", "-u", "0"])
+    comando = preparar[-1]
+    assert comando == comando_preparar("1000:1000")
+    assert comando.startswith(
+        "rm -rf /harness-cache/gradle/init.d /harness-cache/gradle/gradle.properties && "
+    )
+    assert "chown 1000:1000 /harness-cache /harness-cache/pip" in comando
+    assert "chown -R" not in comando
+
+
+@pytest.mark.parametrize("salida", ["", "root\n", "1000:1000; rm -rf /"])
+def test_usuario_raro_detiene_con_un_error_claro(repo: Path, salida: str) -> None:
+    docker = DockerFalso({COMANDO_USUARIO: [(0, salida)]})
+    with pytest.raises(ErrorDocker, match="No se pudo preparar la caché de dependencias"):
+        with EntornoDocker(repo, CONFIG, "T", ejecutar=docker) as entorno:
+            entorno.iniciar()
+    # Lo que sale del contenedor nunca llega a un comando de root.
+    assert not any(a[:4] == ["docker", "exec", "-u", "0"] for a in docker.llamadas)
+
+
+def test_respeta_las_variables_de_cache_del_proyecto(repo: Path) -> None:
+    config = CONFIG.model_copy(update={"variables_entorno": {
+        "PIP_CACHE_DIR": "/otra/pip", "MAVEN_OPTS": "-Xmx1g",
+    }})
+    docker = DockerFalso()
+    with EntornoDocker(repo, config, "TAREAS-1", ejecutar=docker) as entorno:
+        entorno.iniciar()
+        assert entorno.cache.variables_respetadas == ("PIP_CACHE_DIR",)
+    variables = docker.variables[docker.subcomandos().index("run")]
+    assert variables["PIP_CACHE_DIR"] == "/otra/pip"
+    assert variables["MAVEN_OPTS"] == "-Xmx1g -Dmaven.repo.local=/harness-cache/maven"
+
+
+def test_maven_opts_con_su_propio_repositorio_se_respeta() -> None:
+    variables, respetadas = variables_cache({"MAVEN_OPTS": "-Dmaven.repo.local=/m2"})
+    assert "MAVEN_OPTS" not in variables and respetadas == ["MAVEN_OPTS"]
