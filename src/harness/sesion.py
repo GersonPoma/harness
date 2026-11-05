@@ -67,6 +67,8 @@ class Sesion:
     repo_al_empezar: Instantanea = field(default_factory=dict)
     repo_al_cortar: Instantanea = field(default_factory=dict)
     entrega: dict[str, Any] = field(default_factory=dict)
+    # El resumen final del modelo: con él, resume arma la descripción del PR sin el modelo.
+    texto_final: str | None = None
     motivo_corte: str | None = None
     detalle_corte: str | None = None
 

@@ -53,6 +53,7 @@ from harness.entrega import (
     ConfigEntrega,
     CrearPr,
     ResultadoEntrega,
+    continuar_entrega,
     cerrar_sin_entregar,
     crear_config_entrega,
     crear_cuerpo_pr,
@@ -420,11 +421,14 @@ def resume(
         conectar = partial(_conectar_mcp, prep, pila, reporte, es_herramientas_github)
         config_entrega = _preparar_rama_para_retomar(prep, sesion, reporte, conectar)
         _retomar_sesion(prep, sesion, reporte)
-        # Los pasos siguen contando desde el corte; el presupuesto es para esta parte.
-        hechos = prep.reanudacion.continuacion.pasos if prep.reanudacion else 0
-        resultado, es_entrega_ok = _ejecutar_y_entregar(
-            prep, config_entrega, hechos + presupuesto, reporte
-        )
+        if sesion.estado == ESTADO_ENTREGA:
+            resultado, es_entrega_ok = _retomar_entrega(prep, sesion, config_entrega, reporte)
+        else:
+            # Los pasos siguen contando desde el corte; el presupuesto es para esta parte.
+            hechos = prep.reanudacion.continuacion.pasos if prep.reanudacion else 0
+            resultado, es_entrega_ok = _ejecutar_y_entregar(
+                prep, config_entrega, hechos + presupuesto, reporte
+            )
     _sugerir_resume(prep)
     if resultado.es_limite_alcanzado or resultado.es_validado is False or not es_entrega_ok:
         raise typer.Exit(1)
@@ -447,12 +451,6 @@ def _sesion_para_retomar(repo: Path, ticket: str) -> Sesion:
     if sesion.es_completada:
         consola.mostrar_aviso(f"{sesion.clave} ya está completa: no hay nada que retomar.")
         raise typer.Exit(0)
-    if sesion.estado == ESTADO_ENTREGA:
-        consola.mostrar_error(
-            f"A {sesion.clave} solo le falta la entrega (push, PR o comentario): retomarla "
-            "todavía no está disponible."
-        )
-        raise typer.Exit(1)
     return sesion
 
 
@@ -509,12 +507,14 @@ def _volver_a_la_rama(repo: Path, config: ConfigEntrega) -> None:
 def _retomar_sesion(prep: _Preparacion, sesion: Sesion, reporte: _Reporte) -> None:
     """Prepara la conversación guardada y sigue escribiendo en la misma sesión."""
     motivo = consola.describir_corte(sesion.motivo_corte)
+    if sesion.estado == ESTADO_ENTREGA:
+        motivo = "solo falta la entrega (push, PR o comentario en Jira)"
     cambiados = _cambios_desde_el_corte(prep, sesion, reporte)
     consola.mostrar_retomando(sesion.clave, motivo, sesion.pasos)
     reporte.registro.registrar_resume(sesion.estado, sesion.motivo_corte, cambiados)
-    if sesion.estado != ESTADO_PLAN:
+    if sesion.estado == ESTADO_IMPLEMENTACION:
         prep.reanudacion = armar_reanudacion(sesion, motivo, cambiados)
-    else:
+    elif sesion.estado == ESTADO_PLAN:
         # Cortada en la ronda de plan: no escribió nada en el repo, se planifica de nuevo.
         sesion.mensajes, sesion.pasos = [], 0
     actual = identificador(prep.config)
@@ -615,6 +615,7 @@ def _terminar_ejecucion_en_sesion(
     datos.pasos = resultado.pasos
     datos.tokens_entrada = resultado.tokens_entrada
     datos.tokens_salida = resultado.tokens_salida
+    datos.texto_final = resultado.texto_final
     # Con plan o con validaciones, la ronda de plan ya pasó: un corte se retoma implementando.
     if datos.estado == ESTADO_PLAN and (resultado.plan is not None or resultado.validaciones):
         datos.estado = ESTADO_IMPLEMENTACION
@@ -819,8 +820,39 @@ def _entregar(
     resultado: ResultadoEjecucion,
     cambios: CambiosRepo,
     reporte: _Reporte,
+    pendiente: dict | None = None,
 ) -> bool:
-    """Commit, push y PR; devuelve False si el PR falló (el push sí se hizo)."""
+    """Commit, push y PR; devuelve False si el PR falló (el push sí se hizo).
+
+    Con `pendiente` (harness resume, el commit ya está) se hacen solo las etapas que faltan.
+    """
+    head_antes = cabeza(prep.repo)
+    try:
+        entrega = _hacer_entrega(prep, config, resultado, cambios, reporte, pendiente)
+    except ErrorGit as error:
+        reporte.registro.registrar_error(str(error))
+        consola.mostrar_error(str(error))
+        _cortar_en_la_entrega(prep, head_antes, str(error))
+        raise typer.Exit(1) from error
+    reporte.registro.registrar_entrega(entrega)
+    consola.mostrar_entrega(entrega, config)
+    _anotar_entrega(prep, entrega)
+    # Solo con un PR (creado o que ya existía) y un ticket de Jira. Si el comentario falla,
+    # solo se avisa: no cambia el código de salida.
+    if entrega.pull_request is not None and prep.config_jira is not None:
+        _comentar_en_jira(prep, entrega.pull_request, reporte)
+    _cerrar_entrega_en_sesion(prep, config)
+    return entrega.error_pr is None
+
+
+def _hacer_entrega(
+    prep: _Preparacion,
+    config: ConfigEntrega,
+    resultado: ResultadoEjecucion,
+    cambios: CambiosRepo,
+    reporte: _Reporte,
+    pendiente: dict | None,
+) -> ResultadoEntrega:
     mensaje = crear_mensaje_commit(prep.ticket, prep.titulo)
 
     def armar_pedido_pr(repo_github: RepoGitHub) -> PedidoPullRequest:
@@ -833,23 +865,56 @@ def _entregar(
         return PedidoPullRequest(repo_github, config.rama, config.base, mensaje, cuerpo)
 
     crear_pr = _crear_pr_por_mcp(prep, reporte) if prep.sesion_github else None
-    try:
-        entrega = entregar(
+    if pendiente is None:
+        return entregar(
             prep.repo, config, resultado, mensaje, armar_pedido_pr, prep.token_github, crear_pr
         )
-    except ErrorGit as error:
-        reporte.registro.registrar_error(str(error))
-        consola.mostrar_error(str(error))
-        raise typer.Exit(1) from error
-    reporte.registro.registrar_entrega(entrega)
-    consola.mostrar_entrega(entrega, config)
-    _anotar_entrega(prep, entrega)
-    # Solo con un PR (creado o que ya existía) y un ticket de Jira. Si el comentario falla,
-    # solo se avisa: no cambia el código de salida.
-    if entrega.pull_request is not None and prep.config_jira is not None:
-        _comentar_en_jira(prep, entrega.pull_request, reporte)
-    _cerrar_entrega_en_sesion(prep, config)
-    return entrega.error_pr is None
+    if pendiente.get("url_pr"):
+        # El PR ya existe: solo falta el comentario en Jira.
+        pull_request = PullRequest(pendiente["url_pr"], bool(pendiente.get("es_borrador")))
+        return ResultadoEntrega(
+            config.rama, hash_commit=pendiente["hash_commit"], es_pusheado=True,
+            pull_request=pull_request,
+        )
+    return continuar_entrega(
+        prep.repo, config, pendiente["hash_commit"], bool(pendiente.get("es_pusheado")),
+        armar_pedido_pr, prep.token_github, crear_pr,
+    )
+
+
+def _cortar_en_la_entrega(prep: _Preparacion, head_antes: str | None, detalle: str) -> None:
+    """Un error de Git a mitad de la entrega: si el commit llegó a hacerse, queda anotado."""
+    if prep.sesion is None:
+        return
+    head_despues = cabeza(prep.repo)
+    if head_despues and head_despues != head_antes:
+        prep.sesion.sesion.entrega = {
+            "hash_commit": head_despues, "es_pusheado": False, "url_pr": None,
+            "es_borrador": None, "es_comentado_jira": False, "motivo": None,
+        }
+    prep.sesion.cortar(MOTIVO_ERROR, detalle)
+    _sugerir_resume(prep)
+
+
+def _retomar_entrega(
+    prep: _Preparacion, sesion: Sesion, config: ConfigEntrega | None, reporte: _Reporte
+) -> tuple[ResultadoEjecucion, bool]:
+    """resume sin modelo ni Docker: solo las etapas de la entrega que faltan."""
+    resultado = ResultadoEjecucion(
+        sesion.texto_final, sesion.pasos, sesion.tokens_entrada, sesion.tokens_salida, False,
+        True, sesion.validaciones, Plan.model_validate(sesion.plan) if sesion.plan else None,
+    )
+    if config is None:
+        prep.sesion.completar()
+        return resultado, True
+    # Después del commit, el repo es el resultado del ticket: con la foto del principio
+    # salen los mismos cambios que vio la primera parte.
+    cambios = (
+        comparar(sesion.repo_al_empezar, tomar_instantanea(prep.repo))
+        if sesion.repo_al_empezar else CambiosRepo()
+    )
+    pendiente = dict(sesion.entrega) if sesion.entrega.get("hash_commit") else None
+    return resultado, _entregar(prep, config, resultado, cambios, reporte, pendiente)
 
 
 def _comentar_en_jira(prep: _Preparacion, pull_request: PullRequest, reporte: _Reporte) -> None:

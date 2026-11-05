@@ -149,6 +149,30 @@ def entregar(
     return entrega
 
 
+def continuar_entrega(
+    repo: Path,
+    config: ConfigEntrega,
+    hash_commit: str,
+    es_pusheado: bool,
+    armar_pedido_pr: ArmarPedidoPr | None = None,
+    token_github: str | None = None,
+    crear_pr: CrearPr | None = None,
+) -> ResultadoEntrega:
+    """Las etapas que faltan de una entrega cortada (harness resume): el commit ya está."""
+    entrega = ResultadoEntrega(config.rama, hash_commit=hash_commit, es_pusheado=es_pusheado)
+    if not config.es_con_push:
+        entrega.motivo = "Sin push (--sin-push): el commit quedó solo en el repo local."
+        return entrega
+    if not entrega.es_pusheado:
+        _pushear(repo, config)
+        entrega.es_pusheado = True
+    if not config.es_con_pr:
+        _avisar_sin_pr(repo, config, entrega, armar_pedido_pr)
+    elif armar_pedido_pr:
+        _abrir_pr(repo, config, entrega, armar_pedido_pr, token_github, crear_pr)
+    return entrega
+
+
 def cerrar_sin_entregar(repo: Path, config: ConfigEntrega) -> ResultadoEntrega:
     """Tras un error o Ctrl+C: borra la rama si quedó vacía; si no, deja los cambios en ella."""
     return _sin_commit(repo, config, ResultadoEntrega(config.rama), "La ejecución no terminó.")

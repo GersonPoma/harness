@@ -7,11 +7,16 @@ import pytest
 from typer.testing import CliRunner
 
 from harness import cli
+from harness import entrega as cli_entrega
 from harness.cambios import CambiosRepo
 from harness.config import ConfigModelo
+from harness.comentario_pr import COMENTADO, POR_REST, ResultadoComentario
 from harness.ejecucion import ResultadoEjecucion
+from harness.git import ErrorGit
+from harness.github import PedidoPullRequest, PullRequest
 from harness.sesion import (
     ESTADO_COMPLETADA,
+    ESTADO_ENTREGA,
     ESTADO_IMPLEMENTACION,
     ESTADO_PLAN,
     MOTIVO_LIMITE_PASOS,
@@ -21,7 +26,7 @@ from harness.sesion import (
 )
 from harness.tipos import LlamadaHerramienta, Rol
 from tests.falsos import ProveedorFalso, pedir, proponer, terminar
-from tests.git_prueba import git, iniciar_repo, requiere_git
+from tests.git_prueba import agregar_remoto, git, iniciar_repo, ramas_remotas, requiere_git
 
 LEER = LlamadaHerramienta("c1", "leer_archivo", {"ruta": "app.py"})
 CONFIG = ConfigModelo("gemini", "modelo-x", None, "clave-falsa-0123456789")
@@ -186,9 +191,12 @@ def repo_git(repo: Path) -> Path:
     return repo
 
 
-def _ejecutar_falso(monkeypatch: pytest.MonkeyPatch, recibidos: list) -> None:
+def _ejecutar_falso(
+    monkeypatch: pytest.MonkeyPatch, recibidos: list, continuar: bool = True
+) -> None:
     def ejecutar(prep, max_pasos, reporte):
-        recibidos.append((max_pasos, prep.reanudacion.continuacion.pasos))
+        if continuar:
+            recibidos.append((max_pasos, prep.reanudacion.continuacion.pasos))
         (prep.repo / "tareas.py").write_text("TAREAS = []\n", encoding="utf-8")
         resultado = ResultadoEjecucion("Hecho", 5, 10, 5, False, True, 1)
         return resultado, CambiosRepo(creados=["tareas.py"])
@@ -235,3 +243,127 @@ def test_si_la_rama_se_borro_porque_quedo_vacia_la_crea(
     codigo, salida, _, _ = _resume(monkeypatch, repo_git, [])
     assert codigo == 0, salida
     assert git(repo_git, "branch", "--show-current") == "feature/T-1"
+
+
+# --- Retomar la entrega (sin modelo ni Docker) --------------------------------------------
+
+
+def _con_remoto_y_ticket_hecho(repo_git: Path) -> tuple[Path, str]:
+    """La rama del ticket con su commit: lo que deja una entrega cortada después del commit."""
+    remoto = agregar_remoto(repo_git, repo_git.parent / "remoto.git")
+    git(repo_git, "switch", "--quiet", "-c", "feature/T-1")
+    (repo_git / "tareas.py").write_text("TAREAS = []\n", encoding="utf-8")
+    git(repo_git, "add", "tareas.py")
+    git(repo_git, "commit", "--quiet", "-m", "T-1: Crear tareas")
+    return remoto, git(repo_git, "rev-parse", "HEAD")
+
+
+def _sesion_de_entrega(repo: Path, entrega: dict, es_con_pr: bool, fuente: str = "local") -> None:
+    sesion = Sesion(
+        ticket={"clave": "T-1", "titulo": "Crear tareas", "fuente": fuente, "url": None,
+                "texto": "# T-1: Crear tareas"},
+        estado=ESTADO_ENTREGA, proveedor="gemini/modelo-x", modelos_usados=["gemini/modelo-x"],
+        pasos=6, validaciones=1, es_con_plan=False, texto_final="Agregué tareas.py.",
+        rama={"nombre": "feature/T-1", "base": "main", "remoto": "origin",
+              "es_con_push": True, "es_con_pr": es_con_pr, "head_al_cortar": None},
+        entrega=entrega,
+    )
+    guardar_sesion(repo, sesion, [])
+
+
+@requiere_git
+def test_retoma_el_push_que_fallo_despues_del_commit(
+    monkeypatch: pytest.MonkeyPatch, repo_git: Path
+) -> None:
+    remoto, commit = _con_remoto_y_ticket_hecho(repo_git)
+    _sesion_de_entrega(repo_git, {"hash_commit": commit, "es_pusheado": False}, es_con_pr=False)
+
+    codigo, salida, proveedor, _ = _resume(monkeypatch, repo_git, [])
+    assert codigo == 0, salida
+    assert "Se retoma T-1: solo falta la entrega" in salida
+    assert proveedor.conversaciones == []
+    assert "feature/T-1" in ramas_remotas(remoto)
+    # No hay un segundo commit: el que ya estaba es el que se sube.
+    assert git(repo_git, "rev-parse", "HEAD") == commit
+    assert cargar_sesion(repo_git, "T-1").estado == ESTADO_COMPLETADA
+
+
+@requiere_git
+def test_retoma_el_pr_que_fallo_con_la_descripcion_del_ticket(
+    monkeypatch: pytest.MonkeyPatch, repo_git: Path
+) -> None:
+    remoto, commit = _con_remoto_y_ticket_hecho(repo_git)
+    git(repo_git, "push", "--quiet", "origin", "feature/T-1")
+    git(repo_git, "remote", "set-url", "origin", "https://github.com/gerson/demo.git")
+    git(repo_git, "remote", "set-url", "--push", "origin", str(remoto))
+    monkeypatch.setenv("GITHUB_TOKEN", "tok-0123456789")
+    monkeypatch.setattr(cli, "verificar_github", lambda *_: None)
+    pedidos: list[PedidoPullRequest] = []
+
+    def crear(pedido: PedidoPullRequest, token: str) -> PullRequest:
+        pedidos.append(pedido)
+        return PullRequest("https://github.com/gerson/demo/pull/4", es_borrador=True)
+
+    monkeypatch.setattr("harness.entrega.github.crear_pull_request", crear)
+    entrega = {"hash_commit": commit, "es_pusheado": True, "url_pr": None}
+    _sesion_de_entrega(repo_git, entrega, es_con_pr=True)
+
+    codigo, salida, _, _ = _resume(monkeypatch, repo_git, [])
+    assert codigo == 0, salida
+    (pedido,) = pedidos
+    assert pedido.titulo == "T-1: Crear tareas"
+    assert "Agregué tareas.py." in pedido.cuerpo and "tareas.py" in pedido.cuerpo
+    sesion = cargar_sesion(repo_git, "T-1")
+    assert sesion.estado == ESTADO_COMPLETADA
+    assert sesion.entrega["url_pr"] == "https://github.com/gerson/demo/pull/4"
+
+
+@requiere_git
+def test_con_el_pr_hecho_solo_comenta_en_jira(
+    monkeypatch: pytest.MonkeyPatch, repo_git: Path
+) -> None:
+    _, commit = _con_remoto_y_ticket_hecho(repo_git)
+    for variable, valor in (("JIRA_URL", "https://x.atlassian.net"), ("JIRA_EMAIL", "a@b.c"),
+                            ("JIRA_API_TOKEN", "jira-token-0123456789")):
+        monkeypatch.setenv(variable, valor)
+    monkeypatch.setattr(cli, "verificar_github", lambda *_: None)
+    comentados: list[str] = []
+
+    def comentar(config, clave, pull_request, comentarios, al_aviso):
+        comentados.append(pull_request.url)
+        return ResultadoComentario(COMENTADO, POR_REST)
+
+    monkeypatch.setattr(cli, "comentar_pr_en_jira", comentar)
+    url = "https://github.com/gerson/demo/pull/4"
+    entrega = {"hash_commit": commit, "es_pusheado": True, "url_pr": url, "es_borrador": True}
+    _sesion_de_entrega(repo_git, entrega, es_con_pr=True, fuente="jira")
+
+    codigo, salida, _, _ = _resume(monkeypatch, repo_git, [])
+    assert codigo == 0, salida
+    assert comentados == [url]
+    assert cargar_sesion(repo_git, "T-1").estado == ESTADO_COMPLETADA
+
+
+@requiere_git
+def test_un_push_que_falla_deja_el_commit_anotado_para_resume(
+    monkeypatch: pytest.MonkeyPatch, repo_git: Path
+) -> None:
+    remoto = agregar_remoto(repo_git, repo_git.parent / "remoto.git")
+    _ejecutar_falso(monkeypatch, [], continuar=False)
+    real = cli_entrega.git.pushear
+
+    def sin_red(*_args) -> None:
+        raise ErrorGit("No se pudo conectar con el remoto.")
+
+    monkeypatch.setattr(cli_entrega.git, "pushear", sin_red)
+    argumentos = ["run", str(repo_git.parent / "T-1.md"), "--repo", str(repo_git), "--sin-pr"]
+    codigo, salida, _ = _invocar(monkeypatch, argumentos, ProveedorFalso([]))
+    assert codigo == 1 and "Para retomarla: harness resume T-1" in salida
+    sesion = cargar_sesion(repo_git, "T-1")
+    assert sesion.estado == ESTADO_ENTREGA
+    assert sesion.entrega["hash_commit"] == git(repo_git, "rev-parse", "HEAD")
+
+    monkeypatch.setattr(cli_entrega.git, "pushear", real)
+    codigo, salida, _, _ = _resume(monkeypatch, repo_git, [])
+    assert codigo == 0, salida
+    assert "feature/T-1" in ramas_remotas(remoto)
