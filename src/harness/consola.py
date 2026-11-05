@@ -23,6 +23,13 @@ from harness.init import ResultadoInit
 from harness.plan import Plan, archivos_fuera_del_plan
 from harness.proveedores.base import MOTIVO_CAIDO, MOTIVO_CUOTA_DIARIA, MOTIVO_LIMITE
 from harness.proveedores.respaldo import CambioProveedor
+from harness.sesion import (
+    MOTIVO_CTRL_C,
+    MOTIVO_ERROR,
+    MOTIVO_LIMITE_PASOS,
+    MOTIVO_PROVEEDOR,
+    MOTIVO_VALIDACION,
+)
 from harness.ticket import FUENTE_LOCAL, Ticket
 
 MAX_CARACTERES_RESUMEN = 120
@@ -42,6 +49,13 @@ TEXTOS_MOTIVO_CAMBIO = {
     MOTIVO_CAIDO: "no responde después de los reintentos",
     MOTIVO_LIMITE: "sigue con el límite de pedidos (429) después de los reintentos",
     MOTIVO_CUOTA_DIARIA: "agotó su cuota diaria",
+}
+TEXTOS_CORTE = {
+    MOTIVO_LIMITE_PASOS: "se cortó por el límite de pasos",
+    MOTIVO_VALIDACION: "los tests no pasaron",
+    MOTIVO_CTRL_C: "se canceló con Ctrl+C",
+    MOTIVO_PROVEEDOR: "el proveedor del modelo no respondió",
+    MOTIVO_ERROR: "terminó con un error",
 }
 # Sin caché porque lo pidió el usuario: no hace falta avisar en amarillo.
 MOTIVOS_SIN_CACHE_ELEGIDOS = (MOTIVO_SIN_CACHE, MOTIVO_DESACTIVADA)
@@ -93,6 +107,16 @@ def mostrar_inicio(
         f"[bold green]Ticket[/] {escape(ticket)}  [bold green]Repo[/] {escape(repo)}\n"
         f"[bold green]Modelo[/] {escape(proveedor)} / {escape(modelo)}{texto_respaldo}"
     )
+
+
+def describir_corte(motivo: str | None) -> str:
+    """Por qué quedó a medias una ejecución, en palabras."""
+    return TEXTOS_CORTE.get(motivo or "", "quedó a medias")
+
+
+def mostrar_como_retomar(clave: str) -> None:
+    """Al final de una ejecución que no terminó: cómo seguir sin empezar de cero."""
+    consola.print(f"Para retomarla: [bold]harness resume {escape(clave)}[/]")
 
 
 def mostrar_cambio_proveedor(cambio: CambioProveedor, paso: int) -> None:

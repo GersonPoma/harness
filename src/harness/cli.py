@@ -10,9 +10,9 @@ from rich import print
 
 from harness import consola, github
 from harness.bucle import MAX_PASOS_POR_DEFECTO, ErrorRespuestaVacia, Paso
-from harness.cambios import CambiosRepo, comparar, tomar_instantanea
+from harness.cambios import CambiosRepo, Instantanea, comparar, tomar_instantanea
 from harness.cliente_mcp import ErrorMCP, SesionMCP
-from harness.comentario_pr import comentar_pr_en_jira
+from harness.comentario_pr import COMENTADO, YA_ESTABA, comentar_pr_en_jira
 from harness.config import (
     RUTA_MCP,
     VAR_JIRA_TOKEN,
@@ -51,6 +51,7 @@ from harness.entorno_docker import EntornoDocker, ErrorDocker, Instalacion
 from harness.entrega import (
     ConfigEntrega,
     CrearPr,
+    ResultadoEntrega,
     cerrar_sin_entregar,
     crear_config_entrega,
     crear_cuerpo_pr,
@@ -80,7 +81,22 @@ from harness.proveedores.base import ErrorProveedor, ProveedorLLM
 from harness.proveedores.fabrica import crear_proveedor, identificador
 from harness.proveedores.respaldo import CambioProveedor
 from harness.registro import RegistroPasos
-from harness.tipos import Herramienta
+from harness.sesion import (
+    ESTADO_ENTREGA,
+    ESTADO_IMPLEMENTACION,
+    ESTADO_PLAN,
+    MOTIVO_CTRL_C,
+    MOTIVO_ERROR,
+    MOTIVO_LIMITE_PASOS,
+    MOTIVO_PROVEEDOR,
+    MOTIVO_VALIDACION,
+    ErrorSesion,
+    Sesion,
+    SesionEnCurso,
+    cargar_sesion,
+    descartar_sesion,
+)
+from harness.tipos import Herramienta, Mensaje
 from harness.ticket import (
     MAX_CARACTERES_DESCRIPCION,
     ErrorTicket,
@@ -123,6 +139,8 @@ class _Preparacion:
     es_con_cache: bool = True
     # HARNESS_RESPALDO: si el proveedor principal se cae, se sigue con estos, en orden.
     respaldo: list[ConfigModelo] = field(default_factory=list)
+    # .harness/sessions/<TICKET>.json, para harness resume (se crea después de la rama).
+    sesion: SesionEnCurso | None = None
     token_github: str | None = None
     # Servidor MCP de GitHub de mcp.json (None: no hay) y sus herramientas para el modelo.
     servidor_github: ServidorMCP | None = None
@@ -172,11 +190,15 @@ class _Reporte:
         self._ultimo_paso = 0
         # Los modelos que respondieron, en orden (más de uno si se pasó al respaldo).
         self.modelos_usados = [modelo] if modelo else []
+        self.sesion: SesionEnCurso | None = None
 
     def paso(self, paso: Paso) -> None:
         self._ultimo_paso = paso.numero
         consola.mostrar_paso(paso)
         self.registro.registrar_paso(paso)
+        # Después de cada herramienta: un corte en cualquier momento pierde como mucho un paso.
+        if self.sesion:
+            self.sesion.paso(paso.numero)
 
     def cambio_proveedor(self, cambio: CambioProveedor) -> None:
         # El pedido que falló es el del paso siguiente al último que terminó.
@@ -184,6 +206,8 @@ class _Reporte:
         self.modelos_usados.append(cambio.siguiente)
         consola.mostrar_cambio_proveedor(cambio, paso)
         self.registro.registrar_cambio_proveedor(cambio, paso)
+        if self.sesion:
+            self.sesion.cambio_de_proveedor(cambio.siguiente)
 
     def reintento(self, mensaje: str) -> None:
         consola.mostrar_aviso(mensaje)
@@ -198,11 +222,15 @@ class _Reporte:
         consola.mostrar_plan(plan)
         es_aprobado = consola.preguntar_implementar() if self._es_aprobar_plan else True
         self.registro.registrar_plan(plan, es_aprobado)
+        if es_aprobado and self.sesion:
+            self.sesion.plan_aprobado(plan.model_dump())
         return es_aprobado
 
     def validacion(self, validacion: Validacion) -> None:
         consola.mostrar_validacion(validacion)
         self.registro.registrar_validacion(validacion)
+        if self.sesion:
+            self.sesion.validacion()
 
     def cache(self, cache: EstadoCache) -> None:
         consola.mostrar_cache(cache)
@@ -251,12 +279,21 @@ def run(
         bool,
         typer.Option("--sin-cache", help=AYUDA_SIN_CACHE),
     ] = False,
+    desde_cero: Annotated[
+        bool,
+        typer.Option(
+            "--desde-cero",
+            help="Si hay una sesión sin terminar del ticket, descartarla (se renombra, no se "
+            "borra) y empezar de nuevo.",
+        ),
+    ] = False,
 ) -> None:
     """Procesa un ticket y genera el código en el repo objetivo."""
     if sin_plan and aprobar_plan:
         consola.mostrar_error("--sin-plan y --aprobar-plan no se pueden usar juntos.")
         raise typer.Exit(1)
     prep = _preparar_ejecucion(ticket, (repo or Path.cwd()).resolve())
+    _revisar_sesion_pendiente(prep, desde_cero)
     prep.es_con_plan = not sin_plan
     prep.es_con_cache = not sin_cache
     limites = prep.config_proyecto.limites if prep.config_proyecto else None
@@ -285,26 +322,127 @@ def run(
     with ExitStack() as pila:
         conectar = partial(_conectar_mcp, prep, pila, reporte, es_herramientas_github)
         config_entrega = _preparar_rama(prep, not sin_push, not sin_pr, reporte, conectar)
+        _iniciar_sesion(prep, config_entrega, reporte)
         try:
             resultado, cambios = _ejecutar(prep, max_pasos, reporte)
         except (ErrorProveedor, ErrorDocker, ErrorRespuestaVacia, ErrorPlan) as error:
             registro.registrar_error(str(error))
             consola.mostrar_error(str(error))
+            motivo = MOTIVO_PROVEEDOR if isinstance(error, ErrorProveedor) else MOTIVO_ERROR
+            _cortar_sesion(prep, motivo, str(error))
             _cerrar_rama(prep, config_entrega, reporte)
+            _sugerir_resume(prep)
             raise typer.Exit(1) from error
         except KeyboardInterrupt as error:
             registro.registrar_error("Ejecución cancelada por el usuario.")
             consola.mostrar_error("Ejecución cancelada (los contenedores se borraron).")
+            _cortar_sesion(prep, MOTIVO_CTRL_C)
             _cerrar_rama(prep, config_entrega, reporte)
+            _sugerir_resume(prep)
             raise typer.Exit(CODIGO_CANCELADO) from error
 
         registro.registrar_fin(resultado, cambios)
         consola.mostrar_fin(resultado, cambios, str(registro.ruta))
+        _terminar_ejecucion_en_sesion(prep, resultado, config_entrega)
         es_entrega_ok = True
         if config_entrega:
             es_entrega_ok = _entregar(prep, config_entrega, resultado, cambios, reporte)
+    _sugerir_resume(prep)
     if resultado.es_limite_alcanzado or resultado.es_validado is False or not es_entrega_ok:
         raise typer.Exit(1)
+
+
+def _revisar_sesion_pendiente(prep: _Preparacion, desde_cero: bool) -> None:
+    """Con una sesión sin terminar, run se detiene y sugiere resume; --desde-cero la descarta."""
+    try:
+        sesion = cargar_sesion(prep.repo, prep.ticket)
+    except ErrorSesion as error:
+        if not desde_cero:
+            consola.mostrar_error(f"{error} Usa --desde-cero para descartarla.")
+            raise typer.Exit(1) from error
+        _descartar_sesion(prep)
+        return
+    if sesion is None or sesion.es_completada:
+        return
+    if not desde_cero:
+        consola.mostrar_error(
+            f"Hay una ejecución sin terminar de {prep.ticket} "
+            f"({consola.describir_corte(sesion.motivo_corte)}): retómala con "
+            f"'harness resume {prep.ticket}', o empieza de nuevo con --desde-cero."
+        )
+        raise typer.Exit(1)
+    _descartar_sesion(prep)
+
+
+def _descartar_sesion(prep: _Preparacion) -> None:
+    destino = descartar_sesion(prep.repo, prep.ticket)
+    consola.mostrar_aviso(
+        f"Sesión anterior de {prep.ticket} descartada (quedó en {destino.name}). Si la rama del "
+        "ticket ya existe, bórrala a mano para empezar limpio."
+    )
+
+
+def _iniciar_sesion(
+    prep: _Preparacion, config: ConfigEntrega | None, reporte: _Reporte
+) -> None:
+    """Después del preflight y la rama: desde aquí, un corte se puede retomar."""
+    ticket = prep.datos_ticket
+    rama = None
+    if config is not None:
+        rama = {
+            "nombre": config.rama, "base": config.base, "remoto": config.remoto,
+            "es_con_push": config.es_con_push, "es_con_pr": config.es_con_pr,
+            "head_al_cortar": None,
+        }
+    sesion = Sesion(
+        ticket={"clave": ticket.clave, "titulo": ticket.titulo, "fuente": ticket.fuente,
+                "url": ticket.url},
+        estado=ESTADO_PLAN if prep.es_con_plan else ESTADO_IMPLEMENTACION,
+        proveedor=identificador(prep.config),
+        modelos_usados=list(reporte.modelos_usados),
+        es_con_plan=prep.es_con_plan,
+        rama=rama,
+    )
+    prep.sesion = SesionEnCurso(prep.repo, sesion, prep.secretos, reporte.aviso)
+    reporte.sesion = prep.sesion
+    prep.sesion.guardar()
+
+
+def _cortar_sesion(prep: _Preparacion, motivo: str, detalle: str | None = None) -> None:
+    if prep.sesion:
+        prep.sesion.cortar(motivo, detalle)
+
+
+def _terminar_ejecucion_en_sesion(
+    prep: _Preparacion, resultado: ResultadoEjecucion, config: ConfigEntrega | None
+) -> None:
+    """Cómo terminó el bucle: cortado (se puede retomar), listo para entregar, o completo."""
+    if prep.sesion is None:
+        return
+    datos = prep.sesion.sesion
+    datos.pasos = resultado.pasos
+    datos.tokens_entrada += resultado.tokens_entrada
+    datos.tokens_salida += resultado.tokens_salida
+    # Con plan o con validaciones, la ronda de plan ya pasó: un corte se retoma implementando.
+    if datos.estado == ESTADO_PLAN and (resultado.plan is not None or resultado.validaciones):
+        datos.estado = ESTADO_IMPLEMENTACION
+        datos.plan = datos.plan or (resultado.plan.model_dump() if resultado.plan else None)
+    if resultado.es_plan_rechazado:
+        prep.sesion.completar()
+    elif resultado.es_limite_alcanzado:
+        prep.sesion.cortar(MOTIVO_LIMITE_PASOS)
+    elif resultado.es_validado is False:
+        prep.sesion.cortar(MOTIVO_VALIDACION)
+    elif config is None:
+        prep.sesion.completar()
+    else:
+        datos.estado = ESTADO_ENTREGA
+        prep.sesion.guardar()
+
+
+def _sugerir_resume(prep: _Preparacion) -> None:
+    if prep.sesion and not prep.sesion.sesion.es_completada:
+        consola.mostrar_como_retomar(prep.ticket)
 
 
 def _conectar_mcp(
@@ -513,10 +651,12 @@ def _entregar(
         raise typer.Exit(1) from error
     reporte.registro.registrar_entrega(entrega)
     consola.mostrar_entrega(entrega, config)
+    _anotar_entrega(prep, entrega)
     # Solo con un PR (creado o que ya existía) y un ticket de Jira. Si el comentario falla,
     # solo se avisa: no cambia el código de salida.
     if entrega.pull_request is not None and prep.config_jira is not None:
         _comentar_en_jira(prep, entrega.pull_request, reporte)
+    _cerrar_entrega_en_sesion(prep, config)
     return entrega.error_pr is None
 
 
@@ -525,10 +665,46 @@ def _comentar_en_jira(prep: _Preparacion, pull_request: PullRequest, reporte: _R
     resultado = comentar_pr_en_jira(
         prep.config_jira, prep.ticket, pull_request, prep.comentarios_jira, reporte.aviso
     )
+    if prep.sesion and resultado.estado in (COMENTADO, YA_ESTABA):
+        prep.sesion.sesion.entrega["es_comentado_jira"] = True
     reporte.registro.registrar_comentario_jira(prep.ticket, resultado)
     consola.mostrar_comentario_jira(
         prep.ticket, prep.datos_ticket.url or "", pull_request.url, resultado
     )
+
+
+def _anotar_entrega(prep: _Preparacion, entrega: ResultadoEntrega) -> None:
+    """Commit, push y PR en la sesión, para que resume sepa qué etapa falta."""
+    if prep.sesion is None or prep.sesion.sesion.estado != ESTADO_ENTREGA:
+        return
+    pull_request = entrega.pull_request
+    prep.sesion.sesion.entrega = {
+        "hash_commit": entrega.hash_commit,
+        "es_pusheado": entrega.es_pusheado,
+        "url_pr": pull_request.url if pull_request else None,
+        "es_borrador": pull_request.es_borrador if pull_request else None,
+        "es_comentado_jira": False,
+        "motivo": entrega.motivo,
+    }
+    prep.sesion.guardar()
+
+
+def _cerrar_entrega_en_sesion(prep: _Preparacion, config: ConfigEntrega) -> None:
+    """Completa la sesión si no falta ninguna etapa; si falta alguna, queda para resume."""
+    if prep.sesion is None or prep.sesion.sesion.estado != ESTADO_ENTREGA:
+        return
+    entrega = prep.sesion.sesion.entrega
+    sin_commit = entrega.get("hash_commit") is None
+    falta_push = config.es_con_push and not entrega.get("es_pusheado")
+    falta_pr = config.es_con_pr and not entrega.get("url_pr")
+    falta_comentario = (
+        config.es_con_pr and prep.config_jira is not None and not entrega.get("es_comentado_jira")
+    )
+    # Sin commit porque no había nada que commitear: no queda nada por hacer.
+    if sin_commit or not (falta_push or falta_pr or falta_comentario):
+        prep.sesion.completar()
+    else:
+        prep.sesion.guardar()
 
 
 def _crear_pr_por_mcp(prep: _Preparacion, reporte: _Reporte) -> CrearPr:
@@ -656,11 +832,13 @@ def _ejecutar(
     )
     if prep.config_proyecto is None:
         antes = tomar_instantanea(prep.repo)
+        mensajes = crear_mensajes_iniciales(
+            prep.texto_ticket, prep.contexto, hay_github_mcp=bool(prep.herramientas_github)
+        )
+        _seguir_en_sesion(prep, mensajes, antes)
         resultado = ejecutar_ticket(
             proveedor,
-            crear_mensajes_iniciales(
-                prep.texto_ticket, prep.contexto, hay_github_mcp=bool(prep.herramientas_github)
-            ),
+            mensajes,
             crear_herramientas(prep.repo, extras=prep.herramientas_github),
             max_pasos,
             al_paso=reporte.paso,
@@ -707,14 +885,16 @@ def _ejecutar_con_validacion(
         prep.variables.secretos,
     )
     comandos = config_proyecto.comandos
+    mensajes = crear_mensajes_iniciales(
+        prep.texto_ticket,
+        prep.contexto,
+        hay_validacion=True,
+        hay_github_mcp=bool(prep.herramientas_github),
+    )
+    _seguir_en_sesion(prep, mensajes, antes)
     resultado = ejecutar_ticket(
         proveedor,
-        crear_mensajes_iniciales(
-            prep.texto_ticket,
-            prep.contexto,
-            hay_validacion=True,
-            hay_github_mcp=bool(prep.herramientas_github),
-        ),
+        mensajes,
         crear_herramientas(
             prep.repo, config_proyecto, ejecutor, entorno.marcar_cambio, prep.herramientas_github
         ),
@@ -727,6 +907,12 @@ def _ejecutar_con_validacion(
         planificacion=_planificacion(prep, reporte),
     )
     return resultado, comparar(antes, tomar_instantanea(prep.repo))
+
+
+def _seguir_en_sesion(prep: _Preparacion, mensajes: list[Mensaje], antes: Instantanea) -> None:
+    """La sesión guarda la conversación viva (el bucle la va agregando) desde el principio."""
+    if prep.sesion:
+        prep.sesion.usar_mensajes(mensajes, antes)
 
 
 def _avisar_recorte_plan(prep: _Preparacion, max_pasos: int, reporte: _Reporte) -> None:

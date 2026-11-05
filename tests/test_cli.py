@@ -12,6 +12,13 @@ from harness.entorno_docker import ErrorDocker, Instalacion
 from harness.planificacion import calcular_pasos_plan
 from harness.proveedores.base import MOTIVO_CAIDO, ErrorProveedorCaido
 from harness.proveedores.respaldo import ProveedorConRespaldo
+from harness.sesion import (
+    ESTADO_COMPLETADA,
+    ESTADO_ENTREGA,
+    ESTADO_IMPLEMENTACION,
+    MOTIVO_VALIDACION,
+    cargar_sesion,
+)
 from harness.tipos import LlamadaHerramienta, RespuestaModelo, Rol
 from harness.cambios import CambiosRepo
 from harness.ejecucion import ResultadoEjecucion
@@ -458,6 +465,10 @@ def test_abre_el_pr_y_oculta_el_token_en_la_descripcion(
     (pedido,) = pedidos
     assert pedido.titulo == "T-1: Crear tareas" and pedido.base == "main"
     assert "Usé **** para probar." in pedido.cuerpo
+    # Commit, push y PR hechos, sin ticket de Jira: no queda nada para harness resume.
+    sesion = cargar_sesion(repo_sin_yaml, "T-1")
+    assert sesion.estado == ESTADO_COMPLETADA
+    assert sesion.entrega["url_pr"] == url and sesion.entrega["es_pusheado"] is True
     assert "Pasaron los tests (`pytest -q`) en la validación 1." in pedido.cuerpo
     (entrega,) = [e for e in _eventos_del_log(repo_sin_yaml) if e["evento"] == "entrega"]
     assert entrega["pull_request"] == "https://github.com/gerson/demo/pull/3"
@@ -634,6 +645,11 @@ def test_si_el_pr_falla_termina_con_codigo_1(
     assert "feature/T-1" in ramas_remotas(remoto)
     (entrega,) = [e for e in _eventos_del_log(repo_sin_yaml) if e["evento"] == "entrega"]
     assert entrega["url_pr_a_mano"] == url and entrega["pr_pendiente"] == str(ruta)
+    # El push se hizo y falta el PR: la sesión queda en la entrega, para harness resume.
+    sesion = cargar_sesion(repo_sin_yaml, "T-1")
+    assert sesion.estado == ESTADO_ENTREGA
+    assert sesion.entrega["es_pusheado"] is True and sesion.entrega["url_pr"] is None
+    assert "Para retomarla: harness resume T-1" in salida_plana
 
 
 @requiere_git
@@ -647,6 +663,9 @@ def test_con_la_validacion_fallida_no_hay_commit_ni_push(
     assert "feature/T-1" not in ramas_remotas(remoto)
     assert git(repo_sin_yaml, "branch", "--show-current") == "feature/T-1"
     assert (repo_sin_yaml / "tareas.py").exists()
+    sesion = cargar_sesion(repo_sin_yaml, "T-1")
+    assert (sesion.estado, sesion.motivo_corte) == (ESTADO_IMPLEMENTACION, MOTIVO_VALIDACION)
+    assert sesion.rama["nombre"] == "feature/T-1" and sesion.rama["head_al_cortar"]
 
 
 @requiere_git
