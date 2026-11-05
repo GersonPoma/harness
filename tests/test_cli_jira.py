@@ -504,8 +504,12 @@ def test_comenta_por_mcp(
     codigo, salida, _ = _correr_con_entrega(monkeypatch, repo_sin_yaml, True, ticket="TAREAS-3")
 
     assert codigo == 0 and _comentarios_enviados(pedidos) == []
-    guardados = json.loads((tmp_path / "comentarios.json").read_text(encoding="utf-8"))
-    assert guardados == {"TAREAS-3": [f"Pull request en borrador creado por harness: {URL_PR}"]}
+    (guardado,) = json.loads((tmp_path / "comentarios.json").read_text(encoding="utf-8"))[
+        "TAREAS-3"
+    ]
+    # En Jira queda el texto con la URL del PR como enlace, no como texto plano.
+    assert guardado["texto"] == f"Pull request en borrador creado por harness: {URL_PR}"
+    assert guardado["enlaces"] == [URL_PR]
     assert "✓ Comentario en TAREAS-3 (por MCP)" in " ".join(salida.split())
 
 

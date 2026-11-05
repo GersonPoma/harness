@@ -3,10 +3,14 @@
 FALSO_JIRA_ESTILO=remoto | docker elige los nombres de las herramientas (como los reales).
 FALSO_JIRA_COMENTARIOS es un archivo JSON con los comentarios por ticket: se leen y se agregan
 ahí, así un test puede ver lo que se comentó o empezar con un comentario ya hecho.
+
+Cada comentario guarda el Markdown recibido y lo que Jira mostraría: como sooperset 0.23.1 (que
+pasa el Markdown a ADF), solo [texto](url) queda como enlace; la URL suelta queda como texto.
 """
 
 import json
 import os
+import re
 from pathlib import Path
 
 from mcp.server import MCPServer
@@ -16,6 +20,7 @@ VAR_ESTILO = "FALSO_JIRA_ESTILO"
 VAR_COMENTARIOS = "FALSO_JIRA_COMENTARIOS"
 # Con este ticket, comentar falla como en Jira (sin permiso para comentar).
 TICKET_SIN_PERMISO = "PROHIBIDO-1"
+ENLACE_MARKDOWN = re.compile(r"\[(?P<texto>[^\]]+)\]\((?P<url>[^)]+)\)")
 
 
 def crear_servidor() -> MCPServer:
@@ -37,7 +42,7 @@ def _herramientas_remoto(servidor: MCPServer) -> None:
     @servidor.tool(name="listJiraIssueComments")
     def listar(cloudId: str, issueIdOrKey: str, maxResults: int = 100) -> str:
         """Comentarios del issue, en Markdown."""
-        comentarios = [{"body": cuerpo} for cuerpo in _leer().get(issueIdOrKey, [])]
+        comentarios = [{"body": c["cuerpo"]} for c in _leer().get(issueIdOrKey, [])]
         return json.dumps({"data": {"total": len(comentarios), "comments": comentarios}})
 
     @servidor.tool(name="addOrEditJiraIssueComment", structured_output=False)
@@ -45,33 +50,40 @@ def _herramientas_remoto(servidor: MCPServer) -> None:
         cloudId: str, issueIdOrKey: str, commentBody: str, contentFormat: str = "markdown"
     ) -> CallToolResult | str:
         """Agrega un comentario."""
-        return _agregar(issueIdOrKey, commentBody, f"cloudId={cloudId}")
+        return _agregar(issueIdOrKey, commentBody, {"cloudId": cloudId})
 
 
 def _herramientas_docker(servidor: MCPServer) -> None:
     @servidor.tool()
     def jira_get_issue(issue_key: str, fields: str = "", comment_limit: int = 10) -> str:
         """El issue, con sus comentarios."""
-        comentarios = [{"body": cuerpo} for cuerpo in _leer().get(issue_key, [])]
+        comentarios = [{"body": c["cuerpo"]} for c in _leer().get(issue_key, [])]
         return json.dumps({"key": issue_key, "comments": comentarios})
 
     @servidor.tool(structured_output=False)
     def jira_add_comment(issue_key: str, body: str) -> CallToolResult | str:
         """Agrega un comentario en Markdown."""
-        return _agregar(issue_key, body, "")
+        return _agregar(issue_key, body, {})
 
 
-def _agregar(clave: str, cuerpo: str, extra: str) -> CallToolResult | str:
+def _agregar(clave: str, cuerpo: str, extra: dict[str, str]) -> CallToolResult | str:
     if clave == TICKET_SIN_PERMISO:
         texto = "You do not have permission to add comments to this issue."
         return CallToolResult(content=[TextContent(type="text", text=texto)], is_error=True)
     comentarios = _leer()
-    comentarios.setdefault(clave, []).append(cuerpo + (f" ({extra})" if extra else ""))
+    comentarios.setdefault(clave, []).append(_como_lo_guarda_jira(cuerpo) | extra)
     Path(os.environ[VAR_COMENTARIOS]).write_text(json.dumps(comentarios), encoding="utf-8")
     return json.dumps({"id": str(len(comentarios[clave]))})
 
 
-def _leer() -> dict[str, list[str]]:
+def _como_lo_guarda_jira(cuerpo: str) -> dict:
+    """El texto visible y los enlaces del comentario, como quedan en Jira."""
+    enlaces = [m.group("url") for m in ENLACE_MARKDOWN.finditer(cuerpo)]
+    texto = ENLACE_MARKDOWN.sub(lambda m: m.group("texto"), cuerpo)
+    return {"cuerpo": cuerpo, "texto": texto, "enlaces": enlaces}
+
+
+def _leer() -> dict[str, list[dict]]:
     ruta = Path(os.environ.get(VAR_COMENTARIOS, ""))
     return json.loads(ruta.read_text(encoding="utf-8")) if ruta.is_file() else {}
 

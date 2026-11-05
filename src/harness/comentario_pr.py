@@ -62,8 +62,7 @@ def _por_mcp(
 ) -> ResultadoComentario:
     if comentarios.tiene_texto(clave, url):
         return ResultadoComentario(YA_ESTABA, POR_MCP)
-    # Los dos servidores aceptan Markdown, y Jira convierte la URL suelta en enlace.
-    comentarios.comentar(clave, f"{texto}{url}")
+    comentarios.comentar(clave, jira.comentario_markdown(texto, url))
     return ResultadoComentario(COMENTADO, POR_MCP)
 
 

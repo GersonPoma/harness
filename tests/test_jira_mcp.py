@@ -48,10 +48,20 @@ def test_comenta_y_despues_lo_encuentra(sesion: tuple[SesionMCP, Path]) -> None:
 
     assert comentarios is not None
     assert not comentarios.tiene_texto("TAREAS-1", URL_PR)
-    comentarios.comentar("TAREAS-1", f"Pull request: {URL_PR}")
+    comentarios.comentar("TAREAS-1", f"Pull request: [{URL_PR}]({URL_PR})")
     assert comentarios.tiene_texto("TAREAS-1", URL_PR)
     (guardado,) = json.loads(archivo.read_text(encoding="utf-8"))["TAREAS-1"]
-    assert guardado.startswith(f"Pull request: {URL_PR}")
+    assert guardado["texto"] == f"Pull request: {URL_PR}" and guardado["enlaces"] == [URL_PR]
+
+
+def test_el_falso_deja_la_url_suelta_como_texto(sesion: tuple[SesionMCP, Path]) -> None:
+    # Como sooperset en la prueba real: solo [texto](url) queda como enlace en Jira.
+    abierta, archivo = sesion
+    comentarios = preparar_comentarios(abierta, CONFIG)
+    for cuerpo in (f"PR: {URL_PR}", f"PR: <{URL_PR}>", f"PR: [{URL_PR}|{URL_PR}]"):
+        comentarios.comentar("TAREAS-1", cuerpo)
+    guardados = json.loads(archivo.read_text(encoding="utf-8"))["TAREAS-1"]
+    assert [guardado["enlaces"] for guardado in guardados] == [[], [], []]
 
 
 def test_el_remoto_usa_el_cloud_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -59,9 +69,8 @@ def test_el_remoto_usa_el_cloud_id(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     archivo = tmp_path / "comentarios.json"
     with SesionMCP(servidor_jira("remoto", archivo), tmp_path / "j.log", "T-1") as abierta:
         preparar_comentarios(abierta, CONFIG).comentar("TAREAS-1", "hola")
-    assert json.loads(archivo.read_text(encoding="utf-8")) == {
-        "TAREAS-1": ["hola (cloudId=cloud-falso)"]
-    }
+    (guardado,) = json.loads(archivo.read_text(encoding="utf-8"))["TAREAS-1"]
+    assert guardado["cuerpo"] == "hola" and guardado["cloudId"] == "cloud-falso"
 
 
 def test_un_comentario_rechazado_da_error_jira(sesion: tuple[SesionMCP, Path]) -> None:

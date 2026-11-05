@@ -5,7 +5,8 @@ herramientas, porque cada uno las llama distinto:
 - el remoto de Atlassian (mcp.atlassian.com): listJiraIssueComments y addOrEditJiraIssueComment,
   que piden el cloudId del sitio;
 - sooperset/mcp-atlassian (Docker): jira_get_issue (con sus comentarios) y jira_add_comment.
-Los dos aceptan el comentario en Markdown.
+Los dos aceptan el comentario en Markdown (el enlace, como [texto](url): ver
+jira.comentario_markdown).
 """
 
 from collections.abc import Callable

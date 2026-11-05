@@ -95,10 +95,11 @@ def test_por_rest_con_error(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_por_mcp_comenta_en_markdown(rest: JiraRestFalso) -> None:
+def test_por_mcp_comenta_en_markdown_con_el_enlace(rest: JiraRestFalso) -> None:
     mcp = ComentariosMCPFalso()
     assert _comentar(BORRADOR, mcp) == ResultadoComentario(COMENTADO, POR_MCP)
-    assert mcp.enviados == [f"Pull request en borrador creado por harness: {URL_PR}"]
+    # La URL suelta quedaría como texto en Jira: va como enlace Markdown.
+    assert mcp.enviados == [f"Pull request en borrador creado por harness: [{URL_PR}]({URL_PR})"]
     assert rest.enviados == []
 
 

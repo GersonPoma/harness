@@ -131,6 +131,15 @@ def comentario_adf(texto: str, url: str) -> dict[str, Any]:
     return {"type": "doc", "version": 1, "content": [parrafo]}
 
 
+def comentario_markdown(texto: str, url: str) -> str:
+    """El comentario en Markdown (lo que piden los servidores MCP): la URL como enlace.
+
+    Va como [url](url) porque sooperset pasa el Markdown a ADF y solo esa forma queda como
+    enlace: la URL suelta, <url> y la wiki [texto|url] quedan como texto plano.
+    """
+    return f"{texto}[{url}]({url})"
+
+
 def _a_ticket(config: ConfigJira, clave: str, campos: dict[str, Any]) -> Ticket:
     descripcion, originales = limitar_descripcion(adf_a_markdown(campos.get("description")))
     return Ticket(
