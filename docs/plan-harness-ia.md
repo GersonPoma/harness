@@ -949,7 +949,7 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
   - [x] Rama, commit y push siguen siendo con `git`.
   - [x] **Pruebas reales en tareas-api:** Docker por stdio, HTTP remoto, solo para el PR, REST
         sin `mcp.json` y Ctrl+C sin contenedores colgados.
-- [ ] **7.** Jira por MCP con respaldo REST (ver
+- [x] **7.** Jira por MCP con respaldo REST (ver
       [Jira por MCP y REST](#jira-por-mcp-y-rest))
   - [x] **El remoto de Atlassian acepta email + API token** (`auth.basic`), con dos
         condiciones: un admin de la organización habilita "API token" en Rovo MCP server, y
