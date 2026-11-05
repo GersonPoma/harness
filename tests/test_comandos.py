@@ -16,6 +16,7 @@ from harness.herramientas.comandos import (
 )
 from harness.herramientas.protegidos import GuardiaProtegidos
 from harness.herramientas.rutas import ErrorRuta
+from harness.variables import resolver_variables
 from tests.falsos import EntornoFalso
 
 PERMITIDOS = ["pytest", "python", "ls"]
@@ -173,8 +174,25 @@ def test_ejecutar_tests_sigue_recortando_como_antes(repo: Path) -> None:
 
 
 def test_los_secretos_no_llegan_al_modelo(repo: Path) -> None:
-    entorno = EntornoFalso([ResultadoComando(0, "DATABASE_URL=postgresql://u:s3creta@db/x")])
-    ejecutor = EjecutorComandos(entorno, GuardiaProtegidos(repo, []), 4000, 120, ["s3creta"])
+    secreto = "s3creta-0123456789"
+    entorno = EntornoFalso([ResultadoComando(0, f"DATABASE_URL=postgresql://u:{secreto}@db/x")])
+    ejecutor = EjecutorComandos(entorno, GuardiaProtegidos(repo, []), 4000, 120, [secreto])
     assert ejecutor.correr("python -c 'import os; print(os.environ)'")[1] == (
         "Código de salida: 0\nDATABASE_URL=postgresql://u:****@db/x"
     )
+
+
+def test_una_contrasena_corta_de_harness_yaml_no_rompe_la_salida_de_pytest(repo: Path) -> None:
+    # La base de prueba de notas-api usa "test": ocultarla dejaría "****s/****_notas.py".
+    config = ConfigProyecto.model_validate({
+        "version": 1,
+        "proyecto": "demo",
+        "docker": {"imagen": "python:3.12-slim"},
+        "comandos": {"tests": "pytest -q"},
+        "variables_entorno": {"DB_PASSWORD": "${CLAVE_DB}"},
+    })
+    secretos = resolver_variables(config, {"CLAVE_DB": "test"}).secretos
+    salida = "tests/test_notas.py .....\n5 passed in 0.8s"
+    entorno = EntornoFalso([ResultadoComando(0, salida)])
+    ejecutor = EjecutorComandos(entorno, GuardiaProtegidos(repo, []), 4000, 120, secretos)
+    assert ejecutor.correr("pytest -q")[1] == f"Código de salida: 0\n{salida}"

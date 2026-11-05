@@ -18,6 +18,8 @@ from harness.prompts import (
 from harness.tipos import LlamadaHerramienta, RespuestaModelo
 from tests.falsos import ProveedorFalso, pedir, terminar
 
+CLAVE_FALSA = "clave-falsa-0123456789"
+
 YAML_VALIDO = """\
 version: 1
 proyecto: demo
@@ -157,7 +159,8 @@ def _init(
     monkeypatch: pytest.MonkeyPatch, repo: Path, respuestas: list, *opciones: str
 ) -> tuple[int, str, ProveedorFalso]:
     proveedor = ProveedorFalso(respuestas)
-    monkeypatch.setattr(cli, "cargar_config", lambda: ConfigModelo("gemini", "m", None, "k"))
+    config = ConfigModelo("gemini", "m", None, CLAVE_FALSA)
+    monkeypatch.setattr(cli, "cargar_config", lambda: config)
     monkeypatch.setattr(cli, "crear_proveedor", lambda *_: proveedor)
     resultado = CliRunner().invoke(cli.app, ["init", "--repo", str(repo), *opciones])
     return resultado.exit_code, resultado.output, proveedor
@@ -208,15 +211,15 @@ def test_cli_init_verificar_falla_y_oculta_secretos(
     (repo_vacio / "AGENTS.md").write_text("# x", encoding="utf-8")
     yaml = YAML_VALIDO + "variables_entorno:\n  CLAVE: ${CLAVE_PRUEBA_INIT}\n"
     (repo_vacio / "harness.yaml").write_text(yaml, encoding="utf-8")
-    monkeypatch.setenv("CLAVE_PRUEBA_INIT", "s3creta")
-    salida_tests = "FAILED test_x - conexión rechazada con clave s3creta\n1 failed"
+    monkeypatch.setenv("CLAVE_PRUEBA_INIT", "s3creta-0123456789")
+    salida_tests = "FAILED test_x - conexión rechazada con clave s3creta-0123456789\n1 failed"
     monkeypatch.setattr(
         cli, "verificar_config", lambda *_args, **_kw: ResultadoComando(1, salida_tests)
     )
     codigo, salida, _ = _init(monkeypatch, repo_vacio, [], "--verificar")
     assert codigo == 1
     assert "✗ Verificación: los tests no pasan" in salida
-    assert "con clave ****" in salida and "s3creta" not in salida
+    assert "con clave ****" in salida and "s3creta-0123456789" not in salida
 
 
 # --- Prompt ---------------------------------------------------------------------------------

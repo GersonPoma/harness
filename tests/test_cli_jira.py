@@ -1,6 +1,7 @@
 """harness run y harness ticket con una clave de Jira (API REST simulada con el ADF real)."""
 
 import json
+import sys
 from pathlib import Path
 
 import httpx
@@ -12,6 +13,7 @@ from harness.config import ConfigJira
 from harness.prompts import crear_mensajes_iniciales
 from harness.ticket import MAX_CARACTERES_DESCRIPCION
 from harness.tipos import Rol
+from tests.datos.servidor_mcp_jira_falso import VAR_COMENTARIOS, VAR_ESTILO
 from tests.falsos import ProveedorFalso, terminar
 from tests.git_prueba import git, requiere_git
 from tests.test_cli import (  # noqa: F401 - repo_sin_yaml es un fixture
@@ -22,6 +24,8 @@ from tests.test_cli import (  # noqa: F401 - repo_sin_yaml es un fixture
 )
 
 DATOS_JIRA = Path(__file__).parent / "datos" / "jira"
+RUTA_SERVIDOR_JIRA = Path(__file__).parent / "datos" / "servidor_mcp_jira_falso.py"
+RUTA_SERVIDOR_GITHUB = Path(__file__).parent / "datos" / "servidor_mcp_falso.py"
 TOKEN_JIRA = "jira-token-secreto"
 AUTOR = {"accountId": "712020:aaaa", "emailAddress": "autor@ejemplo.com",
          "displayName": "Autor Secreto", "avatarUrls": {"48x48": "https://avatar.ejemplo/a.png"}}
@@ -249,3 +253,126 @@ def test_el_prompt_explica_los_criterios_marcados_como_hechos() -> None:
         "trátalas como pendientes." in contenido
     assert "Agrega o actualiza siempre los tests de lo que cambias, aunque el criterio de " \
         "tests esté marcado como hecho." in contenido
+
+
+# --- MCP de Jira en el preflight -----------------------------------------------------------
+
+
+def _mcp_json(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, servidores: dict) -> None:
+    ruta = tmp_path / "mcp.json"
+    ruta.write_text(json.dumps({"mcpServers": servidores}), encoding="utf-8")
+    monkeypatch.setattr(cli, "RUTA_MCP", ruta)
+
+
+def _jira_falso(tmp_path: Path, estilo: str = "docker") -> dict:
+    return {
+        "command": sys.executable,
+        "args": [str(RUTA_SERVIDOR_JIRA)],
+        "env": {VAR_ESTILO: estilo, VAR_COMENTARIOS: str(tmp_path / "comentarios.json")},
+    }
+
+
+@requiere_git
+def test_jira_por_mcp_en_el_preflight_sin_herramientas_para_el_modelo(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, repo_sin_yaml: Path  # noqa: F811
+) -> None:
+    _con_jira(monkeypatch)
+    github = {"command": sys.executable, "args": [str(RUTA_SERVIDOR_GITHUB)]}
+    _mcp_json(monkeypatch, tmp_path, {"github": github, "jira": _jira_falso(tmp_path)})
+    servidores_con_herramientas: list[str] = []
+    original = cli.crear_herramientas_mcp
+
+    def espiar(sesion, *argumentos):
+        servidores_con_herramientas.append(sesion.servidor.nombre)
+        return original(sesion, *argumentos)
+
+    monkeypatch.setattr(cli, "crear_herramientas_mcp", espiar)
+    codigo, salida, _ = _correr_con_entrega(monkeypatch, repo_sin_yaml, True, ticket="TAREAS-3")
+
+    assert codigo == 0
+    salida_plana = " ".join(salida.split())
+    aviso = "Jira por MCP (servidor jira, stdio): el link del PR se comenta por MCP."
+    assert salida_plana.index(aviso) < salida_plana.index("Rama feature/TAREAS-3 creada")
+    # Las herramientas del modelo salen solo del servidor de GitHub.
+    assert servidores_con_herramientas == ["github"]
+    eventos = {e["servidor"]: e for e in _eventos_del_log(repo_sin_yaml) if e["evento"] == "mcp"}
+    assert all(h.startswith("github__") for h in eventos["github"]["herramientas"])
+    assert eventos["jira"]["herramientas"] == []
+    assert eventos["jira"]["usadas_por_el_harness"] == ["jira_get_issue", "jira_add_comment"]
+
+
+@requiere_git
+def test_sin_servidor_de_jira_se_comenta_por_rest(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path  # noqa: F811
+) -> None:
+    _con_jira(monkeypatch)
+    _, salida, _ = _correr_con_entrega(monkeypatch, repo_sin_yaml, True, ticket="TAREAS-3")
+    assert (
+        "Jira por la API REST: el link del PR se comenta por REST (no hay servidor MCP de Jira "
+        "en mcp.json)." in " ".join(salida.split())
+    )
+
+
+@requiere_git
+def test_si_el_servidor_de_jira_no_conecta_se_comenta_por_rest(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, repo_sin_yaml: Path  # noqa: F811
+) -> None:
+    _con_jira(monkeypatch)
+    _mcp_json(monkeypatch, tmp_path, {"jira": {"command": "comando-que-no-existe-xyz"}})
+    codigo, salida, _ = _correr_con_entrega(monkeypatch, repo_sin_yaml, True, ticket="TAREAS-3")
+    assert codigo == 0
+    salida_plana = " ".join(salida.split())
+    assert "No se pudo conectar con el servidor MCP 'jira'" in salida_plana
+    assert "El link del PR se comenta por la API REST de Jira." in salida_plana
+
+
+@requiere_git
+def test_con_sin_pr_ni_se_conecta_el_servidor_de_jira(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, repo_sin_yaml: Path  # noqa: F811
+) -> None:
+    _con_jira(monkeypatch)
+    _mcp_json(monkeypatch, tmp_path, {"jira": _jira_falso(tmp_path)})
+    _, salida, _ = _correr_con_entrega(
+        monkeypatch, repo_sin_yaml, True, "--sin-pr", ticket="TAREAS-3"
+    )
+    assert "Jira por" not in salida
+    assert not [e for e in _eventos_del_log(repo_sin_yaml) if e["evento"] == "mcp"]
+
+
+# --- Secretos demasiado cortos -------------------------------------------------------------
+
+
+def test_un_secreto_corto_se_avisa_y_no_rompe_el_log(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path  # noqa: F811
+) -> None:
+    # "ticket" es un campo del log: si el token fuera esa palabra, ocultarlo lo rompería.
+    monkeypatch.setenv("GITHUB_TOKEN", "ticket")
+    codigo, salida = _correr(monkeypatch, repo_sin_yaml, [terminar()], "--sin-plan")
+
+    assert codigo == 0
+    assert (
+        "El valor de GITHUB_TOKEN es demasiado corto para ser un token real: revisa el .env."
+        in " ".join(salida.split())
+    )
+    (evento,) = [e for e in _eventos_del_log(repo_sin_yaml) if e["evento"] == "ticket"]
+    assert evento["ticket"] == "T-1"
+
+
+@requiere_git
+def test_una_variable_corta_de_harness_yaml_tiene_su_propio_aviso(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path  # noqa: F811
+) -> None:
+    monkeypatch.setenv("CLAVE_DB_PRUEBA", "test")
+    yaml_extra = 'variables_entorno:\n  DB_PASSWORD: "${CLAVE_DB_PRUEBA}"\n'
+    codigo, salida, _ = _correr_con_entrega(
+        monkeypatch, repo_sin_yaml, True, "--sin-push", yaml_extra=yaml_extra
+    )
+    salida_plana = " ".join(salida.split())
+
+    assert codigo == 0
+    aviso = (
+        "El valor de CLAVE_DB_PRUEBA (harness.yaml) es corto y no se oculta en la consola ni "
+        "en el log; si es un secreto real, usa uno de al menos 8 caracteres."
+    )
+    assert salida_plana.count(aviso) == 1
+    assert "CLAVE_DB_PRUEBA es demasiado corto para ser un token real" not in salida_plana

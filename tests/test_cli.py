@@ -35,7 +35,7 @@ def _correr(
     entrada: str | None = None,
     ticket: str | None = None,
 ) -> tuple[int, str]:
-    config = ConfigModelo("gemini", "modelo-x", None, "clave")
+    config = ConfigModelo("gemini", "modelo-x", None, "clave-falsa-0123456789")
     proveedor = respuestas if isinstance(respuestas, ProveedorFalso) else ProveedorFalso(respuestas)
     monkeypatch.setattr(cli, "cargar_config", lambda: config)
     monkeypatch.setattr(cli, "crear_proveedor", lambda *_: proveedor)
@@ -264,9 +264,10 @@ def _correr_con_entrega(
     antes_de_correr: Callable[[Path, Path], None] | None = None,
     entrada: str | None = None,
     ticket: str | None = None,
+    yaml_extra: str = "",
 ) -> tuple[int, str, Path]:
     """Repo Git con remoto local; la ejecución (falsa) escribe un archivo y valida o no."""
-    (repo / "harness.yaml").write_text(YAML_CON_DOCKER, encoding="utf-8")
+    (repo / "harness.yaml").write_text(YAML_CON_DOCKER + yaml_extra, encoding="utf-8")
     (repo.parent / "T-1.md").write_text("# T-1: Crear tareas\n", encoding="utf-8")
     iniciar_repo(repo)
     remoto = agregar_remoto(repo, repo.parent / "remoto.git")

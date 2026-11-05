@@ -11,6 +11,8 @@ from harness.proveedores.presets import PRESETS
 from harness.tipos import Herramienta
 from tests.test_openai_compatible import ClienteFalso, respuesta_openai
 
+CLAVE_FALSA = "clave-falsa-0123456789"
+
 # input_schema reales del servidor MCP de GitHub (tools/list, v2.0.3).
 ESQUEMAS_GITHUB: dict[str, Any] = json.loads(
     (Path(__file__).parent / "datos" / "esquemas_github.json").read_text(encoding="utf-8")
@@ -42,7 +44,7 @@ def _claves(valor: Any) -> set[str]:
 
 
 def _proveedor(preset: str) -> ProveedorOpenAICompatible:
-    return ProveedorOpenAICompatible(ConfigModelo(preset, "m", None, "k"), ClienteFalso([]))
+    return ProveedorOpenAICompatible(ConfigModelo(preset, "m", None, CLAVE_FALSA), ClienteFalso([]))
 
 
 # --- Funciones compartidas -----------------------------------------------------------------
@@ -132,7 +134,7 @@ def test_los_demas_presets_dejan_las_referencias(preset: str) -> None:
 
 def test_al_responder_manda_el_esquema_adaptado() -> None:
     cliente = ClienteFalso([respuesta_openai("ok")])
-    proveedor = ProveedorOpenAICompatible(ConfigModelo("groq", "m", None, "k"), cliente)
+    proveedor = ProveedorOpenAICompatible(ConfigModelo("groq", "m", None, CLAVE_FALSA), cliente)
     esquema = ESQUEMAS_GITHUB["list_commits"]["input_schema"]
     herramienta = Herramienta("github__list_commits", "Lista commits", esquema, lambda: "")
 

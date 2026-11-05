@@ -14,6 +14,9 @@ from harness.cambios import CambiosRepo, comparar, tomar_instantanea
 from harness.cliente_mcp import ErrorMCP, SesionMCP
 from harness.config import (
     RUTA_MCP,
+    VAR_JIRA_TOKEN,
+    VAR_TOKEN_GITHUB,
+    ConfigJira,
     ConfigModelo,
     ErrorConfiguracion,
     cargar_config,
@@ -27,6 +30,7 @@ from harness.config_mcp import (
     ServidorMCP,
     cargar_config_mcp,
     elegir_servidor_github,
+    elegir_servidor_jira,
 )
 from harness.github_mcp import crear_pull_request_mcp, puede_crear_pull_request
 from harness.config_proyecto import (
@@ -56,6 +60,7 @@ from harness.herramientas import crear_herramientas, crear_herramientas_lectura
 from harness.herramientas.comandos import EjecutorComandos, validar_proyecto
 from harness.herramientas.protegidos import GuardiaProtegidos
 from harness.jira import ErrorJira, leer_ticket, verificar_credenciales
+from harness.jira_mcp import ComentariosJiraMCP, herramientas_usadas, preparar_comentarios
 from harness.herramientas.remotas import (
     HERRAMIENTAS_LECTURA_GITHUB,
     PREFIJO_GITHUB,
@@ -79,6 +84,8 @@ from harness.ticket import (
 from harness.variables import (
     ErrorVariables,
     VariablesResueltas,
+    avisos_secretos_cortos,
+    avisos_variables_cortas_yaml,
     ocultar_secretos,
     resolver_variables,
 )
@@ -109,8 +116,11 @@ class _Preparacion:
     herramientas_github: list[Herramienta] = field(default_factory=list)
     # Abierta solo si el PR se crea por MCP (el servidor tiene create_pull_request).
     sesion_github: SesionMCP | None = None
-    # Solo si el ticket vino de Jira.
-    token_jira: str | None = None
+    # Solo si el ticket vino de Jira: su sitio y credenciales, y el servidor MCP de Jira de
+    # mcp.json con la sesión abierta para comentar el link del PR (None: por la API REST).
+    config_jira: ConfigJira | None = None
+    servidor_jira: ServidorMCP | None = None
+    comentarios_jira: ComentariosJiraMCP | None = None
 
     @property
     def ticket(self) -> str:
@@ -130,8 +140,10 @@ class _Preparacion:
     @property
     def secretos(self) -> list[str]:
         """Lo que nunca se escribe en el log ni se le muestra al modelo."""
-        tokens = [t for t in (self.token_github, self.token_jira) if t]
-        mcp = list(self.servidor_github.secretos) if self.servidor_github else []
+        token_jira = self.config_jira.token if self.config_jira else None
+        tokens = [t for t in (self.token_github, token_jira) if t]
+        mcp = [s for servidor in (self.servidor_github, self.servidor_jira) if servidor
+               for s in servidor.secretos]
         return [self.config.api_key, *self.variables.secretos, *tokens, *mcp]
 
 
@@ -226,7 +238,7 @@ def run(
     # El servidor MCP se abre en el preflight y se cierra al salir del with: también con
     # error o Ctrl+C.
     with ExitStack() as pila:
-        conectar = partial(_conectar_github_mcp, prep, pila, reporte, es_herramientas_github)
+        conectar = partial(_conectar_mcp, prep, pila, reporte, es_herramientas_github)
         config_entrega = _preparar_rama(prep, not sin_push, not sin_pr, reporte, conectar)
         try:
             resultado, cambios = _ejecutar(prep, max_pasos, reporte)
@@ -248,6 +260,50 @@ def run(
             es_entrega_ok = _entregar(prep, config_entrega, resultado, cambios, reporte)
     if resultado.es_limite_alcanzado or resultado.es_validado is False or not es_entrega_ok:
         raise typer.Exit(1)
+
+
+def _conectar_mcp(
+    prep: _Preparacion,
+    pila: ExitStack,
+    reporte: _Reporte,
+    es_herramientas: bool,
+    es_con_pr: bool,
+) -> None:
+    """Los servidores MCP del preflight: GitHub (herramientas y PR) y Jira (comentario)."""
+    _conectar_github_mcp(prep, pila, reporte, es_herramientas, es_con_pr)
+    # El comentario con el link del PR solo existe si hay PR y el ticket vino de Jira.
+    if es_con_pr and prep.config_jira is not None:
+        _conectar_jira_mcp(prep, pila, reporte)
+
+
+def _conectar_jira_mcp(prep: _Preparacion, pila: ExitStack, reporte: _Reporte) -> None:
+    """Decide por dónde se comenta en Jira: MCP o la API REST. Nunca da herramientas al modelo.
+
+    Si el servidor no conecta o no sirve, se avisa y se sigue: la API REST alcanza.
+    """
+    servidor = prep.servidor_jira
+    if servidor is None:
+        consola.mostrar_jira_rest("no hay servidor MCP de Jira en mcp.json")
+        return
+    ruta_log = reporte.registro.ruta.parent / f"{prep.ticket}-mcp-{servidor.nombre}.log"
+    try:
+        with consola.estado(f"Conectando con el servidor MCP {servidor.nombre}..."):
+            sesion = pila.enter_context(SesionMCP(servidor, ruta_log, prep.ticket))
+        comentarios = preparar_comentarios(sesion, prep.config_jira)
+    except (ErrorMCP, ErrorJira) as error:
+        reporte.registro.registrar_mcp(servidor, [], es_pr=False, error=str(error))
+        reporte.aviso(f"{error} El link del PR se comenta por la API REST de Jira.")
+        return
+    if comentarios is None:
+        reporte.aviso(
+            f"El servidor MCP '{servidor.nombre}' no tiene las herramientas para comentar en "
+            "Jira: el link del PR se comenta por la API REST."
+        )
+        return
+    prep.comentarios_jira = comentarios
+    usadas = herramientas_usadas(sesion.herramientas)
+    reporte.registro.registrar_mcp(servidor, [], es_pr=False, usadas=usadas)
+    consola.mostrar_jira_mcp(servidor.nombre, servidor.transporte)
 
 
 def _conectar_github_mcp(
@@ -458,8 +514,10 @@ def _preparar_ejecucion(ticket: str, repo: Path) -> _Preparacion:
         config = cargar_config()
         config_proyecto = cargar_config_proyecto(repo)
         variables = resolver_variables(config_proyecto) if config_proyecto else None
-        servidor_github = elegir_servidor_github(cargar_config_mcp(RUTA_MCP))
-        datos_ticket, token_jira = _obtener_ticket(ticket)
+        servidores = cargar_config_mcp(RUTA_MCP)
+        servidor_github = elegir_servidor_github(servidores)
+        servidor_jira = elegir_servidor_jira(servidores)
+        datos_ticket, config_jira = _obtener_ticket(ticket)
     except (
         ErrorTicket, ErrorConfiguracion, ErrorConfigProyecto, ErrorVariables, ErrorConfigMCP,
         ErrorJira,
@@ -472,6 +530,7 @@ def _preparar_ejecucion(ticket: str, repo: Path) -> _Preparacion:
             "y por eso sin commit ni push. Créalo con 'harness init' o a mano "
             "(docs/harness-yaml.md)."
         )
+    _avisar_secretos_cortos(config, variables, servidor_github, servidor_jira)
     contexto = cargar_agents_md(repo)
     # Para ejecuciones sin nadie mirando la consola: el aviso de "falta AGENTS.md" no alcanza.
     if config_proyecto and config_proyecto.requiere_agents_md and not contexto.tiene_contenido:
@@ -480,12 +539,28 @@ def _preparar_ejecucion(ticket: str, repo: Path) -> _Preparacion:
     return _Preparacion(
         repo, datos_ticket, config, config_proyecto,
         variables or VariablesResueltas(), contexto, token_github=leer_token_github(),
-        servidor_github=servidor_github, token_jira=token_jira,
+        servidor_github=servidor_github, config_jira=config_jira, servidor_jira=servidor_jira,
     )
 
 
-def _obtener_ticket(texto: str) -> tuple[Ticket, str | None]:
-    """El ticket de un .md local o de Jira (y el token de Jira, para ocultarlo).
+def _avisar_secretos_cortos(
+    config: ConfigModelo,
+    variables: VariablesResueltas | None,
+    servidor_github: ServidorMCP | None,
+    servidor_jira: ServidorMCP | None,
+) -> None:
+    """Los secretos de menos de MIN_CARACTERES_SECRETO no se ocultan: se avisa una vez."""
+    tokens = [config.variable_api_key or "", VAR_TOKEN_GITHUB, VAR_JIRA_TOKEN]
+    for servidor in (servidor_github, servidor_jira):
+        tokens += list(servidor.variables_secretas) if servidor else []
+    avisos = avisos_secretos_cortos(tokens)
+    avisos += avisos_variables_cortas_yaml(variables.nombres_secretos if variables else [])
+    for aviso in avisos:
+        consola.mostrar_aviso(aviso)
+
+
+def _obtener_ticket(texto: str) -> tuple[Ticket, ConfigJira | None]:
+    """El ticket de un .md local o de Jira (y la configuración de Jira, para comentar después).
 
     De Jira se lee siempre por la API REST: su ADF pasa por nuestro conversor sin perder nada.
     Lanza ErrorTicket, ErrorConfiguracion o ErrorJira.
@@ -496,7 +571,7 @@ def _obtener_ticket(texto: str) -> tuple[Ticket, str | None]:
     config_jira = leer_config_jira()
     with consola.estado(f"Leyendo {origen.clave} de Jira..."):
         verificar_credenciales(config_jira)
-        return leer_ticket(config_jira, origen.clave), config_jira.token
+        return leer_ticket(config_jira, origen.clave), config_jira
 
 
 def _aviso_recorte_ticket(ticket: Ticket) -> str:

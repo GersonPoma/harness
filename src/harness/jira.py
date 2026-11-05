@@ -16,6 +16,7 @@ from harness.ticket import FUENTE_JIRA, Ticket, limitar_descripcion
 
 TIMEOUT_SEGUNDOS = 30
 RUTA_API = "/rest/api/3"
+RUTA_TENANT_INFO = "/_edge/tenant_info"
 # Solo lo que usa el harness: así el autor (email, accountId, avatar) nunca llega.
 CAMPOS_TICKET = "summary,description,issuetype,priority,status"
 # Los comentarios se leen para no repetir el del PR; con esto alcanza en cualquier ticket.
@@ -27,6 +28,25 @@ CODIGO_NO_ENCONTRADO = 404
 
 class ErrorJira(Exception):
     """Jira rechazó el pedido o no se pudo conectar."""
+
+
+def obtener_cloud_id(
+    config: ConfigJira, transporte: httpx.BaseTransport | None = None
+) -> str:
+    """Id del sitio que piden las herramientas del servidor MCP remoto de Atlassian.
+
+    /_edge/tenant_info es público: no hace falta ningún token.
+    """
+    try:
+        with httpx.Client(transport=transporte, timeout=TIMEOUT_SEGUNDOS) as http:
+            respuesta = http.get(f"{config.url}{RUTA_TENANT_INFO}")
+    except httpx.HTTPError as error:
+        raise ErrorJira(f"No se pudo conectar con Jira ({config.url}): {error}") from error
+    datos = _leer_json(respuesta) if respuesta.is_success else None
+    cloud_id = datos.get("cloudId") if isinstance(datos, dict) else None
+    if not isinstance(cloud_id, str) or not cloud_id:
+        raise ErrorJira(f"No se pudo obtener el cloudId de {config.url}: {_describir(respuesta)}")
+    return cloud_id
 
 
 def url_ticket(config: ConfigJira, clave: str) -> str:

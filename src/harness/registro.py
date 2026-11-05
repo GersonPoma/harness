@@ -112,13 +112,18 @@ class RegistroPasos:
         herramientas: list[str],
         es_pr: bool,
         error: str | None = None,
+        usadas: list[str] | None = None,
     ) -> None:
-        """Registra la conexión con un servidor MCP: para qué se usa, o por qué no conectó."""
+        """Registra la conexión con un servidor MCP: para qué se usa, o por qué no conectó.
+
+        `herramientas` son las que recibe el modelo; `usadas`, las que llama el harness.
+        """
         self._escribir({
             "evento": "mcp",
             "servidor": servidor.nombre,
             "transporte": servidor.transporte,
             "herramientas": herramientas,
+            "usadas_por_el_harness": usadas or [],
             "es_pr": es_pr,
             "error": error,
         })

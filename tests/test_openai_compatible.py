@@ -17,7 +17,7 @@ from harness.proveedores.openai_compatible import (
 )
 from harness.tipos import Herramienta, LlamadaHerramienta, Mensaje, Rol
 
-CONFIG = ConfigModelo("gemini", "modelo-x", "https://ejemplo/v1", "clave")
+CONFIG = ConfigModelo("gemini", "modelo-x", "https://ejemplo/v1", "clave-falsa-0123456789")
 PEDIDO = httpx2.Request("POST", "https://ejemplo/v1")
 
 

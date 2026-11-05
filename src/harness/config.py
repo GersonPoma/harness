@@ -42,6 +42,8 @@ class ConfigModelo:
     base_url: str | None
     # repr=False para que la key no aparezca si alguien imprime o loguea la config.
     api_key: str = field(repr=False)
+    # De qué variable salió la key (para avisar si es demasiado corta).
+    variable_api_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -80,7 +82,7 @@ def cargar_config(ruta_env: Path = RUTA_ENV) -> ConfigModelo:
         )
 
     api_key = _leer_obligatoria(variable_api_key, f"la API key del proveedor '{proveedor}'")
-    return ConfigModelo(proveedor, modelo, base_url, api_key)
+    return ConfigModelo(proveedor, modelo, base_url, api_key, variable_api_key)
 
 
 def leer_token_github() -> str | None:

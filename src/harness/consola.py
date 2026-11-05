@@ -184,6 +184,22 @@ def mostrar_github_mcp_sin_uso() -> None:
     consola.print("[dim]GitHub por MCP: sin herramientas para el modelo y sin PR.[/]")
 
 
+def mostrar_jira_mcp(servidor: str, transporte: str) -> None:
+    """El link del PR se comenta en Jira por MCP (el ticket se leyó por la API REST)."""
+    consola.print(
+        f"[bold green]Jira por MCP[/] (servidor {escape(servidor)}, {escape(transporte)}): el "
+        "link del PR se comenta por MCP."
+    )
+
+
+def mostrar_jira_rest(motivo: str) -> None:
+    """El link del PR se comenta con la API REST de Jira, y por qué no por MCP."""
+    consola.print(
+        f"[bold green]Jira por la API REST[/]: el link del PR se comenta por REST "
+        f"({escape(motivo)})."
+    )
+
+
 def mostrar_github_rest(motivo: str) -> None:
     """El PR se crea con la API REST de GitHub, y por qué no por MCP."""
     consola.print(f"[bold green]GitHub por la API REST[/] ({escape(motivo)}).")

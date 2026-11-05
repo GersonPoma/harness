@@ -5,6 +5,7 @@ desarrollo vive en la raíz del repo del harness, junto al .env; los secretos no
 ahí: se referencian como ${NOMBRE} y se toman del entorno.
 """
 
+import base64
 import json
 import os
 from collections.abc import Mapping
@@ -21,6 +22,14 @@ TIPO_HTTP = "http"
 SERVIDOR_GITHUB = "github"
 # Para usar otro servidor de mcp.json como GitHub (por ejemplo el remoto) sin editar el JSON.
 VAR_SERVIDOR_GITHUB = "HARNESS_MCP_GITHUB"
+# El de Jira (comentar el link del PR y leer los comentarios), y su variable.
+SERVIDOR_JIRA = "jira"
+VAR_SERVIDOR_JIRA = "HARNESS_MCP_JIRA"
+# Autenticación Basic explícita en servidores HTTP: el harness arma el header con base64.
+CLAVE_AUTH = "auth"
+CLAVE_BASIC = "basic"
+CAMPOS_BASIC = ("usuario", "token")
+HEADER_AUTORIZACION = "Authorization"
 
 
 class ErrorConfigMCP(Exception):
@@ -38,6 +47,8 @@ class ServidorStdio:
     env: dict[str, str] = field(default_factory=dict, repr=False)
     # Valores que salieron de ${...}: se ocultan en el log, la consola y las salidas.
     secretos: tuple[str, ...] = field(default=(), repr=False)
+    # Las variables de entorno de donde salieron (para avisar si alguna es demasiado corta).
+    variables_secretas: tuple[str, ...] = ()
 
     @property
     def transporte(self) -> str:
@@ -53,6 +64,7 @@ class ServidorHTTP:
     url: str = field(repr=False)
     headers: dict[str, str] = field(default_factory=dict, repr=False)
     secretos: tuple[str, ...] = field(default=(), repr=False)
+    variables_secretas: tuple[str, ...] = ()
 
     @property
     def transporte(self) -> str:
@@ -86,14 +98,30 @@ def elegir_servidor_github(
     servidores: Mapping[str, ServidorMCP], entorno: Mapping[str, str] = os.environ
 ) -> ServidorMCP | None:
     """El servidor de GitHub: el de HARNESS_MCP_GITHUB, o el llamado 'github'; None si no hay."""
-    elegido = entorno.get(VAR_SERVIDOR_GITHUB, "").strip()
+    return elegir_servidor(servidores, SERVIDOR_GITHUB, VAR_SERVIDOR_GITHUB, entorno)
+
+
+def elegir_servidor_jira(
+    servidores: Mapping[str, ServidorMCP], entorno: Mapping[str, str] = os.environ
+) -> ServidorMCP | None:
+    """El servidor de Jira: el de HARNESS_MCP_JIRA, o el llamado 'jira'; None si no hay."""
+    return elegir_servidor(servidores, SERVIDOR_JIRA, VAR_SERVIDOR_JIRA, entorno)
+
+
+def elegir_servidor(
+    servidores: Mapping[str, ServidorMCP],
+    nombre: str,
+    variable: str,
+    entorno: Mapping[str, str] = os.environ,
+) -> ServidorMCP | None:
+    """El servidor que nombra la variable o, si no está definida, el que se llama `nombre`."""
+    elegido = entorno.get(variable, "").strip()
     if not elegido:
-        return servidores.get(SERVIDOR_GITHUB)
+        return servidores.get(nombre)
     if elegido not in servidores:
         disponibles = ", ".join(servidores) or "ninguno"
         raise ErrorConfigMCP(
-            f"{VAR_SERVIDOR_GITHUB}={elegido}, pero mcp.json no tiene ese servidor "
-            f"(hay: {disponibles})."
+            f"{variable}={elegido}, pero mcp.json no tiene ese servidor (hay: {disponibles})."
         )
     return servidores[elegido]
 
@@ -117,8 +145,11 @@ def _leer_stdio(nombre: str, valores: dict, entorno: Mapping[str, str]) -> Servi
         raise ErrorConfigMCP(f"El servidor MCP '{nombre}' necesita 'command'.")
     args = _lista_de_textos(nombre, "args", valores.get("args", []))
     secretos: list[str] = []
-    env = _expandir(nombre, "env", _mapa_de_textos(nombre, "env", valores), entorno, secretos)
-    return ServidorStdio(nombre, comando, tuple(args), env, tuple(secretos))
+    variables: list[str] = []
+    env = _expandir(
+        nombre, "env", _mapa_de_textos(nombre, "env", valores), entorno, secretos, variables
+    )
+    return ServidorStdio(nombre, comando, tuple(args), env, tuple(secretos), tuple(variables))
 
 
 def _leer_http(nombre: str, valores: dict, entorno: Mapping[str, str]) -> ServidorHTTP:
@@ -126,11 +157,49 @@ def _leer_http(nombre: str, valores: dict, entorno: Mapping[str, str]) -> Servid
     if not isinstance(url, str) or not url.strip():
         raise ErrorConfigMCP(f"El servidor MCP '{nombre}' (http) necesita 'url'.")
     secretos: list[str] = []
-    url = _expandir(nombre, "url", {"url": url}, entorno, secretos)["url"]
+    variables: list[str] = []
+    url = _expandir(nombre, "url", {"url": url}, entorno, secretos, variables)["url"]
     headers = _expandir(
-        nombre, "headers", _mapa_de_textos(nombre, "headers", valores), entorno, secretos
+        nombre, "headers", _mapa_de_textos(nombre, "headers", valores), entorno, secretos,
+        variables,
     )
-    return ServidorHTTP(nombre, url, headers, tuple(secretos))
+    if CLAVE_AUTH in valores:
+        headers[HEADER_AUTORIZACION] = _header_basic(
+            nombre, valores, headers, entorno, secretos, variables
+        )
+    return ServidorHTTP(nombre, url, headers, tuple(secretos), tuple(variables))
+
+
+def _header_basic(
+    nombre: str,
+    valores: dict,
+    headers: dict[str, str],
+    entorno: Mapping[str, str],
+    secretos: list[str],
+    variables: list[str],
+) -> str:
+    """"auth": {"basic": {"usuario": ..., "token": ...}} -> "Basic base64(usuario:token)".
+
+    Así el token se escribe una sola vez (como ${...}) y no hay que recalcular nada si cambia.
+    """
+    auth = valores[CLAVE_AUTH]
+    basic = auth.get(CLAVE_BASIC) if isinstance(auth, dict) and len(auth) == 1 else None
+    if not isinstance(basic, dict) or set(basic) != set(CAMPOS_BASIC):
+        raise ErrorConfigMCP(
+            f"'auth' del servidor MCP '{nombre}' debe ser "
+            '{"basic": {"usuario": "...", "token": "..."}}.'
+        )
+    if any(clave.lower() == HEADER_AUTORIZACION.lower() for clave in headers):
+        raise ErrorConfigMCP(
+            f"El servidor MCP '{nombre}' tiene 'auth' y además un header Authorization: "
+            "usa solo uno de los dos."
+        )
+    datos = _expandir(nombre, CLAVE_AUTH, _mapa_de_textos(nombre, CLAVE_BASIC, auth), entorno,
+                      secretos, variables)
+    credencial = base64.b64encode(f"{datos['usuario']}:{datos['token']}".encode()).decode()
+    # El base64 también es secreto: alcanza para entrar, igual que el token.
+    secretos.append(credencial)
+    return f"Basic {credencial}"
 
 
 def _expandir(
@@ -139,10 +208,11 @@ def _expandir(
     valores: dict[str, str],
     entorno: Mapping[str, str],
     secretos: list[str],
+    variables: list[str],
 ) -> dict[str, str]:
     faltantes: list[str] = []
     resultado = resolver_mapa(
-        valores, f"mcpServers.{nombre}.{clave}", entorno, secretos, faltantes
+        valores, f"mcpServers.{nombre}.{clave}", entorno, secretos, faltantes, variables
     )
     if faltantes:
         raise ErrorConfigMCP("mcp.json usa variables de entorno que no existen: " + "; ".join(

@@ -26,12 +26,12 @@ def sin_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def test_config_completa_de_gemini(sin_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HARNESS_PROVEEDOR", "Gemini")
     monkeypatch.setenv("HARNESS_MODELO", "gemini-flash")
-    monkeypatch.setenv("GEMINI_API_KEY", "clave")
+    monkeypatch.setenv("GEMINI_API_KEY", "clave-falsa-0123456789")
     config = cargar_config(sin_env)
     assert config.proveedor == "gemini"
     assert config.base_url == PRESETS["gemini"].base_url
-    assert config.api_key == "clave"
-    assert "clave" not in repr(config)
+    assert config.api_key == "clave-falsa-0123456789"
+    assert "clave-falsa-0123456789" not in repr(config)
 
 
 def test_lee_desde_archivo_env(sin_env: Path) -> None:
@@ -70,9 +70,9 @@ def test_personalizado(sin_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HARNESS_MODELO", "m")
     monkeypatch.setenv("HARNESS_BASE_URL", "https://mi.api/v1")
     monkeypatch.setenv("HARNESS_API_KEY_ENV", "MI_KEY")
-    monkeypatch.setenv("MI_KEY", "k")
+    monkeypatch.setenv("MI_KEY", "clave-falsa-0123456789")
     config = cargar_config(sin_env)
-    assert (config.base_url, config.api_key) == ("https://mi.api/v1", "k")
+    assert (config.base_url, config.api_key) == ("https://mi.api/v1", "clave-falsa-0123456789")
 
 
 def test_personalizado_sin_base_url(sin_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
