@@ -20,6 +20,7 @@ Si la tarea toca la lectura o el uso de `harness.yaml`, sigue al pie de la letra
 ```
 harness run <TICKET>      # procesar un ticket: rama, código, tests, commit, push y PR
 harness resume <TICKET>   # continuar una ejecución que se cortó
+harness ticket <TICKET>   # ver el ticket tal como lo recibe el modelo
 harness init              # generar AGENTS.md / harness.yaml en un repo objetivo
 harness config            # guardar credenciales la primera vez
 harness version
@@ -46,7 +47,7 @@ harness/
 │   └── harness-yaml.md     # especificación completa de harness.yaml
 ├── pyproject.toml          # [project.scripts] define el comando "harness"
 ├── uv.lock
-├── mcp.example.json        # modelo de mcp.json (servidores MCP del usuario, en .gitignore)
+├── mcp.example.json        # modelo de mcp.json (GitHub y Jira; el real va en .gitignore)
 └── src/harness/
     ├── cli.py              # punto de entrada (typer): run, init, version
     ├── bucle.py            # bucle de tool calling
@@ -65,6 +66,11 @@ harness/
     ├── config_mcp.py       # mcp.json (mcpServers)
     ├── cliente_mcp.py      # SesionMCP: stdio o HTTP, síncrona sobre anyio
     ├── github_mcp.py       # PR con create_pull_request del servidor MCP
+    ├── ticket.py           # Ticket: origen (clave de Jira o .md local) y texto al modelo
+    ├── adf.py              # ADF de Jira a Markdown
+    ├── jira.py             # Jira por la API REST: ticket y comentarios
+    ├── jira_mcp.py         # comentarios de Jira por MCP (remoto o Docker)
+    ├── comentario_pr.py    # link del PR en el ticket, por MCP o REST
     ├── herramientas/       # las del modelo: archivos, comandos y remotas (MCP)
     └── proveedores/        # ProveedorLLM, presets y adaptación de esquemas
 ```

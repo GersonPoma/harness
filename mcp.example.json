@@ -20,6 +20,33 @@
         "Authorization": "Bearer ${GITHUB_TOKEN}",
         "X-MCP-Toolsets": "repos,pull_requests"
       }
+    },
+    "jira": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "-e", "JIRA_URL",
+        "-e", "JIRA_USERNAME",
+        "-e", "JIRA_API_TOKEN",
+        "-e", "ENABLED_TOOLS",
+        "ghcr.io/sooperset/mcp-atlassian:0.23.1"
+      ],
+      "env": {
+        "JIRA_URL": "${JIRA_URL}",
+        "JIRA_USERNAME": "${JIRA_EMAIL}",
+        "JIRA_API_TOKEN": "${JIRA_API_TOKEN}",
+        "ENABLED_TOOLS": "jira_get_issue,jira_add_comment"
+      }
+    },
+    "jira-remoto": {
+      "type": "http",
+      "url": "https://mcp.atlassian.com/v2/mcp",
+      "auth": {
+        "basic": {
+          "usuario": "${JIRA_EMAIL}",
+          "token": "${JIRA_MCP_TOKEN}"
+        }
+      }
     }
   }
 }

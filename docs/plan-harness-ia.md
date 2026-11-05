@@ -18,6 +18,7 @@ harness run PROJ-123
 | `harness run <TICKET>` | Procesa un ticket desde cero (clave de Jira o ruta a un ticket local) |
 | `harness resume <TICKET>` | Continúa una ejecución que se cortó |
 | `harness init` | Genera `AGENTS.md` / `harness.yaml` en un repo objetivo |
+| `harness ticket <TICKET>` | Muestra el ticket tal como lo recibe el modelo, sin ejecutar nada |
 | `harness config` | Guarda las credenciales la primera vez |
 | `harness version` | Muestra la versión |
 
@@ -58,9 +59,17 @@ for paso in range(MAX_PASOS):
 
 ### Entrada
 
-- **`get_jira_ticket(id)`**: por un servidor MCP de Jira o, si no hay, por la API REST v3
-  (`/rest/api/3/issue/{id}`) (fase 7). Obtiene resumen, descripción y criterios de
-  aceptación. Al inicio, aceptar también un ticket local (`.json` / `.md`).
+- **El ticket** no es una herramienta del modelo: el harness lo lee antes de empezar y lo manda
+  en el primer mensaje (fase 7). `harness run <TICKET>` acepta:
+  - una **ruta a un `.md` local** (si el archivo existe), que se manda tal cual;
+  - una **clave de Jira** (`TAREAS-3`, sin importar mayúsculas), que se lee siempre por la API
+    REST v3 (`/rest/api/3/issue/{clave}`) y se convierte de ADF a Markdown (`adf.py`). Ver
+    [Jira por MCP y REST](#jira-por-mcp-y-rest).
+
+  Los dos llegan al modelo con el mismo formato (`# CLAVE: título`, tipo, prioridad, estado y
+  la descripción). El system prompt aclara que el ticket del mensaje es la fuente de verdad:
+  en las pruebas, con el ticket ya en el mensaje, el modelo igual leía `tickets/TAREAS-N.md`
+  del repo.
 
 ### Entender el proyecto
 
@@ -161,7 +170,9 @@ credenciales de Git del usuario.
 - **PR por MCP (fase 6):** si hay un servidor MCP de GitHub con `create_pull_request`, el PR
   se crea con esa herramienta (la ejecuta el harness, nunca el modelo); si no, por la API REST.
   Ver [Cómo se conectan los MCP](#cómo-se-conectan-los-mcp).
-- *(fase 7)* **`comment_jira`**: deja el link del PR en el ticket (por MCP o REST).
+- **Comentario en Jira (fase 7):** con un ticket de Jira y un PR (creado o ya existente), el
+  harness (nunca el modelo) deja el link en el ticket, por MCP o por REST. Ver
+  [Jira por MCP y REST](#jira-por-mcp-y-rest).
 
 ---
 
@@ -169,7 +180,7 @@ credenciales de Git del usuario.
 
 ```
 harness run PROJ-123
- ├─ 1. Leer ticket de Jira
+ ├─ 1. Leer el ticket (de Jira por la API REST, o un .md local)
  ├─ 2. Repo objetivo = carpeta actual (o --repo <ruta>) + leer AGENTS.md / harness.yaml
  │     + crear la rama feature/PROJ-123 desde la base (repo limpio, fetch, avisos)
  ├─ 3. Planificación: el modelo propone un plan (archivos a tocar, pasos)
@@ -343,7 +354,8 @@ variables_entorno:                  # se pasan al contenedor del proyecto
 MCP (Model Context Protocol) es un protocolo abierto para que una aplicación de IA use
 herramientas y datos de otros programas con un formato común. El harness es **cliente MCP**
 del servidor oficial de GitHub desde la fase 6 (`cliente_mcp.py`, `config_mcp.py`,
-`herramientas/remotas.py`, `github_mcp.py`); Jira llega en la fase 7.
+`herramientas/remotas.py`, `github_mcp.py`) y de un servidor de Jira desde la fase 7
+(`jira_mcp.py`, para los comentarios).
 
 ### Cliente y servidor
 
@@ -380,6 +392,20 @@ raíz del repo del harness (en `.gitignore`; el modelo es `mcp.example.json`); e
       "url": "https://api.githubcopilot.com/mcp/",
       "headers": {"Authorization": "Bearer ${GITHUB_TOKEN}",
                   "X-MCP-Toolsets": "repos,pull_requests"}
+    },
+    "jira": {
+      "command": "docker",
+      "args": ["run", "-i", "--rm", "-e", "JIRA_URL", "-e", "JIRA_USERNAME",
+               "-e", "JIRA_API_TOKEN", "-e", "ENABLED_TOOLS",
+               "ghcr.io/sooperset/mcp-atlassian:0.23.1"],
+      "env": {"JIRA_URL": "${JIRA_URL}", "JIRA_USERNAME": "${JIRA_EMAIL}",
+              "JIRA_API_TOKEN": "${JIRA_API_TOKEN}",
+              "ENABLED_TOOLS": "jira_get_issue,jira_add_comment"}
+    },
+    "jira-remoto": {
+      "type": "http",
+      "url": "https://mcp.atlassian.com/v2/mcp",
+      "auth": {"basic": {"usuario": "${JIRA_EMAIL}", "token": "${JIRA_MCP_TOKEN}"}}
     }
   }
 }
@@ -388,9 +414,20 @@ raíz del repo del harness (en `.gitignore`; el modelo es `mcp.example.json`); e
 - **Secretos:** solo como `${NOMBRE}` (en `env`, `url` y `headers`), con la misma expansión
   que `harness.yaml`. El token vive una sola vez, en `GITHUB_TOKEN`. Lo expandido se oculta en
   el log, la consola y las salidas; una variable que falta detiene antes de empezar.
-- **Qué servidor es GitHub:** el llamado `github`, o el que diga `HARNESS_MCP_GITHUB` en el
-  `.env` (por ejemplo `HARNESS_MCP_GITHUB=github-remoto`, para usar el remoto sin editar el
-  JSON). Sin servidor de GitHub, todo va por la API REST.
+- **Secretos cortos:** un valor de menos de 8 caracteres no se oculta, porque reemplazarlo en
+  todo el texto rompería el código y los logs. Un token de API (modelo, GitHub, Jira o de
+  `mcp.json`) tan corto es casi seguro un error: se avisa "El valor de X es demasiado corto
+  para ser un token real: revisa el .env.". Una variable de `harness.yaml` corta se avisa
+  como "es corto y no se oculta en la consola ni en el log".
+- **Qué servidor es GitHub y cuál Jira:** el llamado `github` (o `jira`), o el que diga
+  `HARNESS_MCP_GITHUB` (o `HARNESS_MCP_JIRA`) en el `.env`; por ejemplo
+  `HARNESS_MCP_JIRA=jira-remoto`, para usar el remoto sin editar el JSON. Sin servidor, todo
+  va por la API REST. **`HARNESS_MCP_GITHUB=rest` / `HARNESS_MCP_JIRA=rest`** fuerzan la API
+  REST aunque haya servidor (sirve para mostrar los dos caminos); por eso `rest` es un nombre
+  reservado en `mcp.json`.
+- **`auth.basic`** (solo en servidores HTTP): `{"usuario": ..., "token": ...}` y el harness
+  arma `Authorization: Basic <base64(usuario:token)>`, que es lo que pide el remoto de
+  Atlassian. El base64 también se trata como secreto.
 - **Toolsets:** `repos` (lectura de archivos y commits) y `pull_requests` (búsqueda, lectura y
   `create_pull_request`); con menos herramientas, el servidor arranca más liviano. Por Docker
   se eligen con `GITHUB_TOOLSETS`; en el remoto, con el header `X-MCP-Toolsets` (la URL
@@ -514,12 +551,77 @@ pedido) no viene del MCP: es la variación entre tickets.
 - Así la entrega no depende de que haya un servidor MCP, y las guardas (nunca a la rama base,
   `main` ni `master`, nunca un `.env`) siguen en un solo lugar.
 
+### Jira por MCP y REST
+
+Se probaron tres caminos con los cinco tickets de tareas-api, escritos con estilos distintos
+(Markdown pegado, texto plano, casillas, tabla, y panel con lista numerada, código, enlace y
+mención):
+
+| Qué | ADF por REST (con `adf.py`) | Remoto de Atlassian, Markdown | Remoto de Atlassian, HTML | Docker (sooperset 0.23.1) |
+|---|---|---|---|---|
+| Casillas de TAREAS-3 | ✅ `- [ ]`×5 y `- [x]`×1 | ✅ | ✅ | ❌ sin estado; la hecha sale tachada |
+| Panel de TAREAS-5 | ✅ `> **Info:** …` | ⚠️ devuelve HTML | ✅ | ❌ desaparece |
+| Mención de TAREAS-5 | ✅ `@nombre` | ⚠️ HTML | ✅ | ❌ el `accountId`, sin nombre |
+| Lista numerada, código y enlace | ✅ | ⚠️ HTML | ✅ | ✅ |
+| Tabla de TAREAS-4 | ✅ | ✅ | ✅ | (no se probó) |
+| Tipo de issue | ✅ | ❌ no viene | ❌ no viene | ✅ |
+
+- El **remoto** solo da Markdown cuando no pierde nada: con paneles, menciones o medios
+  devuelve HTML (y lo avisa en `appliedContentFormat`). Usarlo obligaría a mantener un segundo
+  conversor, de HTML a Markdown.
+- El de **Docker** no puede dar el ADF crudo (ni con `expand=renderedFields`): la descripción
+  llega ya convertida, con las pérdidas de la tabla.
+- Los tres traen datos del autor (`accountId`, avatar, email) si se piden todos los campos.
+
+**Decisión:** el ticket se lee **siempre por la API REST v3**, pidiendo solo `summary`,
+`description`, `issuetype`, `priority` y `status` (nada del autor llega al modelo, al log ni
+al PR), y se convierte con un solo conversor (`adf.py`, que nunca falla: ante un nodo
+desconocido saca su texto; las imágenes quedan como "[Imagen adjunta: <nombre>, no
+incluida]"). La descripción se recorta a 20.000 caracteres, con marca y aviso. El MCP de Jira
+se usa para lo demás: **comentar el link del PR y leer los comentarios**, con REST de
+respaldo. **Ninguna herramienta de Jira llega al modelo**: el ticket ya va en el mensaje.
+
+- **Servidores probados** (`jira_mcp.py` los reconoce por sus herramientas):
+  - **Docker, `ghcr.io/sooperset/mcp-atlassian:0.23.1`** (versión fija, nunca `:latest`):
+    `jira_get_issue` con `comment_limit` y `jira_add_comment`. Usa el token clásico
+    (`JIRA_API_TOKEN`); `ENABLED_TOOLS` deja solo esas dos.
+  - **Remoto, `https://mcp.atlassian.com/v2/mcp`**: `listJiraIssueComments` y
+    `addOrEditJiraIssueComment`, que piden el `cloudId` del sitio (sale sin autenticación de
+    `<sitio>/_edge/tenant_info`). Acepta API token solo si un **admin de la organización**
+    habilita "API token" en admin.atlassian.com (Rovo → Rovo MCP server → Authentication) y
+    el token es uno **con scopes** (`read:jira:agent-interface`, `write:jira:agent-interface`,
+    `search:jira:agent-interface`); el clásico no sirve. Va en `JIRA_MCP_TOKEN`, con
+    `auth.basic`.
+- **Preflight**, antes de todo lo de Git: `GET /rest/api/3/myself` (401: credenciales; 404 o
+  algo que no es JSON: `JIRA_URL` no es un sitio de Jira; sin conexión), la lectura del
+  ticket (404/403: "No existe TAREAS-9 o tu usuario no tiene permiso para verlo") y la
+  conexión con el servidor MCP. Si el ticket no se puede leer, se detiene sin rama y sin
+  llamar al modelo. La consola dice cada camino: "Jira TAREAS-5: Eliminar tareas (leído por la
+  API REST) <url>" y "Jira por MCP (servidor jira-remoto, http): el link del PR se comenta por
+  MCP." (o "Jira por la API REST: … (no hay servidor MCP de Jira en mcp.json)").
+- **Comentario**, después del PR y solo si lo hubo (no con `--sin-pr`, `--sin-push` ni un
+  ticket local): "Pull request en borrador creado por harness: <url>" (o "Pull request
+  creado por harness: <url>" si GitHub no admitió el borrador).
+  - Antes se leen los comentarios: si alguno ya tiene la URL del PR, no se repite.
+  - Por REST va en ADF, con la URL como marca `link`. Por MCP va en Markdown y **la URL como
+    `[url](url)`**: sooperset pasa el Markdown a ADF y solo esa forma queda como enlace; la
+    URL suelta, `<url>` y la sintaxis wiki `[texto|url]` quedan como texto plano (probado en
+    TAREAS-1 con las cuatro variantes). Con el remoto, `[url](url)` también queda como enlace.
+  - Si la sesión MCP falla, se reintenta por REST. Si el comentario no se puede hacer, solo
+    se avisa con el link para agregarlo a mano y el código de salida sigue en 0: el código ya
+    está validado, subido y con PR.
+  - La consola dice "✓ Comentario en TAREAS-5 (por MCP): <url del ticket>" y el log registra
+    el evento `jira_comentario`.
+- **`harness ticket <CLAVE|ruta>`** muestra el ticket exactamente como lo recibe el modelo,
+  sin llamar al modelo ni tocar Git (sirve para comparar el conversor con los tickets
+  originales).
+
 ### MCP preferido, REST de respaldo
 
-- Si el usuario configuró un servidor MCP (de GitHub, y en la fase 7 de Jira), el harness lo
-  usa; si no, el cliente REST propio (`github.py`, y uno para Jira en la fase 7).
-- Los dos caminos devuelven los mismos tipos propios (`PullRequest`, y el ticket con título,
-  descripción y criterios), así el resto del harness no cambia según el camino.
+- Si el usuario configuró un servidor MCP de GitHub o de Jira, el harness lo usa; si no (o si
+  no conecta, o con `HARNESS_MCP_*=rest`), los clientes REST propios (`github.py`, `jira.py`).
+- Los dos caminos devuelven los mismos tipos propios (`PullRequest`, `Ticket`, el resultado
+  del comentario), así el resto del harness no cambia según el camino.
 
 ---
 
@@ -790,6 +892,19 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
 - El nombre `harness` probablemente está ocupado en PyPI; si algún día se publica ahí, el
   paquete debe llamarse distinto (el comando puede seguir siendo `harness`).
 
+### Uso en Windows
+
+- **Redirigir la salida en PowerShell** (a un archivo o a otro comando, por ejemplo
+  `harness ticket TAREAS-5 > ticket.md`): el harness escribe en UTF-8, pero PowerShell lo
+  decodifica con la página de códigos de la consola y los acentos salen rotos. Antes de
+  redirigir, en la misma sesión:
+
+  ```powershell
+  [Console]::OutputEncoding = [Text.Encoding]::UTF8
+  ```
+
+  En la terminal, sin redirigir, no hace falta.
+
 ---
 
 ## Orden de construcción (roadmap)
@@ -834,22 +949,34 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
   - [x] Rama, commit y push siguen siendo con `git`.
   - [x] **Pruebas reales en tareas-api:** Docker por stdio, HTTP remoto, solo para el PR, REST
         sin `mcp.json` y Ctrl+C sin contenedores colgados.
-- [ ] **7.** Jira por MCP con respaldo REST (reemplaza el ticket local)
-  - [ ] **Ver si el servidor MCP remoto de Atlassian acepta email + API token o solo OAuth.**
-        Si solo OAuth, usar por stdio con Docker un servidor de Jira que acepte API token.
-  - [ ] **Leer el ticket y comentar el link del PR** a través de un servidor MCP de Jira.
-  - [ ] **Respaldo REST:** si no hay servidor MCP de Jira configurado, usar la API REST v3
-        de Jira directamente (email y API token), con un aviso en consola de qué camino se
-        usó.
-  - [ ] **ADF (Atlassian Document Format):** en la API REST v3 la descripción y los
-        comentarios usan ADF. Convertir la descripción a Markdown para el modelo y armar el
-        comentario en ADF.
-  - [ ] **Mismo formato por los dos caminos:** el ticket llega al harness igual que un
-        ticket local `.md` (título, descripción y criterios).
-  - [ ] **Verificar Jira en el preflight**, igual que el token de GitHub: `GET
-        /rest/api/3/myself` (credenciales válidas) y la lectura del ticket, antes de crear la
-        rama y de llamar al modelo. Si falla, decir qué falta (URL, usuario, token o permiso
-        sobre el proyecto) y detenerse.
+- [ ] **7.** Jira por MCP con respaldo REST (ver
+      [Jira por MCP y REST](#jira-por-mcp-y-rest))
+  - [x] **El remoto de Atlassian acepta email + API token** (`auth.basic`), con dos
+        condiciones: un admin de la organización habilita "API token" en Rovo MCP server, y
+        el token es uno con scopes (`JIRA_MCP_TOKEN`). Sin eso, solo OAuth: queda el servidor
+        de Docker (`sooperset/mcp-atlassian:0.23.1`, versión fija) con el token clásico.
+  - [x] **`harness run` con clave de Jira o ruta a un `.md` local** (si el archivo existe es
+        local; si no, se toma como clave y se pasa a mayúsculas). `harness ticket` muestra
+        lo que recibe el modelo.
+  - [x] **El ticket se lee siempre por la API REST v3**, solo con los campos que se usan
+        (nada del autor). Comparados los tres caminos, MCP pierde información (casillas,
+        paneles, menciones) o devuelve HTML: el MCP de Jira queda para los comentarios.
+  - [x] **ADF a Markdown** (`adf.py`): todos los nodos comunes, imágenes como marca, nodos
+        desconocidos por su texto; descripción recortada a 20.000 caracteres con aviso.
+        Probado con el ADF real (anonimizado) de los cinco tickets.
+  - [x] **Mismo formato que un ticket local** (`# CLAVE: título`, tipo, prioridad, estado y
+        descripción), y el prompt dice que el ticket del mensaje es la fuente de verdad.
+  - [x] **Comentar el link del PR** por MCP (`[url](url)`, para que quede como enlace) o
+        por REST (ADF), sin repetirlo si ya está; si falla, solo un aviso y código 0.
+  - [x] **Respaldo REST con aviso del camino**, y `HARNESS_MCP_JIRA=rest` /
+        `HARNESS_MCP_GITHUB=rest` para forzarlo.
+  - [x] **Verificar Jira en el preflight**: `/myself` y la lectura del ticket antes de crear
+        la rama y de llamar al modelo; si falla, dice qué falta y se detiene.
+  - [x] **Secretos:** `JIRA_API_TOKEN`, `JIRA_MCP_TOKEN` y el base64 de `auth.basic` se
+        ocultan; los de menos de 8 caracteres se avisan.
+  - [x] **Pruebas reales en tareas-api:** REST (TAREAS-3), MCP por Docker (TAREAS-4), MCP
+        remoto (TAREAS-5), `--sin-pr` sin comentario (TAREAS-2), ticket inexistente sin
+        rama (TAREAS-99) y Ctrl+C sin contenedores ni rama (TAREAS-1).
 - [ ] **8.** Caché de dependencias. Con Gradle sobre Windows cada ejecución tarda varios
       minutos solo en descargar dependencias.
   - [ ] **Volumen de caché para dependencias** (clave nueva, por ejemplo `docker.cache`):
@@ -930,6 +1057,13 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
   - [ ] **Probar la salida en conhost, PowerShell, Windows Terminal y las terminales de VS
         Code y PyCharm.** La consola ya no escribe en la última columna (en conhost puede
         agregar un salto de línea y pisar una línea); falta comprobarlo en cada una.
+        - Línea perdida intermitente en el panel del plan en Windows Terminal; verificado con
+          pyte que el harness emite el texto completo. Si vuelve a pasar, agregar
+          `HARNESS_CONSOLA_CRUDA` para comparar la salida cruda con la pantalla.
+  - [ ] **Tickets enlazados y subtareas en el mensaje inicial.** Si el ticket de Jira tiene
+        `issuelinks` o subtareas (por ejemplo "como en TAREAS-2"), el harness los agrega
+        resumidos al mensaje, en vez de darle al modelo una herramienta de Jira que sumaría
+        tokens a todos los pedidos.
   - [ ] **Plan con correcciones del usuario.** Hoy, con `--aprobar-plan`, solo se puede
         responder s o n. Cambiar la pregunta a "¿Aprobar el plan? [s/n, o escribe qué
         cambiar]":
@@ -1008,6 +1142,9 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         al inicio y se pierde detrás de "Instalando dependencias...".
   - [ ] **Ocultar también `.envrc`** (archivo de direnv, que suele tener secretos) en las
         herramientas y dentro del contenedor, igual que `.env`.
+  - [ ] **Mover el ticket de Jira a "En revisión" al abrir el PR** (una transición de
+        Jira), opcional por proyecto porque cada flujo de trabajo nombra distinto sus
+        estados.
   - [ ] **`.gitattributes` con `* text=auto eol=lf`**, para unificar los finales de línea y
         que deje de aparecer el aviso de LF/CRLF en Windows.
 
