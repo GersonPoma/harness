@@ -16,6 +16,7 @@ from harness.contexto import ContextoProyecto
 from harness.ejecucion import ResultadoEjecucion, Validacion
 from harness.entorno_docker import Instalacion
 from harness.entrega import ConfigEntrega, ResultadoEntrega
+from harness.herramientas.comandos import HERRAMIENTAS_DE_COMANDOS, leer_codigo_salida
 from harness.init import ResultadoInit
 from harness.plan import Plan, archivos_fuera_del_plan
 from harness.proveedores.respaldo import CambioProveedor
@@ -60,14 +61,19 @@ class RegistroPasos:
         vienen recortadas a max_caracteres_salida): un recorte extra aquí escondería
         justo el final, donde suelen estar los errores, y el log no serviría para diagnosticar.
         """
-        self._escribir({
+        evento = {
             "evento": "herramienta",
             "paso": paso.numero,
             "herramienta": paso.llamada.nombre,
             "argumentos": paso.llamada.argumentos,
             "es_error": paso.es_error,
             "resultado": paso.resultado,
-        })
+        }
+        # es_error dice si la herramienta pudo ejecutarse; si los tests fallaron, lo dice esto.
+        salida = leer_codigo_salida(paso.resultado)
+        if paso.llamada.nombre in HERRAMIENTAS_DE_COMANDOS and salida is not None:
+            evento["codigo_salida"], evento["es_tiempo_agotado"] = salida
+        self._escribir(evento)
 
     def registrar_validacion(self, validacion: Validacion) -> None:
         """Registra una corrida de tests + lint y su informe, el mismo que recibe el modelo."""

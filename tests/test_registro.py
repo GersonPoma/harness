@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from harness.bucle import Paso
 from harness.ejecucion import ResultadoEjecucion, Validacion
 from harness.registro import RegistroPasos
@@ -38,6 +40,41 @@ def test_el_log_guarda_el_resultado_completo_que_recibio_el_modelo(repo: Path) -
     assert len(resultado) > 6000
     assert paso["resultado"] == resultado
     assert validacion["informe"] == informe
+
+
+@pytest.mark.parametrize(
+    ("herramienta", "resultado", "esperado"),
+    [
+        ("ejecutar_tests", "Código de salida: 1\nFAILED test_x", (1, False)),
+        ("ejecutar_lint", "Código de salida: 0", (0, False)),
+        ("ejecutar_comando", "Tiempo agotado: el comando se cortó a los 120 s.", (None, True)),
+    ],
+)
+def test_los_comandos_registran_su_codigo_de_salida(
+    repo: Path, herramienta: str, resultado: str, esperado: tuple
+) -> None:
+    registro = RegistroPasos(repo, "T", secretos=[])
+    llamada = LlamadaHerramienta("c1", herramienta, {})
+    registro.registrar_paso(Paso(1, llamada, resultado, es_error=False))
+    evento = json.loads(registro.ruta.read_text(encoding="utf-8"))
+    assert (evento["codigo_salida"], evento["es_tiempo_agotado"]) == esperado
+    assert evento["es_error"] is False
+
+
+@pytest.mark.parametrize(
+    ("herramienta", "resultado"),
+    [
+        # Rechazado antes de ejecutarse: no hay código de salida.
+        ("ejecutar_comando", "Error: 'rm' no está permitido."),
+        # Otra herramienta, aunque su texto empiece igual.
+        ("leer_archivo", "Código de salida: 3"),
+    ],
+)
+def test_sin_codigo_de_salida(repo: Path, herramienta: str, resultado: str) -> None:
+    registro = RegistroPasos(repo, "T", secretos=[])
+    llamada = LlamadaHerramienta("c1", herramienta, {})
+    registro.registrar_paso(Paso(1, llamada, resultado, es_error=True))
+    assert "codigo_salida" not in json.loads(registro.ruta.read_text(encoding="utf-8"))
 
 
 def test_oculta_secretos_con_comillas_o_barras(repo: Path) -> None:

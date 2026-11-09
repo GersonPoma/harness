@@ -12,6 +12,10 @@ from harness.variables import ocultar_secretos
 # Con sh -c, cualquiera de estos permite encadenar un programa no permitido detrás de uno
 # permitido ('pytest & rm -rf /app', o un salto de línea). '&' y '|' cubren '&&' y '||'.
 CARACTERES_PROHIBIDOS = (";", "&", "|", ">", "<", "`", "$(", "\n", "\r")
+# Primera línea del resultado que recibe el modelo (formatear_resultado); el log la lee de ahí.
+PREFIJO_CODIGO_SALIDA = "Código de salida: "
+PREFIJO_TIEMPO_AGOTADO = "Tiempo agotado:"
+HERRAMIENTAS_DE_COMANDOS = ("ejecutar_tests", "ejecutar_lint", "ejecutar_comando")
 
 
 class Entorno(Protocol):
@@ -42,11 +46,27 @@ def formatear_resultado(
 ) -> str:
     """Texto que recibe el modelo: código de salida y salida recortada."""
     if resultado.es_tiempo_agotado:
-        encabezado = f"Tiempo agotado: el comando se cortó a los {timeout} s."
+        encabezado = f"{PREFIJO_TIEMPO_AGOTADO} el comando se cortó a los {timeout} s."
     else:
-        encabezado = f"Código de salida: {resultado.codigo}"
+        encabezado = f"{PREFIJO_CODIGO_SALIDA}{resultado.codigo}"
     salida = recortar_salida(resultado.salida.strip(), max_caracteres)
     return f"{encabezado}\n{salida}" if salida else encabezado
+
+
+def leer_codigo_salida(texto: str) -> tuple[int | None, bool] | None:
+    """(código de salida, si se agotó el tiempo) de un resultado de formatear_resultado.
+
+    None si el texto no es el resultado de un comando (por ejemplo, un comando rechazado).
+    """
+    primera = texto.split("\n", 1)[0]
+    if primera.startswith(PREFIJO_TIEMPO_AGOTADO):
+        return None, True
+    if primera.startswith(PREFIJO_CODIGO_SALIDA):
+        try:
+            return int(primera.removeprefix(PREFIJO_CODIGO_SALIDA)), False
+        except ValueError:
+            return None
+    return None
 
 
 class EjecutorComandos:
