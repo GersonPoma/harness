@@ -7,6 +7,8 @@ from rich.console import Console
 
 from harness import consola
 from harness.cambios import CARPETAS_DE_COMPILACION, CambiosRepo, comparar, tomar_instantanea
+from harness.git import preparar_commit
+from tests.git_prueba import iniciar_repo
 
 requiere_git = pytest.mark.skipif(shutil.which("git") is None, reason="Git no está instalado")
 
@@ -109,6 +111,37 @@ def test_con_git_ignora_logs_del_harness_y_caches(repo_git: Path) -> None:
 def test_muestra_la_lista_de_archivos(salida: Console) -> None:
     consola.mostrar_cambios(CambiosRepo(creados=["b.py"], modificados=["a.py"]))
     assert salida.export_text() == "Creados:\n  b.py\nModificados:\n  a.py\n"
+
+
+def test_la_memoria_va_en_su_propio_grupo(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text("x = 1\n", encoding="utf-8")
+    antes = tomar_instantanea(tmp_path)
+    (tmp_path / ".harness" / "logs").mkdir(parents=True)
+    (tmp_path / ".harness" / "logs" / "T-1.jsonl").write_text("{}\n", encoding="utf-8")
+    (tmp_path / ".harness" / "memory.md").write_text("- nota\n", encoding="utf-8")
+    (tmp_path / "app.py").write_text("x = 2\n", encoding="utf-8")
+
+    cambios = comparar(antes, tomar_instantanea(tmp_path))
+    # Los logs no; la memoria sí, aparte del código, y cuenta en el total.
+    assert cambios == CambiosRepo(modificados=["app.py"], memoria=[".harness/memory.md"])
+    assert cambios.total == 2
+
+
+@requiere_git
+def test_la_memoria_cuenta_igual_que_en_el_commit(tmp_path: Path) -> None:
+    iniciar_repo(tmp_path)
+    antes = tomar_instantanea(tmp_path)
+    (tmp_path / "nuevo.py").write_text("y = 1\n", encoding="utf-8")
+    (tmp_path / ".harness").mkdir(exist_ok=True)
+    (tmp_path / ".harness" / "memory.md").write_text("- nota\n", encoding="utf-8")
+    cambios = comparar(antes, tomar_instantanea(tmp_path))
+    assert cambios.memoria == [".harness/memory.md"]
+    assert cambios.total == len(preparar_commit(tmp_path))
+
+
+def test_mostrar_la_memoria(salida: Console) -> None:
+    consola.mostrar_cambios(CambiosRepo(modificados=["a.py"], memoria=[".harness/memory.md"]))
+    assert salida.export_text() == "Modificados:\n  a.py\nMemoria:\n  .harness/memory.md\n"
 
 
 def test_sin_cambios_avisa_en_amarillo(salida: Console) -> None:

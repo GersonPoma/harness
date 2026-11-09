@@ -440,6 +440,7 @@ def mostrar_cambios(cambios: CambiosRepo) -> None:
         ("Creados", "green", cambios.creados),
         ("Modificados", "yellow", cambios.modificados),
         ("Eliminados", "red", cambios.eliminados),
+        ("Memoria", "cyan", cambios.memoria),
     ]
     for titulo, color, rutas in grupos:
         if rutas:

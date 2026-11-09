@@ -12,9 +12,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from harness.carpetas import CARPETAS_IGNORADAS
+from harness.memoria import RUTA_MEMORIA
 
 # Además de las ignoradas: lo que escriben el harness (logs) y las herramientas de tests, que
-# no es trabajo del modelo aunque el .gitignore del proyecto no lo excluya.
+# no es trabajo del modelo aunque el .gitignore del proyecto no lo excluya. La memoria sí se
+# sigue (es lo único de .harness que entra en el commit), en su propio grupo.
 CARPETAS_SIN_SEGUIMIENTO = CARPETAS_IGNORADAS | {
     ".harness", ".pytest_cache", ".mypy_cache", ".ruff_cache",
 }
@@ -38,11 +40,20 @@ class CambiosRepo:
     creados: list[str] = field(default_factory=list)
     modificados: list[str] = field(default_factory=list)
     eliminados: list[str] = field(default_factory=list)
+    # .harness/memory.md, si cambió: la escribe guardar_memoria, no el código del ticket.
+    memoria: list[str] = field(default_factory=list)
 
     @property
     def hay_cambios(self) -> bool:
-        """True si se creó, modificó o eliminó al menos un archivo."""
-        return bool(self.creados or self.modificados or self.eliminados)
+        """True si se creó, modificó o eliminó al menos un archivo (la memoria incluida)."""
+        return bool(self.creados or self.modificados or self.eliminados or self.memoria)
+
+    @property
+    def total(self) -> int:
+        """Cuántos archivos cambiaron: los mismos que entran en el commit."""
+        return len(self.creados) + len(self.modificados) + len(self.eliminados) + len(
+            self.memoria
+        )
 
 
 def tomar_instantanea(repo: Path) -> Instantanea:
@@ -61,11 +72,16 @@ def tomar_instantanea(repo: Path) -> Instantanea:
 
 
 def comparar(antes: Instantanea, despues: Instantanea) -> CambiosRepo:
-    """Diferencias entre dos fotos del repo."""
+    """Diferencias entre dos fotos del repo; la memoria va aparte, en su propio grupo."""
+    creados = despues.keys() - antes.keys()
+    modificados = {r for r in antes.keys() & despues.keys() if antes[r] != despues[r]}
+    eliminados = antes.keys() - despues.keys()
+    memoria = {RUTA_MEMORIA} & (creados | modificados | eliminados)
     return CambiosRepo(
-        creados=sorted(despues.keys() - antes.keys()),
-        modificados=sorted(r for r in antes.keys() & despues.keys() if antes[r] != despues[r]),
-        eliminados=sorted(antes.keys() - despues.keys()),
+        creados=sorted(creados - memoria),
+        modificados=sorted(modificados - memoria),
+        eliminados=sorted(eliminados - memoria),
+        memoria=sorted(memoria),
     )
 
 
@@ -86,6 +102,8 @@ def _rutas_segun_git(raiz: Path) -> list[str] | None:
 
 
 def _esta_sin_seguimiento(ruta: str) -> bool:
+    if ruta == RUTA_MEMORIA:
+        return False
     carpetas = ruta.split("/")[:-1]
     return any(carpeta in CARPETAS_SIN_SEGUIMIENTO for carpeta in carpetas)
 
@@ -97,6 +115,8 @@ def _rutas_sin_git(raiz: Path) -> list[str]:
         subcarpetas[:] = [s for s in subcarpetas if s not in ignoradas]
         base = Path(carpeta).relative_to(raiz)
         rutas.extend((base / nombre).as_posix() for nombre in archivos)
+    if (raiz / RUTA_MEMORIA).is_file():
+        rutas.append(RUTA_MEMORIA)
     return rutas
 
 

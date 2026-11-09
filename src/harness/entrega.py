@@ -371,7 +371,7 @@ def crear_cuerpo_pr(
         f"## Resumen\n\n{resumen}",
         f"## Plan\n\n{_plan_en_markdown(resultado)}",
         f"## Validación\n\n{_validacion_en_markdown(resultado, comandos)}",
-        f"## Cambios\n\n{_cambios_en_markdown(cambios)}",
+        f"## Cambios\n\n{_cambios_en_markdown(cambios, notas_memoria or [])}",
     ]
     if notas_memoria:
         secciones.append(f"## Memoria del proyecto\n\n{_memoria_en_markdown(notas_memoria)}")
@@ -410,18 +410,33 @@ def _validacion_en_markdown(resultado: ResultadoEjecucion, comandos: ConfigComan
     return f"Pasaron {validado} en la validación {resultado.validaciones}."
 
 
-def _cambios_en_markdown(cambios: CambiosRepo) -> str:
+def _cambios_en_markdown(cambios: CambiosRepo, notas_memoria: list[str]) -> str:
     grupos = [
         ("Creados", cambios.creados),
         ("Modificados", cambios.modificados),
         ("Eliminados", cambios.eliminados),
+        ("Memoria", cambios.memoria),
     ]
     lineas = [
         f"- {nombre}: " + ", ".join(f"`{ruta}`" for ruta in rutas)
         for nombre, rutas in grupos
         if rutas
     ]
-    return "\n".join(lineas) or "_Sin cambios detectados._"
+    if not lineas:
+        return "_Sin cambios detectados._"
+    if cambios.memoria and notas_memoria:
+        lineas[-1] += f" ({_notas(len(notas_memoria))})"
+    # El mismo total que el commit: la memoria también entra en él.
+    lineas.append(f"\n{_archivos(cambios.total)} en total.")
+    return "\n".join(lineas)
+
+
+def _notas(cantidad: int) -> str:
+    return "1 nota nueva" if cantidad == 1 else f"{cantidad} notas nuevas"
+
+
+def _archivos(cantidad: int) -> str:
+    return "1 archivo" if cantidad == 1 else f"{cantidad} archivos"
 
 
 def _commits(cantidad: int) -> str:

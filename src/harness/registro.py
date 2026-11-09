@@ -101,6 +101,7 @@ class RegistroPasos:
             "creados": cambios.creados,
             "modificados": cambios.modificados,
             "eliminados": cambios.eliminados,
+            "memoria": cambios.memoria,
             "plan_rechazado": resultado.es_plan_rechazado,
             "fuera_del_plan": (
                 archivos_fuera_del_plan(resultado.plan, cambios) if resultado.plan else []

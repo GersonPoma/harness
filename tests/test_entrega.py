@@ -474,7 +474,22 @@ def test_cuerpo_del_pr() -> None:
         "## Validación\n\nPasaron los tests (`pytest -q`) y el lint (`ruff check .`) en la "
         "validación 2.\n\n"
         "## Cambios\n\n- Creados: `nuevo.py`\n- Modificados: `app.py`\n\n"
+        "2 archivos en total.\n\n"
         "---\n_Generado por harness con `gemini/modelo-x`. Revísalo antes de aprobarlo._"
+    )
+
+
+def test_la_memoria_va_en_los_cambios_y_en_el_total() -> None:
+    # Como TAREAS-1: 3 archivos de código y la memoria, los 4 del commit.
+    resultado = ResultadoEjecucion("Listo.", 9, 100, 50, False, True, 1)
+    cambios = CambiosRepo(
+        creados=["tests/test_x.py"], modificados=["src/a.py", "src/b.py"],
+        memoria=[".harness/memory.md"],
+    )
+    notas = ["- uno (T-1, 2026-11-09)", "- dos (T-1, 2026-11-09)"]
+    cuerpo = crear_cuerpo_pr(resultado, cambios, ConfigComandos(tests="pytest"), "m", notas)
+    assert (
+        "- Memoria: `.harness/memory.md` (2 notas nuevas)\n\n4 archivos en total." in cuerpo
     )
 
 
