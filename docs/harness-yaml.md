@@ -357,6 +357,78 @@ AGENTS.md" pasa desapercibido y el modelo trabajaría sin las convenciones del p
 
 ---
 
+## Reglas de arquitectura
+
+Las reglas de `AGENTS.md` ("los controladores no usan repositorios", "ventas no importa de
+productos") solo las respeta el modelo si las sigue: los tests no las ven, y en TIENDA-3 el
+modelo usó `ProductoRepository` desde ventas con todos los tests en verde. La revisión
+([`revision`](#revision)) ayuda, pero lo que de verdad las hace cumplir es una herramienta que
+falle la validación. `harness init` recomienda una según el stack, si el proyecto no usa ya
+ninguna (no modifica el build).
+
+**Java (Maven o Gradle): ArchUnit.** Es un test más, así que corre con `comandos.tests` sin
+cambiar nada del `harness.yaml`.
+
+```xml
+<!-- pom.xml (en Gradle: testImplementation "com.tngtech.archunit:archunit-junit5:1.3.0") -->
+<dependency>
+  <groupId>com.tngtech.archunit</groupId>
+  <artifactId>archunit-junit5</artifactId>
+  <version>1.3.0</version>
+  <scope>test</scope>
+</dependency>
+```
+
+```java
+@AnalyzeClasses(packages = "com.ejemplo.tienda")
+class ArquitecturaTest {
+    @ArchTest
+    static final ArchRule ventasNoUsaProductos = noClasses()
+        .that().resideInAPackage("..ventas..")
+        .should().dependOnClassesThat().resideInAPackage("..productos.repositorio..");
+}
+```
+
+**Python: import-linter.** Los contratos van en `.importlinter` (o en `pyproject.toml`), y se
+corre con `lint-imports`:
+
+```ini
+[importlinter]
+root_package = tareas
+
+[importlinter:contract:capas]
+name = Capas
+type = layers
+layers =
+    tareas.main
+    tareas.repositorio
+    tareas.modelos
+```
+
+```yaml
+docker:
+  instalar: pip install -e ".[dev]" import-linter
+comandos:
+  tests: pytest -q
+  lint: lint-imports
+```
+
+**Node: dependency-cruiser** (o `eslint-plugin-boundaries`, si el proyecto ya usa ESLint):
+
+```yaml
+comandos:
+  tests: npm test
+  lint: npx depcruise src --config .dependency-cruiser.js
+```
+
+En los tres casos, conviene proteger el archivo de las reglas para que el modelo no las
+afloje para que pase la validación:
+
+```yaml
+archivos_protegidos:
+  - src/test/**/ArquitecturaTest.java   # o .importlinter, .dependency-cruiser.js
+```
+
 ## Lo que NO va en `harness.yaml`
 
 | Qué | Dónde va | Por qué |

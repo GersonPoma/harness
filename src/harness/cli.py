@@ -87,6 +87,7 @@ from harness.init import (
     asegurar_gitignore,
     corregir_harness_yaml,
     ejecutar_init,
+    recomendacion_arquitectura,
     sugerencia_test_logging,
     verificar_config,
 )
@@ -1410,6 +1411,9 @@ def init(
     sugerencia = sugerencia_test_logging(raiz)
     if sugerencia:
         consola.mostrar_sugerencia_test_logging(*sugerencia)
+    recomendacion = recomendacion_arquitectura(raiz)
+    if recomendacion:
+        consola.mostrar_recomendacion_arquitectura(*recomendacion)
     if verificar:
         # Solo se corrige un harness.yaml que init generó ahora: uno que ya existía es del
         # usuario y solo se informa.

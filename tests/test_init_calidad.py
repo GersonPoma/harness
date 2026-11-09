@@ -14,6 +14,7 @@ from harness.init import (
     advertencias_de_limites,
     crear_herramientas_guardar,
     ejecutar_init,
+    recomendacion_arquitectura,
     sugerencia_test_logging,
 )
 from harness.herramientas.archivos import ErrorHerramienta
@@ -228,3 +229,40 @@ def test_un_harness_yaml_que_ya_existia_no_se_corrige(
     )
     assert codigo == 1 and len(instalados) == 1
     assert proveedor.conversaciones == [] and "corrija" not in salida
+
+
+# --- Reglas de arquitectura --------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("archivo", "stack", "herramienta"),
+    [
+        ("pom.xml", "Maven", "ArchUnit"),
+        ("build.gradle.kts", "Gradle", "ArchUnit"),
+        ("pyproject.toml", "Python", "import-linter"),
+        ("package.json", "Node", "dependency-cruiser"),
+    ],
+)
+def test_recomienda_segun_el_stack(
+    tmp_path: Path, archivo: str, stack: str, herramienta: str
+) -> None:
+    (tmp_path / archivo).write_text("{}\n", encoding="utf-8")
+    assert recomendacion_arquitectura(tmp_path)[0] == stack
+    assert herramienta in recomendacion_arquitectura(tmp_path)[1]
+
+
+def test_no_recomienda_si_ya_usa_una_o_no_hay_stack(tmp_path: Path) -> None:
+    assert recomendacion_arquitectura(tmp_path) is None
+    (tmp_path / "pom.xml").write_text("<artifactId>archunit-junit5</artifactId>\n",
+                                      encoding="utf-8")
+    assert recomendacion_arquitectura(tmp_path) is None
+
+
+def test_init_muestra_la_recomendacion(tmp_path: Path) -> None:
+    (tmp_path / "AGENTS.md").write_text("# Reglas\n", encoding="utf-8")
+    (tmp_path / "harness.yaml").write_text(PYTHON, encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n", encoding="utf-8")
+    resultado = CliRunner().invoke(cli.app, ["init", "--repo", str(tmp_path)])
+    salida = " ".join(resultado.output.split())
+    assert "Reglas de arquitectura (Python): para que la validación las haga cumplir" in salida
+    assert 'docs/harness-yaml.md, "Reglas de arquitectura"' in salida

@@ -204,6 +204,15 @@ def mostrar_nota_guardada(nota: str) -> None:
     consola.print(f"[dim]Memoria: nota guardada en {RUTA_MEMORIA}: {escape(nota)}[/]")
 
 
+def mostrar_recomendacion_arquitectura(stack: str, herramienta: str) -> None:
+    """Cómo hacer cumplir las reglas de arquitectura de AGENTS.md en la validación."""
+    consola.print(
+        f"[dim]Reglas de arquitectura ({escape(stack)}): para que la validación las haga "
+        f"cumplir, y no solo el modelo, se recomienda {escape(herramienta)}. Ver "
+        "docs/harness-yaml.md, \"Reglas de arquitectura\".[/]"
+    )
+
+
 def mostrar_sugerencia_test_logging(archivo: str, bloque: str) -> None:
     """El build de Gradle no muestra el detalle de las fallas: el bloque para agregarle."""
     mostrar_aviso(

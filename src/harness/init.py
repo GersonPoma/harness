@@ -86,6 +86,33 @@ BLOQUES_TEST_LOGGING = {
 }
 
 
+# Herramienta de reglas de arquitectura recomendada para cada stack, y cómo se reconoce que el
+# proyecto ya la usa (docs/harness-yaml.md, "Reglas de arquitectura").
+RECOMENDACIONES_ARQUITECTURA = {
+    "Maven": "ArchUnit (un test más, que corre con mvn test)",
+    "Gradle": "ArchUnit (un test más, que corre con gradle test)",
+    "Python": "import-linter (lint-imports en comandos.lint)",
+    "Node": "dependency-cruiser o eslint-plugin-boundaries (en comandos.lint)",
+}
+MARCAS_ARQUITECTURA = ("archunit", "importlinter", "import-linter", "lint-imports",
+                       "dependency-cruiser", "depcruise", "eslint-plugin-boundaries")
+# Archivos que delatan el stack, en orden: el primero que exista decide.
+ARCHIVOS_STACK = (
+    ("pom.xml", "Maven"),
+    ("build.gradle.kts", "Gradle"),
+    ("build.gradle", "Gradle"),
+    ("package.json", "Node"),
+    ("pyproject.toml", "Python"),
+    ("requirements.txt", "Python"),
+    ("setup.py", "Python"),
+)
+# Donde se busca si el proyecto ya tiene reglas de arquitectura.
+ARCHIVOS_CON_REGLAS = (
+    "harness.yaml", "pom.xml", "build.gradle", "build.gradle.kts", "package.json",
+    "pyproject.toml", "requirements.txt", "requirements-dev.txt", ".importlinter", "setup.cfg",
+)
+
+
 class ErrorInit(Exception):
     """El modelo no guardó todos los archivos que faltaban."""
 
@@ -371,6 +398,21 @@ def advertencias_de_limites(config: ConfigProyecto) -> list[str]:
             "el daemon de Gradle se reutiliza entre comandos. Quítalo."
         )
     return advertencias
+
+
+def recomendacion_arquitectura(repo: Path) -> tuple[str, str] | None:
+    """(stack, herramienta) para hacer cumplir las reglas de arquitectura, si el proyecto no
+    usa ya una. Las reglas de AGENTS.md solo las respeta el modelo; un test las hace cumplir."""
+    stack = next((s for nombre, s in ARCHIVOS_STACK if (repo / nombre).is_file()), None)
+    if stack is None:
+        return None
+    for nombre in ARCHIVOS_CON_REGLAS:
+        ruta = repo / nombre
+        if ruta.is_file():
+            texto = ruta.read_text(encoding="utf-8-sig", errors="replace").lower()
+            if any(marca in texto for marca in MARCAS_ARQUITECTURA):
+                return None
+    return stack, RECOMENDACIONES_ARQUITECTURA[stack]
 
 
 def sugerencia_test_logging(repo: Path) -> tuple[str, str] | None:
