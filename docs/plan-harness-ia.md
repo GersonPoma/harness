@@ -1319,6 +1319,12 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
   - [ ] **Plan plegado en la descripción del PR.** Resumen y Plan repiten casi lo mismo:
         dejar el plan dentro de `<details><summary>Plan</summary> … </details>` para que el
         PR se lea más corto.
+  - [ ] **`.harness/memory.md` en las listas de cambios.** En la prueba real de TAREAS-1, el
+        commit tuvo 4 archivos (los 3 de código y `.harness/memory.md`, que el modelo creó por
+        su cuenta con `guardar_memoria`), pero la sección "Cambios" del PR y la lista
+        "Modificados" de la consola solo mostraron los 3 de código. Que las dos listas
+        incluyan también `.harness/memory.md`, separado como "Agregados" o "Memoria", y que
+        el conteo coincida con el del commit.
   - [ ] **Prefijo "Aviso:" en los avisos de consola**, además del color amarillo, para que
         se distingan cuando la salida se copia, se redirige a un archivo o no va a una
         terminal (rich no pone colores en esos casos).
