@@ -8,6 +8,7 @@ from harness.plan import Plan
 from harness.planificacion import planificar
 from harness.prompts import MENSAJE_IMPLEMENTAR, crear_mensaje_validacion_fallida
 from harness.proveedores.base import ProveedorLLM
+from harness.resumen_tests import resumir_tests, seccion_tests
 from harness.tipos import Herramienta, Mensaje, Rol
 
 # Devuelve (pasó, informe con la salida de tests y lint).
@@ -21,6 +22,8 @@ class Validacion:
     intento: int
     es_valido: bool
     informe: str
+    # Cuántos tests pasaron ("5 passed in 0.80s"), si la salida lo dice.
+    resumen_tests: str | None = None
 
 
 @dataclass
@@ -38,6 +41,8 @@ class ResultadoEjecucion:
     # None si se corrió sin planificación (--sin-plan).
     plan: Plan | None = None
     es_plan_rechazado: bool = False
+    # De la última validación que pasó: va en la descripción del PR.
+    resumen_tests: str | None = None
 
 
 @dataclass
@@ -92,8 +97,11 @@ def ejecutar_ticket(
         es_valido, informe = validar()
         resultado.validaciones += 1
         resultado.es_validado = es_valido
+        resumen = resumir_tests(seccion_tests(informe)) if es_valido else None
+        if es_valido:
+            resultado.resumen_tests = resumen
         if al_validar:
-            al_validar(Validacion(resultado.validaciones, es_valido, informe))
+            al_validar(Validacion(resultado.validaciones, es_valido, informe, resumen))
         vueltas = resultado.validaciones - 1
         if es_valido or vueltas >= max_intentos_validacion:
             return resultado

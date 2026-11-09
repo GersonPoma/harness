@@ -69,6 +69,8 @@ class Sesion:
     entrega: dict[str, Any] = field(default_factory=dict)
     # El resumen final del modelo: con él, resume arma la descripción del PR sin el modelo.
     texto_final: str | None = None
+    # Cuántos tests pasaron en la última validación: también para la descripción del PR.
+    resumen_tests: str | None = None
     motivo_corte: str | None = None
     detalle_corte: str | None = None
 

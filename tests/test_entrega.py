@@ -460,7 +460,8 @@ def test_con_el_pr_creado_no_queda_descripcion_pendiente(
 
 def test_cuerpo_del_pr() -> None:
     resultado = ResultadoEjecucion(
-        "Agregué el endpoint.", 9, 100, 50, False, True, 2, plan=Plan.model_validate(PLAN_SIMPLE)
+        "Agregué el endpoint.", 9, 100, 50, False, True, 2, plan=Plan.model_validate(PLAN_SIMPLE),
+        resumen_tests="5 passed in 0.80s",
     )
     cambios = CambiosRepo(creados=["nuevo.py"], modificados=["app.py"])
     comandos = ConfigComandos(tests="pytest -q", lint="ruff check .")
@@ -469,10 +470,12 @@ def test_cuerpo_del_pr() -> None:
 
     assert cuerpo == (
         "## Resumen\n\nAgregué el endpoint.\n\n"
-        "## Plan\n\nAgregar el módulo nuevo.\n\n**Archivos**\n"
+        "## Plan\n\n<details>\n<summary>Ver el plan (1 archivos, 1 pasos)</summary>\n\n"
+        "Agregar el módulo nuevo.\n\n**Archivos**\n"
         "- `nuevo.py` (crear): Lo pide el ticket.\n\n**Pasos**\n1. Crear nuevo.py\n\n"
+        "</details>\n\n"
         "## Validación\n\nPasaron los tests (`pytest -q`) y el lint (`ruff check .`) en la "
-        "validación 2.\n\n"
+        "validación 2: `5 passed in 0.80s`.\n\n"
         "## Cambios\n\n- Creados: `nuevo.py`\n- Modificados: `app.py`\n\n"
         "2 archivos en total.\n\n"
         "---\n_Generado por harness con `gemini/modelo-x`. Revísalo antes de aprobarlo._"

@@ -665,6 +665,7 @@ def _terminar_ejecucion_en_sesion(
     datos.tokens_entrada = resultado.tokens_entrada
     datos.tokens_salida = resultado.tokens_salida
     datos.texto_final = resultado.texto_final
+    datos.resumen_tests = resultado.resumen_tests
     # Con plan o con validaciones, la ronda de plan ya pasó: un corte se retoma implementando.
     if datos.estado == ESTADO_PLAN and (resultado.plan is not None or resultado.validaciones):
         datos.estado = ESTADO_IMPLEMENTACION
@@ -953,6 +954,7 @@ def _retomar_entrega(
     resultado = ResultadoEjecucion(
         sesion.texto_final, sesion.pasos, sesion.tokens_entrada, sesion.tokens_salida, False,
         True, sesion.validaciones, Plan.model_validate(sesion.plan) if sesion.plan else None,
+        resumen_tests=sesion.resumen_tests,
     )
     if config is None:
         prep.sesion.completar()

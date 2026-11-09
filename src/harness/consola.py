@@ -281,7 +281,8 @@ def mostrar_paso(paso: Paso) -> None:
 def mostrar_validacion(validacion: Validacion) -> None:
     """Muestra si pasaron los tests + lint al terminar una vuelta."""
     if validacion.es_valido:
-        consola.print(f"[bold green]✓ Validación {validacion.intento}: tests OK[/]")
+        resumen = f" ({escape(validacion.resumen_tests)})" if validacion.resumen_tests else ""
+        consola.print(f"[bold green]✓ Validación {validacion.intento}: tests OK{resumen}[/]")
         return
     consola.print(f"[bold red]✗ Validación {validacion.intento}: falló[/]")
     consola.print(f"[dim]{escape(_ultimas_lineas(validacion.informe))}[/]")

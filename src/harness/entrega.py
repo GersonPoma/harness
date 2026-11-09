@@ -369,7 +369,7 @@ def crear_cuerpo_pr(
     resumen = (resultado.texto_final or "").strip() or "_El modelo no dejó un resumen._"
     secciones = [
         f"## Resumen\n\n{resumen}",
-        f"## Plan\n\n{_plan_en_markdown(resultado)}",
+        f"## Plan\n\n{_plan_plegado(resultado)}",
         f"## Validación\n\n{_validacion_en_markdown(resultado, comandos)}",
         f"## Cambios\n\n{_cambios_en_markdown(cambios, notas_memoria or [])}",
     ]
@@ -390,6 +390,19 @@ def _memoria_en_markdown(notas: list[str]) -> str:
     return "\n".join(lineas)
 
 
+def _plan_plegado(resultado: ResultadoEjecucion) -> str:
+    # Plegado: el resumen ya cuenta casi lo mismo, y así el PR se lee más corto.
+    plan = resultado.plan
+    if plan is None:
+        return _plan_en_markdown(resultado)
+    # El texto del resumen no va en <summary>: es HTML y el modelo podría escribir '<'.
+    resumen = f"Ver el plan ({len(plan.archivos)} archivos, {len(plan.pasos)} pasos)"
+    return (
+        f"<details>\n<summary>{resumen}</summary>\n\n"
+        f"{_plan_en_markdown(resultado)}\n\n</details>"
+    )
+
+
 def _plan_en_markdown(resultado: ResultadoEjecucion) -> str:
     plan = resultado.plan
     if plan is None:
@@ -407,7 +420,10 @@ def _validacion_en_markdown(resultado: ResultadoEjecucion, comandos: ConfigComan
     validado = f"los tests (`{comandos.tests}`)"
     if comandos.lint:
         validado += f" y el lint (`{comandos.lint}`)"
-    return f"Pasaron {validado} en la validación {resultado.validaciones}."
+    texto = f"Pasaron {validado} en la validación {resultado.validaciones}"
+    if resultado.resumen_tests:
+        return f"{texto}: `{resultado.resumen_tests}`."
+    return f"{texto}."
 
 
 def _cambios_en_markdown(cambios: CambiosRepo, notas_memoria: list[str]) -> str:
