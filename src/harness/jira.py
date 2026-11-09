@@ -12,13 +12,17 @@ import httpx
 
 from harness.adf import adf_a_markdown
 from harness.config import ConfigJira
-from harness.ticket import FUENTE_JIRA, Ticket, limitar_descripcion
+from harness.ticket import FUENTE_JIRA, Ticket, TicketRelacionado, limitar_descripcion
 
 TIMEOUT_SEGUNDOS = 30
 RUTA_API = "/rest/api/3"
 RUTA_TENANT_INFO = "/_edge/tenant_info"
 # Solo lo que usa el harness: así el autor (email, accountId, avatar) nunca llega.
-CAMPOS_TICKET = "summary,description,issuetype,priority,status"
+CAMPOS_TICKET = "summary,description,issuetype,priority,status,issuelinks,subtasks,parent"
+# Un ticket con muchos enlaces no debe llenar el mensaje: los primeros alcanzan.
+MAX_RELACIONADOS = 20
+RELACION_PADRE = "Padre"
+RELACION_SUBTAREA = "Subtarea"
 # Los comentarios se leen para no repetir el del PR; con esto alcanza en cualquier ticket.
 MAX_COMENTARIOS = 100
 CODIGO_NO_AUTORIZADO = 401
@@ -152,7 +156,38 @@ def _a_ticket(config: ConfigJira, clave: str, campos: dict[str, Any]) -> Ticket:
         estado=_nombre(campos.get("status")),
         url=url_ticket(config, clave),
         caracteres_originales=originales,
+        relacionados=tuple(_relacionados(campos)[:MAX_RELACIONADOS]),
     )
+
+
+def _relacionados(campos: dict[str, Any]) -> list[TicketRelacionado]:
+    """El padre, los enlaces ("relates to", "is blocked by"...) y las subtareas."""
+    relacionados = []
+    padre = _relacionado(RELACION_PADRE, campos.get("parent"))
+    if padre:
+        relacionados.append(padre)
+    for enlace in campos.get("issuelinks") or []:
+        tipo = enlace.get("type") or {}
+        if "outwardIssue" in enlace:
+            relacion, otro = tipo.get("outward"), enlace["outwardIssue"]
+        else:
+            relacion, otro = tipo.get("inward"), enlace.get("inwardIssue")
+        relacionado = _relacionado(str(relacion or tipo.get("name") or "Enlace"), otro)
+        if relacionado:
+            relacionados.append(relacionado)
+    for subtarea in campos.get("subtasks") or []:
+        relacionado = _relacionado(RELACION_SUBTAREA, subtarea)
+        if relacionado:
+            relacionados.append(relacionado)
+    return relacionados
+
+
+def _relacionado(relacion: str, issue: Any) -> TicketRelacionado | None:
+    if not isinstance(issue, dict) or not issue.get("key"):
+        return None
+    campos = issue.get("fields") or {}
+    titulo = str(campos.get("summary") or "").strip()
+    return TicketRelacionado(relacion, str(issue["key"]), titulo, _nombre(campos.get("status")))
 
 
 def _nombre(campo: Any) -> str | None:

@@ -12,10 +12,30 @@ FUENTE_JIRA = "jira"
 # Una descripción enorme se come el contexto del modelo en cada pedido; con esto entra de sobra
 # cualquier ticket bien escrito.
 MAX_CARACTERES_DESCRIPCION = 20_000
+TITULO_RELACIONADOS = "## Tickets relacionados"
+# Solo el título y el estado: si el modelo necesita más, que no lo invente.
+AVISO_RELACIONADOS = (
+    "Solo el título y el estado de cada uno: su detalle no está disponible. No asumas lo que "
+    "piden ni lo implementes, salvo que este ticket lo diga."
+)
 
 
 class ErrorTicket(Exception):
     """El ticket no existe o no se puede usar."""
+
+
+@dataclass(frozen=True)
+class TicketRelacionado:
+    """Un ticket enlazado, una subtarea o el padre: solo lo que dice qué es y cómo está."""
+
+    relacion: str
+    clave: str
+    titulo: str
+    estado: str | None = None
+
+    def a_markdown(self) -> str:
+        estado = f" ({self.estado})" if self.estado else ""
+        return f"- {self.relacion} {self.clave}: {self.titulo}{estado}"
 
 
 @dataclass(frozen=True)
@@ -37,6 +57,8 @@ class Ticket:
     url: str | None = None
     # Largo de la descripción antes de recortarla, si se recortó.
     caracteres_originales: int | None = None
+    # Enlaces, subtareas y padre (de Jira): sin descripciones, para no sumar tokens.
+    relacionados: tuple[TicketRelacionado, ...] = ()
 
     @property
     def es_recortado(self) -> bool:
@@ -50,7 +72,11 @@ class Ticket:
         lineas = [f"# {self.clave}: {self.titulo}", ""]
         datos = [("Tipo", self.tipo), ("Prioridad", self.prioridad), ("Estado", self.estado)]
         lineas += [f"**{nombre}:** {valor}" for nombre, valor in datos if valor]
-        return "\n".join(lineas).strip() + f"\n\n{self.descripcion}".rstrip()
+        texto = "\n".join(lineas).strip() + f"\n\n{self.descripcion}".rstrip()
+        if not self.relacionados:
+            return texto
+        relacionados = "\n".join(r.a_markdown() for r in self.relacionados)
+        return f"{texto}\n\n{TITULO_RELACIONADOS}\n\n{AVISO_RELACIONADOS}\n\n{relacionados}"
 
 
 @dataclass(frozen=True)

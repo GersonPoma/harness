@@ -92,7 +92,9 @@ def test_leer_ticket_real_normalizado() -> None:
 
     (pedido,) = jira.pedidos
     assert pedido.url.path == "/rest/api/3/issue/TAREAS-3"
-    assert pedido.url.params["fields"] == "summary,description,issuetype,priority,status"
+    assert pedido.url.params["fields"] == (
+        "summary,description,issuetype,priority,status,issuelinks,subtasks,parent"
+    )
     assert ticket.clave == "TAREAS-3" and ticket.titulo == "Completar tareas y filtrarlas"
     assert (ticket.tipo, ticket.prioridad, ticket.estado) == ("Tarea", "Medium", "Por hacer")
     assert ticket.url == "https://ejemplo.atlassian.net/browse/TAREAS-3"
@@ -108,6 +110,60 @@ def test_el_ticket_llega_al_modelo_como_un_md_local() -> None:
         "**Estado:** Por hacer\n\nComo usuario de la API quiero marcar tareas"
     )
     assert markdown.endswith("- [x] Tests para cada caso.")
+
+
+ENLACES = [
+    {
+        "type": {"name": "Relates", "inward": "relates to", "outward": "relates to"},
+        "outwardIssue": {
+            "key": "TAREAS-2",
+            "fields": {"summary": "Crear tareas", "status": {"name": "Finalizada"},
+                       "assignee": AUTOR},
+        },
+    },
+    {
+        "type": {"name": "Blocks", "inward": "is blocked by", "outward": "blocks"},
+        "inwardIssue": {"key": "TAREAS-9", "fields": {"summary": "Base de datos"}},
+    },
+    {"type": {"name": "Raro"}, "inwardIssue": {}},
+]
+
+
+def test_los_tickets_relacionados_van_resumidos_al_final() -> None:
+    datos = _issue(
+        3,
+        issuelinks=ENLACES,
+        subtasks=[
+            {"key": "TAREAS-7", "fields": {"summary": "Filtro", "status": {"name": "Por hacer"}}}
+        ],
+        parent={"key": "TAREAS-1", "fields": {"summary": "Gestión de tareas"}},
+    )
+    ticket = leer_ticket(CONFIG, "TAREAS-3", JiraFalso(httpx.Response(200, json=datos)).transporte)
+    markdown = ticket.a_markdown()
+    assert markdown.endswith(
+        "- [x] Tests para cada caso.\n\n## Tickets relacionados\n\n"
+        "Solo el título y el estado de cada uno: su detalle no está disponible. No asumas lo "
+        "que piden ni lo implementes, salvo que este ticket lo diga.\n\n"
+        "- Padre TAREAS-1: Gestión de tareas\n"
+        "- relates to TAREAS-2: Crear tareas (Finalizada)\n"
+        "- is blocked by TAREAS-9: Base de datos\n"
+        "- Subtarea TAREAS-7: Filtro (Por hacer)"
+    )
+    # Ni la descripción ni las personas de los enlazados.
+    assert "autor@ejemplo.com" not in repr(ticket) + markdown
+
+
+def test_como_mucho_20_relacionados() -> None:
+    subtareas = [{"key": f"TAREAS-{n}", "fields": {"summary": f"S{n}"}} for n in range(30)]
+    datos = _issue(3, subtasks=subtareas)
+    ticket = leer_ticket(CONFIG, "TAREAS-3", JiraFalso(httpx.Response(200, json=datos)).transporte)
+    assert len(ticket.relacionados) == 20
+
+
+def test_sin_relacionados_el_ticket_no_cambia() -> None:
+    jira = JiraFalso(httpx.Response(200, json=_issue(3)))
+    ticket = leer_ticket(CONFIG, "TAREAS-3", jira.transporte)
+    assert "Tickets relacionados" not in ticket.a_markdown()
 
 
 def test_nada_del_autor_llega_al_ticket() -> None:
