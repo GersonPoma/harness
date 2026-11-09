@@ -1212,6 +1212,7 @@ def _ejecutar(
         crear_proveedor(prep.config, reporte.reintento, prep.respaldo, reporte.cambio_proveedor),
         limites.max_caracteres_conversacion,
         reporte.compactacion,
+        limites.compactacion,
     )
     if prep.config_proyecto is None:
         antes = _repo_al_empezar(prep)

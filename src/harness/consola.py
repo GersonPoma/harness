@@ -15,7 +15,7 @@ from rich.text import Text
 from harness.bucle import Paso
 from harness.cambios import CambiosRepo
 from harness.comentario_pr import COMENTADO, POR_MCP, SIN_URL, YA_ESTABA, ResultadoComentario
-from harness.compactacion import Compactacion
+from harness.compactacion import MODO_RESUMEN, Compactacion
 from harness.contexto import MAX_CARACTERES_AGENTS, ContextoProyecto
 from harness.ejecucion import ResultadoEjecucion, Validacion
 from harness.cache_dependencias import MOTIVO_DESACTIVADA, EstadoCache
@@ -211,6 +211,13 @@ def mostrar_compactacion(compactacion: Compactacion) -> None:
         f"se omitieron {omitidos} resultados viejos"
     )
     ahorro = f"{compactacion.caracteres_ahorrados:,}".replace(",", ".")
+    if compactacion.modo == MODO_RESUMEN:
+        cuantos = "1 resultado" if omitidos == 1 else f"{omitidos} resultados"
+        consola.print(
+            f"[dim]Conversación compactada con un resumen del modelo: {cuantos} "
+            f"(−{ahorro} caracteres).[/]"
+        )
+        return
     consola.print(f"[dim]Conversación compactada: {que} (−{ahorro} caracteres).[/]")
 
 

@@ -264,6 +264,9 @@ class RegistroPasos:
             "evento": "compactacion",
             "resultados_omitidos": compactacion.resultados_omitidos,
             "caracteres_ahorrados": compactacion.caracteres_ahorrados,
+            "modo": compactacion.modo,
+            "tokens_entrada": compactacion.tokens_entrada,
+            "tokens_salida": compactacion.tokens_salida,
         })
 
     def registrar_memoria(self, nota: str) -> None:

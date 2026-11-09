@@ -1,7 +1,7 @@
 """Carga y validación de harness.yaml del repo objetivo (docs/harness-yaml.md)."""
 
 from pathlib import Path, PurePosixPath
-from typing import Annotated
+from typing import Annotated, Literal
 
 import yaml
 from pydantic import (
@@ -95,6 +95,8 @@ class ConfigLimites(_Modelo):
     max_caracteres_salida: Entero = 4000
     # Unos 50.000 tokens: de ahí para arriba se acortan los resultados viejos (compactacion.py).
     max_caracteres_conversacion: Entero = 200_000
+    # marca (sin pedidos) o resumen (un pedido al modelo); ver compactacion.py.
+    compactacion: Literal["marca", "resumen"] = "marca"
 
 
 class ConfigRevision(_Modelo):
