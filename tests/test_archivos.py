@@ -5,6 +5,7 @@ import pytest
 from harness.herramientas import archivos
 from harness.herramientas.archivos import (
     ErrorHerramienta,
+    editar_archivo,
     escribir_archivo,
     leer_archivo,
     listar_directorio,
@@ -108,3 +109,80 @@ def test_listar_carpeta_inexistente(repo: Path) -> None:
 def test_listar_fuera_del_repo(repo: Path) -> None:
     with pytest.raises(ErrorRuta):
         listar_directorio(repo, "..")
+
+
+# --- editar_archivo ----------------------------------------------------------------------
+
+CODIGO = "def a():\n    return 1\n\n\ndef b():\n    return 1\n"
+
+
+def _codigo(repo: Path, contenido: str = CODIGO, finales: str = "\n") -> Path:
+    ruta = repo / "src" / "mod.py"
+    ruta.write_bytes(contenido.replace("\n", finales).encode("utf-8"))
+    return ruta
+
+
+def test_editar_reemplaza_un_fragmento_unico(repo: Path) -> None:
+    ruta = _codigo(repo)
+    escritos: list[str] = []
+    resultado = editar_archivo(
+        repo, "src/mod.py", "def a():\n    return 1", "def a():\n    return 2",
+        al_escribir=escritos.append,
+    )
+    assert resultado == "Archivo 'src/mod.py' editado (1 reemplazo, línea 1)."
+    assert ruta.read_text(encoding="utf-8") == CODIGO.replace("return 1", "return 2", 1)
+    assert escritos == ["src/mod.py"]
+
+
+def test_editar_un_fragmento_repetido_dice_donde_esta(repo: Path) -> None:
+    ruta = _codigo(repo)
+    with pytest.raises(ErrorHerramienta, match="aparece 2 veces .* líneas 2 y 6: agrega"):
+        editar_archivo(repo, "src/mod.py", "return 1", "return 2")
+    # No se tocó nada.
+    assert ruta.read_text(encoding="utf-8") == CODIGO
+
+
+def test_editar_todas_las_apariciones(repo: Path) -> None:
+    ruta = _codigo(repo)
+    resultado = editar_archivo(repo, "src/mod.py", "return 1", "return 2", reemplazar_todas=True)
+    assert resultado == "Archivo 'src/mod.py' editado (2 reemplazos, líneas 2 y 6)."
+    assert ruta.read_text(encoding="utf-8").count("return 2") == 2
+
+
+def test_editar_un_fragmento_que_no_aparece(repo: Path) -> None:
+    _codigo(repo)
+    with pytest.raises(ErrorHerramienta, match="no aparece en 'src/mod.py'. Vuelve a leer"):
+        editar_archivo(repo, "src/mod.py", "return 3", "return 4")
+
+
+def test_editar_respeta_los_finales_de_linea_de_windows(repo: Path) -> None:
+    # El modelo manda \n aunque el archivo use \r\n: se busca y se escribe con \r\n.
+    ruta = _codigo(repo, finales="\r\n")
+    editar_archivo(repo, "src/mod.py", "def b():\n    return 1", "def b():\n    return 3")
+    assert ruta.read_bytes() == CODIGO.replace("    return 1\n", "    return 3\n", 2).replace(
+        "    return 3\n", "    return 1\n", 1
+    ).replace("\n", "\r\n").encode("utf-8")
+
+
+@pytest.mark.parametrize(
+    ("ruta", "actual", "error", "mensaje"),
+    [
+        ("src/mod.py", "", ErrorHerramienta, "está vacío"),
+        ("src/nuevo.py", "x", ErrorHerramienta, "Para crear un archivo usa escribir_archivo"),
+        ("harness.yaml", "version", ErrorRuta, "protegido"),
+        (".env", "X", ErrorRuta, "secretos"),
+        ("../secreto.txt", "fuera", ErrorRuta, "fuera del repo"),
+    ],
+)
+def test_editar_rechaza(repo: Path, ruta: str, actual: str, error: type, mensaje: str) -> None:
+    _codigo(repo)
+    (repo / ".env").write_text("X=1\n", encoding="utf-8")
+    with pytest.raises(error, match=mensaje):
+        editar_archivo(repo, ruta, actual, "y")
+
+
+def test_editar_respeta_los_protegidos_de_harness_yaml(repo: Path) -> None:
+    (repo / "migrations").mkdir()
+    (repo / "migrations" / "v1.sql").write_text("CREATE TABLE t;\n", encoding="utf-8")
+    with pytest.raises(ErrorRuta, match="protegido"):
+        editar_archivo(repo, "migrations/v1.sql", "t", "u", protegidos=["migrations/**"])

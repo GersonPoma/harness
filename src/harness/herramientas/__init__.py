@@ -5,7 +5,12 @@ from functools import partial
 from pathlib import Path
 
 from harness.config_proyecto import ConfigProyecto
-from harness.herramientas.archivos import escribir_archivo, leer_archivo, listar_directorio
+from harness.herramientas.archivos import (
+    editar_archivo,
+    escribir_archivo,
+    leer_archivo,
+    listar_directorio,
+)
 from harness.herramientas.comandos import EjecutorComandos, ejecutar_comando
 from harness.tipos import Herramienta
 
@@ -51,6 +56,13 @@ def _herramientas_de_archivos(
     def escribir(ruta: str, contenido: str) -> str:
         return escribir_archivo(repo, ruta, contenido, protegidos, al_escribir)
 
+    def editar(
+        ruta: str, texto_actual: str, texto_nuevo: str, reemplazar_todas: bool = False
+    ) -> str:
+        return editar_archivo(
+            repo, ruta, texto_actual, texto_nuevo, reemplazar_todas, protegidos, al_escribir
+        )
+
     return [
         Herramienta(
             nombre="leer_archivo",
@@ -68,8 +80,9 @@ def _herramientas_de_archivos(
         Herramienta(
             nombre="escribir_archivo",
             descripcion=(
-                "Crea o reemplaza por completo un archivo del repo con el contenido dado. "
-                "Crea las carpetas que falten."
+                "Crea un archivo del repo, o lo reemplaza por completo, con el contenido dado. "
+                "Crea las carpetas que falten. Para cambiar parte de un archivo existente usa "
+                "editar_archivo."
             ),
             parametros={
                 "type": "object",
@@ -83,6 +96,35 @@ def _herramientas_de_archivos(
                 "required": ["ruta", "contenido"],
             },
             funcion=escribir,
+        ),
+        Herramienta(
+            nombre="editar_archivo",
+            descripcion=(
+                "Cambia parte de un archivo existente: reemplaza texto_actual (un fragmento "
+                "exacto, copiado del archivo con sus espacios e indentación) por texto_nuevo. "
+                "texto_actual tiene que aparecer una sola vez: si se repite, agrega líneas de "
+                "contexto, o usa reemplazar_todas para cambiar todas las apariciones."
+            ),
+            parametros={
+                "type": "object",
+                "properties": {
+                    "ruta": _PARAMETRO_RUTA,
+                    "texto_actual": {
+                        "type": "string",
+                        "description": "Fragmento exacto que hay hoy en el archivo.",
+                    },
+                    "texto_nuevo": {
+                        "type": "string",
+                        "description": "Lo que va en su lugar (vacío para borrarlo).",
+                    },
+                    "reemplazar_todas": {
+                        "type": "boolean",
+                        "description": "Reemplazar todas las apariciones (por defecto, no).",
+                    },
+                },
+                "required": ["ruta", "texto_actual", "texto_nuevo"],
+            },
+            funcion=editar,
         ),
         Herramienta(
             nombre="listar_directorio",

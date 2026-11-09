@@ -118,19 +118,19 @@ def _nombres(herramientas: list) -> list[str]:
 
 def test_herramientas_sin_harness_yaml(repo: Path) -> None:
     nombres = _nombres(crear_herramientas(repo))
-    assert nombres == ["leer_archivo", "escribir_archivo", "listar_directorio"]
+    assert nombres == ["leer_archivo", "escribir_archivo", "editar_archivo", "listar_directorio"]
 
 
 def test_herramientas_con_harness_yaml(repo: Path) -> None:
     ejecutor, _ = _ejecutor(repo, [])
     nombres = _nombres(crear_herramientas(repo, _config(lint="ruff check ."), ejecutor))
-    assert nombres[3:] == ["ejecutar_tests", "ejecutar_lint", "ejecutar_comando"]
+    assert nombres[4:] == ["ejecutar_tests", "ejecutar_lint", "ejecutar_comando"]
 
 
 def test_sin_lint_ni_permitidos_no_se_ofrecen(repo: Path) -> None:
     ejecutor, _ = _ejecutor(repo, [])
     nombres = _nombres(crear_herramientas(repo, _config(permitidos=[]), ejecutor))
-    assert nombres[3:] == ["ejecutar_tests"]
+    assert nombres[4:] == ["ejecutar_tests"]
 
 
 def test_escribir_respeta_archivos_protegidos_del_yaml(repo: Path) -> None:

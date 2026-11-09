@@ -17,7 +17,8 @@ repositorio; si encuentras una copia, la del mensaje es la que vale.
 
 Al trabajar:
 - Respeta las convenciones y el estilo del código existente.
-- Para modificar un archivo, léelo primero y luego escríbelo completo con el cambio.
+- Para modificar un archivo, léelo primero y cambia solo lo necesario con editar_archivo. \
+Usa escribir_archivo para crear archivos o cuando cambia casi todo el contenido.
 - Si una herramienta devuelve un error, analízalo y corrige la llamada (salvo los rechazos \
 de seguridad: ver abajo).
 - No puedes modificar harness.yaml ni nada dentro de .git/.
