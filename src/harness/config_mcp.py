@@ -85,7 +85,7 @@ def cargar_config_mcp(
     if not ruta.is_file():
         return {}
     try:
-        datos = json.loads(ruta.read_text(encoding="utf-8"))
+        datos = json.loads(ruta.read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ErrorConfigMCP(f"No se pudo leer {ruta.name}: {error}") from error
     servidores = datos.get(CLAVE_SERVIDORES) if isinstance(datos, dict) else None

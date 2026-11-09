@@ -56,6 +56,11 @@ def _error(tmp_path: Path, contenido: str) -> str:
     return str(info.value)
 
 
+def test_harness_yaml_con_bom(tmp_path: Path) -> None:
+    (tmp_path / "harness.yaml").write_text(MINIMO, encoding="utf-8-sig")
+    assert cargar_config_proyecto(tmp_path).proyecto == "tareas-api"
+
+
 def test_sin_harness_yaml_devuelve_none(tmp_path: Path) -> None:
     assert cargar_config_proyecto(tmp_path) is None
 

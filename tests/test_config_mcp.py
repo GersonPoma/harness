@@ -31,6 +31,13 @@ def test_sin_archivo_no_hay_servidores(tmp_path: Path) -> None:
     assert cargar_config_mcp(tmp_path / "mcp.json", ENTORNO) == {}
 
 
+def test_mcp_json_con_bom(tmp_path: Path) -> None:
+    ruta = tmp_path / "mcp.json"
+    datos = {"mcpServers": {"github": {"command": "docker", "args": []}}}
+    ruta.write_text(json.dumps(datos), encoding="utf-8-sig")
+    assert list(cargar_config_mcp(ruta, ENTORNO)) == ["github"]
+
+
 def test_servidor_stdio_con_el_token_expandido(tmp_path: Path) -> None:
     servidores = _cargar(tmp_path, {
         "github": {

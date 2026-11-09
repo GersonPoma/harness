@@ -114,7 +114,8 @@ def leer_ticket_local(ruta: Path) -> str:
         raise ErrorTicket(f"El ticket '{ruta}' debe ser un archivo .md.")
     if not ruta.is_file():
         raise ErrorTicket(f"No existe el ticket '{ruta}'.")
-    texto = ruta.read_text(encoding="utf-8").strip()
+    # utf-8-sig quita la BOM que deja Set-Content -Encoding UTF8 de PowerShell 5.1.
+    texto = ruta.read_text(encoding="utf-8-sig").strip()
     if not texto:
         raise ErrorTicket(f"El ticket '{ruta}' está vacío.")
     return texto

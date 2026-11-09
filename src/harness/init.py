@@ -71,7 +71,7 @@ def asegurar_gitignore(repo: Path) -> list[str]:
     Nunca reescribe lo que ya tiene el archivo. Devuelve las líneas agregadas.
     """
     ruta = repo / NOMBRE_GITIGNORE
-    actual = ruta.read_text(encoding="utf-8", errors="replace") if ruta.is_file() else ""
+    actual = ruta.read_text(encoding="utf-8-sig", errors="replace") if ruta.is_file() else ""
     presentes = {linea.strip().rstrip("/") for linea in actual.splitlines()}
     faltantes = [linea for linea in LINEAS_GITIGNORE if linea.rstrip("/") not in presentes]
     if not faltantes:

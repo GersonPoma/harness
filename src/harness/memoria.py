@@ -95,7 +95,7 @@ def guardar_nota(
         raise ErrorMemoria("la nota parece tener un secreto (un token o una contraseña); no se "
                            "guardó. La memoria se sube a Git: nunca guardes secretos.")
     ruta = repo / RUTA_MEMORIA
-    actual = ruta.read_text(encoding="utf-8") if ruta.is_file() else ENCABEZADO
+    actual = ruta.read_text(encoding="utf-8-sig") if ruta.is_file() else ENCABEZADO
     linea = f"{PREFIJO_NOTA}{nota} ({ticket}, {(hoy or date.today()).isoformat()})"
     if len(actual) + len(linea) + 1 > MAX_CARACTERES_MEMORIA:
         raise ErrorMemoria(

@@ -42,6 +42,15 @@ def test_las_notas_se_agregan_al_final(tmp_path: Path) -> None:
     assert memoria.notas == 2 and memoria.texto.endswith("- dos (T-2, 2026-11-05)\n")
 
 
+def test_una_memoria_con_bom_no_la_arrastra(tmp_path: Path) -> None:
+    ruta = tmp_path / RUTA_MEMORIA
+    ruta.parent.mkdir()
+    ruta.write_text(f"{ENCABEZADO}- vieja (T-1, 2026-11-01)\n", encoding="utf-8-sig")
+    guardar_nota(tmp_path, "nueva", "T-2", [], HOY)
+    texto = ruta.read_text(encoding="utf-8")
+    assert texto.startswith(ENCABEZADO) and texto.endswith("- nueva (T-2, 2026-11-05)\n")
+
+
 @pytest.mark.parametrize(
     ("nota", "mensaje"),
     [
@@ -155,6 +164,12 @@ def test_init_crea_el_gitignore(tmp_path: Path) -> None:
         "# Datos locales del harness (.harness/memory.md sí se sube)\n"
         ".harness/logs/\n.harness/sessions/\n"
     )
+
+
+def test_init_con_un_gitignore_con_bom_no_repite_lineas(tmp_path: Path) -> None:
+    (tmp_path / ".gitignore").write_text(".harness/logs/\n.harness/sessions/\n",
+                                         encoding="utf-8-sig")
+    assert asegurar_gitignore(tmp_path) == []
 
 
 def test_init_agrega_solo_lo_que_falta_sin_tocar_el_resto(tmp_path: Path) -> None:

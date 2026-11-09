@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from harness.config import ErrorConfiguracion, leer_config_jira
@@ -6,6 +8,7 @@ from harness.ticket import (
     FUENTE_LOCAL,
     MAX_CARACTERES_DESCRIPCION,
     Ticket,
+    crear_ticket_local,
     limitar_descripcion,
 )
 
@@ -14,6 +17,14 @@ def test_un_ticket_local_llega_tal_cual() -> None:
     texto = "# T-1: Crear tareas\n\n**Tipo:** Historia\n\nDescripción."
     ticket = Ticket("T-1", "Crear tareas", texto, FUENTE_LOCAL)
     assert ticket.a_markdown() == texto
+
+
+def test_un_ticket_local_con_bom(tmp_path: Path) -> None:
+    ruta = tmp_path / "MEM-1.md"
+    ruta.write_text("# MEM-1: Nota en la memoria\n\nTexto.", encoding="utf-8-sig")
+    ticket = crear_ticket_local(ruta)
+    assert ticket.titulo == "Nota en la memoria"
+    assert ticket.a_markdown().startswith("# MEM-1")
 
 
 def test_un_ticket_de_jira_con_el_formato_de_los_md_locales() -> None:

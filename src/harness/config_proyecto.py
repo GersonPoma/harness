@@ -150,7 +150,7 @@ def cargar_config_proyecto(repo: Path) -> ConfigProyecto | None:
     ruta = repo / NOMBRE_ARCHIVO
     if not ruta.is_file():
         return None
-    return validar_texto_config(ruta.read_text(encoding="utf-8"))
+    return validar_texto_config(ruta.read_text(encoding="utf-8-sig"))
 
 
 def validar_texto_config(texto: str) -> ConfigProyecto:
