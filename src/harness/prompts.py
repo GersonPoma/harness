@@ -121,6 +121,13 @@ MENSAJE_ENTREGAR_PLAN = (
     "Llama a proponer_plan ahora, con lo que ya sabes. No hay más herramientas en esta etapa."
 )
 
+MENSAJE_ULTIMA_OPORTUNIDAD_PLAN = (
+    "Todavía no hay un plan válido. Esta es la última oportunidad: responde con una sola "
+    "llamada a proponer_plan, con el resumen, los archivos, los pasos y los tests. Es la única "
+    "herramienta que existe ahora (no hay leer_archivo, read_file ni ninguna otra); si llamas "
+    "a otra o respondes con texto, la ejecución se corta sin implementar nada."
+)
+
 MENSAJE_IMPLEMENTAR = (
     "Plan registrado. Ahora impleméntalo. Si en el camino tienes que tocar archivos que no "
     "estaban en el plan, hazlo solo si es necesario y explica por qué en tu resumen final."

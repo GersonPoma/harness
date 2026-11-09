@@ -82,9 +82,10 @@ def test_el_proveedor_compacta_la_misma_lista_antes_de_pedir() -> None:
     avisos: list[Compactacion] = []
     proveedor = ProveedorQueCompacta(falso, tamano(mensajes) // 2, avisos.append)
 
-    proveedor.responder(mensajes, [])
+    proveedor.responder(mensajes, [], "proponer_plan")
 
     assert len(avisos) == 1
+    assert falso.obligatorias == ["proponer_plan"]
     # El proveedor recibió lo compactado, y la lista del bucle (y de la sesión) también cambió.
     assert falso.conversaciones[0] == mensajes
     assert any(m.contenido.startswith(INICIO_MARCA) for m in mensajes if m.rol == Rol.HERRAMIENTA)

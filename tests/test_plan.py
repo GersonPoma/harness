@@ -7,9 +7,15 @@ from harness.ejecucion import Planificacion, ejecutar_ticket
 from harness.herramientas import crear_herramientas, crear_herramientas_lectura
 from harness.herramientas.archivos import ErrorHerramienta
 from harness.plan import Plan, archivos_fuera_del_plan, crear_herramienta_plan
-from harness.planificacion import AVISO_FIN_EXPLORACION, ErrorPlan, calcular_pasos_plan
+from harness.planificacion import (
+    AVISO_FIN_EXPLORACION,
+    AVISO_ULTIMA_OPORTUNIDAD,
+    ErrorPlan,
+    calcular_pasos_plan,
+)
 from harness.prompts import (
     MENSAJE_ENTREGAR_PLAN,
+    MENSAJE_ULTIMA_OPORTUNIDAD_PLAN,
     MENSAJE_IMPLEMENTAR,
     crear_aviso_pasos_plan,
     crear_mensaje_planificar,
@@ -141,6 +147,46 @@ def test_sin_plan_valido_se_corta(repo: Path) -> None:
     proveedor = ProveedorFalso([terminar("no sé"), terminar("sigo sin saber"), terminar("x")])
     with pytest.raises(ErrorPlan, match="no propuso un plan válido"):
         _ejecutar(repo, proveedor)
+
+
+def test_el_pedido_final_obliga_a_proponer_plan(repo: Path) -> None:
+    proveedor = ProveedorFalso([pedir(LEER)] * 2 + [proponer(), terminar()])
+    _ejecutar(repo, proveedor, max_pasos=4)
+    # tool_choice solo en el pedido final; explorando, el modelo elige.
+    assert proveedor.obligatorias[:3] == [None, None, "proponer_plan"]
+
+
+def test_un_modelo_que_ignora_el_pedido_tiene_una_ultima_oportunidad(repo: Path) -> None:
+    # Como Nemotron con --max-pasos 4: agota la exploración y sigue llamando lo que no tiene.
+    inventada = LlamadaHerramienta("r1", "read_file", {"path": "src/app.py"})
+    proveedor = ProveedorFalso([pedir(LEER)] * 2 + [pedir(LEER), pedir(inventada)])
+    avisos: list[str] = []
+    with pytest.raises(ErrorPlan, match="no propuso un plan válido"):
+        ejecutar_ticket(
+            proveedor, crear_mensajes_iniciales("T"), crear_herramientas(repo), 4,
+            al_aviso=avisos.append,
+            planificacion=Planificacion(crear_herramientas_lectura(repo)),
+        )
+    assert proveedor.obligatorias == [None, None, "proponer_plan", "proponer_plan"]
+    assert proveedor.conversaciones[2][-1] == Mensaje(Rol.USUARIO, MENSAJE_ENTREGAR_PLAN)
+    assert proveedor.conversaciones[3][-1] == Mensaje(Rol.USUARIO,
+                                                      MENSAJE_ULTIMA_OPORTUNIDAD_PLAN)
+    assert avisos == [AVISO_FIN_EXPLORACION, AVISO_ULTIMA_OPORTUNIDAD]
+
+
+def test_la_ultima_oportunidad_puede_traer_el_plan(repo: Path) -> None:
+    proveedor = ProveedorFalso([pedir(LEER)] * 2 + [pedir(LEER), proponer(), terminar()])
+    resultado, _ = _ejecutar(repo, proveedor, max_pasos=6)
+    assert resultado.plan == Plan.model_validate(PLAN_SIMPLE)
+    assert resultado.pasos == 5
+
+
+def test_sin_pasos_para_la_ultima_oportunidad_se_corta(repo: Path) -> None:
+    # Con 3 pasos: 1 de exploración, el pedido final y la última oportunidad; con 2, no hay.
+    proveedor = ProveedorFalso([pedir(LEER), pedir(LEER)])
+    with pytest.raises(ErrorPlan):
+        _ejecutar(repo, proveedor, max_pasos=2)
+    assert proveedor.obligatorias == [None, "proponer_plan"]
 
 
 def test_plan_rechazado_no_implementa(repo: Path) -> None:

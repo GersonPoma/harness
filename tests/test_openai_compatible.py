@@ -72,6 +72,40 @@ def llamada_openai(
     return SimpleNamespace(id=id_llamada, function=funcion, model_extra=extra or {})
 
 
+def _herramienta_plan() -> Herramienta:
+    return Herramienta("proponer_plan", "Propone el plan.", {"type": "object"}, lambda: "ok")
+
+
+@pytest.mark.parametrize("proveedor", ["gemini", "openrouter", "groq", "openai"])
+def test_herramienta_obligatoria_con_tool_choice(proveedor: str) -> None:
+    cliente = ClienteFalso([respuesta_openai("ok")])
+    config = ConfigModelo(proveedor, "modelo-x", None, "clave-falsa-0123456789")
+    ProveedorOpenAICompatible(config, cliente=cliente).responder(
+        [Mensaje(Rol.USUARIO, "hola")], [_herramienta_plan()], "proponer_plan"
+    )
+    assert cliente.pedidos[0]["tool_choice"] == {
+        "type": "function", "function": {"name": "proponer_plan"},
+    }
+
+
+def test_sin_herramienta_obligatoria_no_manda_tool_choice() -> None:
+    cliente = ClienteFalso([respuesta_openai("ok")])
+    ProveedorOpenAICompatible(CONFIG, cliente=cliente).responder(
+        [Mensaje(Rol.USUARIO, "hola")], [_herramienta_plan()]
+    )
+    assert "tool_choice" not in cliente.pedidos[0]
+
+
+def test_personalizado_ignora_la_herramienta_obligatoria() -> None:
+    # No se sabe qué API hay detrás: se comporta como siempre (el modelo elige).
+    cliente = ClienteFalso([respuesta_openai("ok")])
+    config = ConfigModelo("personalizado", "modelo-x", "http://127.0.0.1:8765", "clave-0123456789")
+    ProveedorOpenAICompatible(config, cliente=cliente).responder(
+        [Mensaje(Rol.USUARIO, "hola")], [_herramienta_plan()], "proponer_plan"
+    )
+    assert "tool_choice" not in cliente.pedidos[0]
+
+
 def error_429(retry_after: str | None = None) -> openai.RateLimitError:
     cabeceras = {"retry-after": retry_after} if retry_after else {}
     respuesta = httpx2.Response(

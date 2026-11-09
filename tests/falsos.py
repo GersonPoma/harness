@@ -28,19 +28,27 @@ class EntornoFalso:
 
 
 class ProveedorFalso:
-    """Devuelve respuestas guionadas, sin llamar a ninguna API, y guarda lo que recibió."""
+    """Devuelve respuestas guionadas, sin llamar a ninguna API, y guarda lo que recibió.
+
+    Ignora `herramienta_obligatoria` (como un proveedor sin tool_choice), pero la guarda.
+    """
 
     def __init__(self, respuestas: list[RespuestaModelo | BaseException]) -> None:
         self._respuestas = list(respuestas)
         self.conversaciones: list[list[Mensaje]] = []
         # Nombres de las herramientas ofrecidas en cada pedido.
         self.herramientas: list[list[str]] = []
+        self.obligatorias: list[str | None] = []
 
     def responder(
-        self, mensajes: list[Mensaje], herramientas: list[Herramienta]
+        self,
+        mensajes: list[Mensaje],
+        herramientas: list[Herramienta],
+        herramienta_obligatoria: str | None = None,
     ) -> RespuestaModelo:
         self.conversaciones.append(list(mensajes))
         self.herramientas.append([h.nombre for h in herramientas])
+        self.obligatorias.append(herramienta_obligatoria)
         respuesta = self._respuestas.pop(0)
         # Un error en el guion se lanza: así se simula un proveedor caído.
         if isinstance(respuesta, BaseException):

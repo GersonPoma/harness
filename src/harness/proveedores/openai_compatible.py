@@ -65,6 +65,7 @@ class ProveedorOpenAICompatible:
         self.id = f"{config.proveedor}/{config.modelo}"
         self._perfil_esquema = PRESETS[config.proveedor].perfil_esquema
         self._firma_de_reemplazo = PRESETS[config.proveedor].firma_de_reemplazo
+        self._es_con_tool_choice = PRESETS[config.proveedor].es_con_tool_choice
         # max_retries=0: los reintentos los maneja esta clase, con sus propias esperas.
         self._cliente = cliente or openai.OpenAI(
             api_key=config.api_key,
@@ -79,7 +80,10 @@ class ProveedorOpenAICompatible:
         self._ultimo_pedido: float | None = None
 
     def responder(
-        self, mensajes: list[Mensaje], herramientas: list[Herramienta]
+        self,
+        mensajes: list[Mensaje],
+        herramientas: list[Herramienta],
+        herramienta_obligatoria: str | None = None,
     ) -> RespuestaModelo:
         """Envía la conversación al modelo y devuelve su respuesta en tipos propios."""
         parametros: dict[str, Any] = {
@@ -88,6 +92,11 @@ class ProveedorOpenAICompatible:
         }
         if herramientas:
             parametros["tools"] = [self._a_herramienta_openai(h) for h in herramientas]
+            if herramienta_obligatoria and self._es_con_tool_choice:
+                parametros["tool_choice"] = {
+                    "type": "function",
+                    "function": {"name": herramienta_obligatoria},
+                }
         respuesta = self._pedir_con_reintentos(parametros)
         return _a_respuesta_modelo(respuesta, self.id)
 

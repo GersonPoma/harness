@@ -30,6 +30,8 @@ class Preset:
     # Gemini 3 exige la thought_signature en las llamadas del turno actual. Las que generó otro
     # proveedor (respaldo, resume) no la tienen: Gemini acepta este valor en su lugar.
     firma_de_reemplazo: str | None = None
+    # Si acepta tool_choice con el nombre de una función (para obligar a proponer el plan).
+    es_con_tool_choice: bool = True
 
 
 PROVEEDOR_PERSONALIZADO = "personalizado"
@@ -47,5 +49,6 @@ PRESETS: dict[str, Preset] = {
     "openrouter": Preset(FormatoApi.OPENAI, "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
     "openai": Preset(FormatoApi.OPENAI, None, "OPENAI_API_KEY"),
     # La URL y la variable de la key las escribe el usuario en el .env.
-    PROVEEDOR_PERSONALIZADO: Preset(FormatoApi.OPENAI, None, None),
+    # No se sabe qué API hay detrás: sin tool_choice, que una API podría rechazar.
+    PROVEEDOR_PERSONALIZADO: Preset(FormatoApi.OPENAI, None, None, es_con_tool_choice=False),
 }

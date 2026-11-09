@@ -93,6 +93,14 @@ def test_con_respaldo_menos_reintentos_salvo_el_ultimo() -> None:
 # --- HARNESS_RESPALDO ----------------------------------------------------------------------
 
 
+def test_el_respaldo_pasa_la_herramienta_obligatoria() -> None:
+    caido = ErrorProveedorCaido("caído", MOTIVO_CAIDO)
+    principal, respaldo = ProveedorFalso([caido]), ProveedorFalso([terminar()])
+    proveedor = ProveedorConRespaldo([("a/x", principal), ("b/y", respaldo)])
+    proveedor.responder([Mensaje(Rol.USUARIO, "hola")], [], "proponer_plan")
+    assert principal.obligatorias == respaldo.obligatorias == ["proponer_plan"]
+
+
 def test_leer_respaldo_vacio(monkeypatch: pytest.MonkeyPatch) -> None:
     assert leer_respaldo() == []
     monkeypatch.setenv("HARNESS_RESPALDO", " , ")

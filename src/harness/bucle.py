@@ -50,6 +50,7 @@ def ejecutar_bucle(
     al_aviso: Callable[[str], None] | None = None,
     es_fin: Callable[[], bool] | None = None,
     nota_restantes: Callable[[int], str | None] | None = None,
+    herramienta_obligatoria: str | None = None,
 ) -> ResultadoBucle:
     """Llama al modelo hasta que deje de pedir herramientas o se acaben los pasos.
 
@@ -60,12 +61,13 @@ def ejecutar_bucle(
     (la ronda de plan termina cuando el modelo llama a proponer_plan).
     `nota_restantes` recibe los pasos que quedan después de cada paso y puede devolver un
     texto que se agrega al último resultado de herramienta de ese paso.
+    `herramienta_obligatoria` se le pide al proveedor en cada pedido (ver ProveedorLLM).
     """
     por_nombre = {h.nombre: h for h in herramientas}
     tokens_entrada = tokens_salida = 0
     vacias_seguidas = 0
     for numero in range(primer_paso, primer_paso + max_pasos):
-        respuesta = proveedor.responder(mensajes, herramientas)
+        respuesta = proveedor.responder(mensajes, herramientas, herramienta_obligatoria)
         tokens_entrada += respuesta.tokens_entrada
         tokens_salida += respuesta.tokens_salida
         if _es_vacia(respuesta.texto, respuesta.llamadas):

@@ -83,12 +83,15 @@ class ProveedorQueCompacta:
         self._al_compactar = al_compactar
 
     def responder(
-        self, mensajes: list[Mensaje], herramientas: list[Herramienta]
+        self,
+        mensajes: list[Mensaje],
+        herramientas: list[Herramienta],
+        herramienta_obligatoria: str | None = None,
     ) -> RespuestaModelo:
         compactacion = compactar(mensajes, self._max_caracteres)
         if compactacion and self._al_compactar:
             self._al_compactar(compactacion)
-        return self._proveedor.responder(mensajes, herramientas)
+        return self._proveedor.responder(mensajes, herramientas, herramienta_obligatoria)
 
     def adaptar_esquema(self, esquema: dict[str, Any]) -> dict[str, Any]:
         return self._proveedor.adaptar_esquema(esquema)

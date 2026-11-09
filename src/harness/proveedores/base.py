@@ -31,8 +31,17 @@ class ProveedorLLM(Protocol):
     """Lo único que el bucle sabe de un modelo: recibe mensajes y responde."""
 
     def responder(
-        self, mensajes: list[Mensaje], herramientas: list[Herramienta]
-    ) -> RespuestaModelo: ...
+        self,
+        mensajes: list[Mensaje],
+        herramientas: list[Herramienta],
+        herramienta_obligatoria: str | None = None,
+    ) -> RespuestaModelo:
+        """La respuesta del modelo a la conversación.
+
+        `herramienta_obligatoria` pide que el modelo llame a esa herramienta (tool_choice); el
+        proveedor que no lo soporta lo ignora, y el modelo elige como siempre.
+        """
+        ...
 
     def adaptar_esquema(self, esquema: dict[str, Any]) -> dict[str, Any]:
         """El esquema de una herramienta tal como lo acepta la API de este proveedor.

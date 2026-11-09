@@ -45,12 +45,16 @@ class ProveedorConRespaldo:
         return self._proveedores[self._indice][0]
 
     def responder(
-        self, mensajes: list[Mensaje], herramientas: list[Herramienta]
+        self,
+        mensajes: list[Mensaje],
+        herramientas: list[Herramienta],
+        herramienta_obligatoria: str | None = None,
     ) -> RespuestaModelo:
         """Responde con el proveedor actual; si se cae, pasa al siguiente y repite el pedido."""
         while True:
+            proveedor = self._proveedores[self._indice][1]
             try:
-                return self._proveedores[self._indice][1].responder(mensajes, herramientas)
+                return proveedor.responder(mensajes, herramientas, herramienta_obligatoria)
             except ErrorProveedorCaido as error:
                 if self._indice + 1 >= len(self._proveedores):
                     raise
