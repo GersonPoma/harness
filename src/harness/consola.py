@@ -22,6 +22,7 @@ from harness.cache_dependencias import MOTIVO_DESACTIVADA, EstadoCache
 from harness.entorno_docker import MOTIVO_SIN_CACHE, Instalacion, ResultadoComando
 from harness.entrega import ConfigEntrega, ResultadoEntrega
 from harness.github import PullRequest
+from harness.revision import EstadoRevision
 from harness.init import ResultadoInit
 from harness.memoria import MAX_CARACTERES_MEMORIA, RUTA_MEMORIA, Memoria
 from harness.plan import Plan, archivos_fuera_del_plan
@@ -290,6 +291,27 @@ def mostrar_validacion(validacion: Validacion) -> None:
     consola.print(f"[dim]{escape(_ultimas_lineas(validacion.informe))}[/]")
 
 
+def mostrar_revision(estado: EstadoRevision) -> None:
+    """Cómo terminó una ronda de revisión: aprobada, con problemas, o sin informe."""
+    if estado.es_fallida:
+        mostrar_aviso("El modelo no informó la revisión: se sigue sin revisión.")
+        return
+    if estado.es_aprobada:
+        consola.print(f"[bold green]✓ Revisión {estado.vueltas}: sin problemas[/]")
+        return
+    cantidad = len(estado.problemas)
+    consola.print(f"[bold yellow]✗ Revisión {estado.vueltas}: {_problemas(cantidad)}[/]")
+    for problema in estado.problemas:
+        archivo, regla = escape(problema["archivo"]), escape(problema["regla_o_criterio"])
+        consola.print(
+            f"  [yellow]{archivo}[/] [dim]({regla}): {escape(problema['descripcion'])}[/]"
+        )
+
+
+def _problemas(cantidad: int) -> str:
+    return "1 problema" if cantidad == 1 else f"{cantidad} problemas"
+
+
 def mostrar_fin(resultado: ResultadoEjecucion, cambios: CambiosRepo, ruta_log: str) -> None:
     """Muestra cómo terminó la ejecución, qué archivos cambió, los tokens y el log."""
     if resultado.es_plan_rechazado:
@@ -303,6 +325,12 @@ def mostrar_fin(resultado: ResultadoEjecucion, cambios: CambiosRepo, ruta_log: s
     if resultado.es_validado is False:
         consola.print(
             f"[bold red]Los tests no pasan después de {resultado.validaciones} validaciones.[/]"
+        )
+    revision = resultado.revision
+    if revision.problemas and not revision.es_aprobada and resultado.es_validado:
+        mostrar_aviso(
+            f"La revisión dejó {_problemas(len(revision.problemas))} sin resolver: van en la "
+            "descripción del PR para quien lo revise."
         )
     if not resultado.es_plan_rechazado:
         mostrar_cambios(cambios)

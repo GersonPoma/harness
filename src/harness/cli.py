@@ -1,7 +1,7 @@
 import os
 from collections.abc import Callable
 from contextlib import ExitStack, nullcontext
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from functools import partial
 from pathlib import Path
 from typing import Annotated
@@ -12,6 +12,7 @@ from rich import print
 from harness import consola, git, github
 from harness.bucle import MAX_PASOS_POR_DEFECTO, ErrorBucle, ErrorRespuestaVacia, Paso
 from harness.bucles import DetectorBucles
+from harness.revision import EstadoRevision, Revision, armar_diff
 from harness.cambios import CambiosRepo, Instantanea, comparar, tomar_instantanea
 from harness.cliente_mcp import ErrorMCP, SesionMCP
 from harness.comentario_pr import COMENTADO, YA_ESTABA, comentar_pr_en_jira
@@ -119,6 +120,7 @@ from harness.sesion import (
     cabeza,
     cargar_sesion,
     descartar_sesion,
+    estado_revision,
 )
 from harness.tipos import Herramienta, Mensaje
 from harness.ticket import (
@@ -146,6 +148,9 @@ MENSAJE_REQUIERE_AGENTS = (
 NOMBRE_LOG_INIT = "init"
 # Archivo donde se copia la salida cruda de la consola (diagnóstico de líneas perdidas).
 VAR_CONSOLA_CRUDA = "HARNESS_CONSOLA_CRUDA"
+AYUDA_SIN_REVISION = (
+    "No hacer el paso de revisión del diff (con los tests en verde) en esta ejecución."
+)
 AYUDA_SIN_CACHE = (
     "No usar la caché de dependencias: se descarga todo de nuevo (el volumen no se toca)."
 )
@@ -165,6 +170,7 @@ class _Preparacion:
     contexto: ContextoProyecto
     es_con_plan: bool = True
     es_con_cache: bool = True
+    es_con_revision: bool = True
     # HARNESS_RESPALDO: si el proveedor principal se cae, se sigue con estos, en orden.
     respaldo: list[ConfigModelo] = field(default_factory=list)
     # .harness/sessions/<TICKET>.json, para harness resume (se crea después de la rama).
@@ -266,6 +272,12 @@ class _Reporte:
             self.sesion.plan_aprobado(plan.model_dump())
         return es_aprobado
 
+    def revision(self, estado: EstadoRevision) -> None:
+        consola.mostrar_revision(estado)
+        self.registro.registrar_revision(estado)
+        if self.sesion:
+            self.sesion.revision(estado)
+
     def validacion(self, validacion: Validacion) -> None:
         consola.mostrar_validacion(validacion)
         self.registro.registrar_validacion(validacion)
@@ -337,6 +349,9 @@ def run(
         bool,
         typer.Option("--sin-cache", help=AYUDA_SIN_CACHE),
     ] = False,
+    sin_revision: Annotated[
+        bool, typer.Option("--sin-revision", help=AYUDA_SIN_REVISION)
+    ] = False,
     desde_cero: Annotated[
         bool,
         typer.Option(
@@ -354,6 +369,7 @@ def run(
     _revisar_sesion_pendiente(prep, desde_cero)
     prep.es_con_plan = not sin_plan
     prep.es_con_cache = not sin_cache
+    prep.es_con_revision = not sin_revision
     limites = prep.config_proyecto.limites if prep.config_proyecto else None
     max_pasos = max_pasos or (limites.max_pasos if limites else MAX_PASOS_POR_DEFECTO)
     reporte = _empezar_registro(prep, aprobar_plan)
@@ -452,6 +468,9 @@ def resume(
     sin_cache: Annotated[
         bool, typer.Option("--sin-cache", help=AYUDA_SIN_CACHE)
     ] = False,
+    sin_revision: Annotated[
+        bool, typer.Option("--sin-revision", help=AYUDA_SIN_REVISION)
+    ] = False,
     sin_herramientas_github: Annotated[
         bool,
         typer.Option(
@@ -468,6 +487,7 @@ def resume(
     )
     prep.es_con_plan = sesion.es_con_plan
     prep.es_con_cache = not sin_cache
+    prep.es_con_revision = not sin_revision
     prep.texto_guardado = sesion.ticket.get("texto")
     limites = prep.config_proyecto.limites if prep.config_proyecto else None
     presupuesto = max_pasos or (limites.max_pasos if limites else MAX_PASOS_POR_DEFECTO)
@@ -483,7 +503,8 @@ def resume(
             resultado, es_entrega_ok = _retomar_entrega(prep, sesion, config_entrega, reporte)
         else:
             # Los pasos siguen contando desde el corte; el presupuesto es para esta parte.
-            hechos = prep.reanudacion.continuacion.pasos if prep.reanudacion else 0
+            continuacion = prep.reanudacion.continuacion if prep.reanudacion else None
+            hechos = continuacion.pasos_con_presupuesto if continuacion else 0
             resultado, es_entrega_ok = _ejecutar_y_entregar(
                 prep, config_entrega, hechos + presupuesto, reporte
             )
@@ -677,6 +698,8 @@ def _terminar_ejecucion_en_sesion(
     datos.tokens_salida = resultado.tokens_salida
     datos.texto_final = resultado.texto_final
     datos.resumen_tests = resultado.resumen_tests
+    datos.pasos_extra = resultado.pasos_extra
+    datos.revision = asdict(resultado.revision)
     # Con plan o con validaciones, la ronda de plan ya pasó: un corte se retoma implementando.
     if datos.estado == ESTADO_PLAN and (resultado.plan is not None or resultado.validaciones):
         datos.estado = ESTADO_IMPLEMENTACION
@@ -965,7 +988,8 @@ def _retomar_entrega(
     resultado = ResultadoEjecucion(
         sesion.texto_final, sesion.pasos, sesion.tokens_entrada, sesion.tokens_salida, False,
         True, sesion.validaciones, Plan.model_validate(sesion.plan) if sesion.plan else None,
-        resumen_tests=sesion.resumen_tests,
+        resumen_tests=sesion.resumen_tests, revision=estado_revision(sesion),
+        pasos_extra=sesion.pasos_extra,
     )
     if config is None:
         prep.sesion.completar()
@@ -1247,8 +1271,27 @@ def _ejecutar_con_validacion(
         planificacion=_planificacion(prep, reporte),
         continuacion=_continuacion(prep),
         revisar_paso=DetectorBucles(prep.repo).revisar,
+        revision=_revision(prep, config_proyecto, antes, reporte),
     )
     return resultado, comparar(antes, tomar_instantanea(prep.repo))
+
+
+def _revision(
+    prep: _Preparacion, config_proyecto: ConfigProyecto, antes: Instantanea, reporte: _Reporte
+) -> Revision | None:
+    """El paso de revisión, si harness.yaml lo tiene activo y no se pidió --sin-revision."""
+    configuracion = config_proyecto.revision
+    if not configuracion.activa or not prep.es_con_revision:
+        return None
+
+    def obtener_diff() -> str:
+        cambios = comparar(antes, tomar_instantanea(prep.repo))
+        return armar_diff(prep.repo, cambios, prep.secretos)
+
+    return Revision(
+        crear_herramientas_lectura(prep.repo), obtener_diff, configuracion.max_vueltas,
+        configuracion.max_pasos, reporte.revision,
+    )
 
 
 def _mensajes_iniciales(prep: _Preparacion, hay_validacion: bool) -> list[Mensaje]:

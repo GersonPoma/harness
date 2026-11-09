@@ -21,6 +21,7 @@ from harness.ejecucion import ResultadoEjecucion
 from harness.git import ErrorGit, ejecutar_git
 from harness.plan import Plan
 from harness.prompts import crear_mensaje_retomar
+from harness.revision import EstadoRevision
 from harness.tipos import LlamadaHerramienta, Mensaje, Rol
 from harness.variables import ocultar_secretos
 
@@ -55,6 +56,8 @@ class Sesion:
     modelos_usados: list[str] = field(default_factory=list)
     mensajes: list[Mensaje] = field(default_factory=list)
     pasos: int = 0
+    # De esos, los que no descuentan de max_pasos (revisión): ResultadoEjecucion.pasos_extra.
+    pasos_extra: int = 0
     tokens_entrada: int = 0
     tokens_salida: int = 0
     validaciones: int = 0
@@ -72,6 +75,8 @@ class Sesion:
     texto_final: str | None = None
     # Cuántos tests pasaron en la última validación: también para la descripción del PR.
     resumen_tests: str | None = None
+    # EstadoRevision como diccionario: vueltas hechas y problemas de la última.
+    revision: dict[str, Any] = field(default_factory=dict)
     motivo_corte: str | None = None
     detalle_corte: str | None = None
 
@@ -121,6 +126,10 @@ class SesionEnCurso:
 
     def validacion(self) -> None:
         self.sesion.validaciones += 1
+        self.guardar()
+
+    def revision(self, estado: EstadoRevision) -> None:
+        self.sesion.revision = asdict(estado)
         self.guardar()
 
     def cambio_de_proveedor(self, siguiente: str) -> None:
@@ -180,9 +189,15 @@ def armar_reanudacion(sesion: Sesion, motivo: str, cambiados: list[str]) -> Rean
     plan = Plan.model_validate(sesion.plan) if sesion.plan else None
     continuacion = ResultadoEjecucion(
         None, sesion.pasos, sesion.tokens_entrada, sesion.tokens_salida, False, None,
-        sesion.validaciones, plan,
+        sesion.validaciones, plan, revision=estado_revision(sesion),
+        pasos_extra=sesion.pasos_extra,
     )
     return Reanudacion(mensajes, continuacion, sesion.repo_al_empezar)
+
+
+def estado_revision(sesion: Sesion) -> EstadoRevision:
+    """Cómo iba la revisión al cortar (vacía en sesiones de antes de la revisión)."""
+    return EstadoRevision(**sesion.revision) if sesion.revision else EstadoRevision()
 
 
 def cabeza(repo: Path) -> str | None:

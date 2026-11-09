@@ -113,6 +113,15 @@ class ConfigLimites(_Modelo):
         return valor
 
 
+class ConfigRevision(_Modelo):
+    """Paso de revisión: con los tests en verde, el modelo revisa su diff (revision.py)."""
+
+    activa: bool = True
+    max_vueltas: Entero = 2
+    # Pasos de cada ronda de revisión; no descuentan de limites.max_pasos.
+    max_pasos: Entero = 6
+
+
 class ConfigProyecto(_Modelo):
     """Contenido validado de harness.yaml."""
 
@@ -125,6 +134,7 @@ class ConfigProyecto(_Modelo):
     variables_entorno: dict[str, str] = {}
     git: ConfigGit = ConfigGit()
     limites: ConfigLimites = ConfigLimites()
+    revision: ConfigRevision = ConfigRevision()
     archivos_protegidos: list[str] = []
     requiere_agents_md: bool = False
 

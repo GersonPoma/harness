@@ -14,6 +14,7 @@ from harness.carpetas import CARPETA_LOGS
 from harness.config_proyecto import ConfigComandos, ConfigGit
 from harness.ejecucion import ResultadoEjecucion
 from harness.git import ErrorGit
+from harness.revision import EstadoRevision
 from harness.secretos import es_archivo_de_secretos
 
 # El harness nunca hace push a estas ramas, diga lo que diga harness.yaml.
@@ -373,10 +374,37 @@ def crear_cuerpo_pr(
         f"## Validación\n\n{_validacion_en_markdown(resultado, comandos)}",
         f"## Cambios\n\n{_cambios_en_markdown(cambios, notas_memoria or [])}",
     ]
+    revision = _revision_en_markdown(resultado.revision)
+    if revision:
+        secciones.append(f"## Revisión\n\n{revision}")
     if notas_memoria:
         secciones.append(f"## Memoria del proyecto\n\n{_memoria_en_markdown(notas_memoria)}")
     secciones.append(f"---\n_Generado por harness con `{modelo}`. Revísalo antes de aprobarlo._")
     return "\n\n".join(secciones)
+
+
+def _revision_en_markdown(estado: EstadoRevision) -> str | None:
+    """Qué dijo la revisión del modelo; None si no hubo (desactivada en harness.yaml)."""
+    if estado.es_fallida:
+        return "_Sin revisión: el modelo no la informó._"
+    if estado.vueltas == 0:
+        return None
+    if estado.es_aprobada:
+        vueltas = "1 vuelta" if estado.vueltas == 1 else f"{estado.vueltas} vueltas"
+        return (
+            "El modelo revisó el diff contra el ticket y AGENTS.md: sin problemas "
+            f"({vueltas})."
+        )
+    lineas = [
+        "**Problemas sin resolver** (se acabaron las vueltas de revisión): revísalos antes de "
+        "aprobar.",
+        "",
+        *(
+            f"- `{p['archivo']}` ({p['regla_o_criterio']}): {p['descripcion']}"
+            for p in estado.problemas
+        ),
+    ]
+    return "\n".join(lineas)
 
 
 def _memoria_en_markdown(notas: list[str]) -> str:

@@ -20,6 +20,7 @@ from harness.herramientas.comandos import HERRAMIENTAS_DE_COMANDOS, leer_codigo_
 from harness.init import ResultadoInit
 from harness.plan import Plan, archivos_fuera_del_plan
 from harness.proveedores.respaldo import CambioProveedor
+from harness.revision import EstadoRevision
 from harness.ticket import Ticket
 from harness.variables import ocultar_secretos
 
@@ -117,6 +118,16 @@ class RegistroPasos:
             "tokens_entrada": resultado.tokens_entrada,
             "tokens_salida": resultado.tokens_salida,
             "texto_final": resultado.texto_final,
+        })
+
+    def registrar_revision(self, estado: EstadoRevision) -> None:
+        """Registra una ronda de revisión: si se aprobó y los problemas que encontró."""
+        self._escribir({
+            "evento": "revision",
+            "vuelta": estado.vueltas,
+            "es_aprobada": estado.es_aprobada,
+            "es_fallida": estado.es_fallida,
+            "problemas": estado.problemas,
         })
 
     def registrar_plan(self, plan: Plan, es_aprobado: bool) -> None:

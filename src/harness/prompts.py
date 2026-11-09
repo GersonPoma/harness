@@ -130,6 +130,11 @@ MENSAJE_ULTIMA_OPORTUNIDAD_PLAN = (
     "a otra o respondes con texto, la ejecución se corta sin implementar nada."
 )
 
+MENSAJE_ENTREGAR_REVISION = (
+    "Llama a informar_revision ahora, con lo que ya revisaste: es_aprobado true si no hay "
+    "problemas, o false con cada uno. Es la única herramienta que existe en esta etapa."
+)
+
 MENSAJE_IMPLEMENTAR = (
     "Plan registrado. Ahora impleméntalo. Si en el camino tienes que tocar archivos que no "
     "estaban en el plan, hazlo solo si es necesario y explica por qué en tu resumen final."
@@ -364,6 +369,36 @@ def crear_mensaje_retomar(motivo: str, cambiados: list[str]) -> str:
             f"{', '.join(cambiados)}. Léelos antes de tocarlos."
         )
     return texto
+
+
+def crear_mensaje_revision(diff: str) -> str:
+    """Pedido de la ronda de revisión, con el diff de lo que se hizo en la ejecución."""
+    return (
+        "Los tests pasan. Antes de entregar, revisa tu propio trabajo con ojo crítico, como lo "
+        "haría quien revisa el PR. Este es el diff de lo que cambiaste:\n\n"
+        f"```diff\n{diff}\n```\n\n"
+        "Compáralo con:\n"
+        "- las reglas de AGENTS.md (en tus instrucciones): arquitectura, capas, convenciones;\n"
+        "- los criterios de aceptación del ticket (en el primer mensaje): ¿falta alguno?;\n"
+        "- el alcance: marca el código que no corresponde a ningún criterio del ticket (un "
+        "endpoint, un campo o una clase que nadie pidió), con regla_o_criterio "
+        "'fuera del ticket'.\n"
+        "Puedes leer archivos o buscar en el código si lo necesitas, pero no puedes cambiar "
+        "nada en esta etapa. Termina llamando a informar_revision. No inventes problemas: si "
+        "todo cumple, apruébalo."
+    )
+
+
+def crear_mensaje_revision_con_problemas(problemas: list[dict[str, str]]) -> str:
+    """Lo que recibe el modelo cuando su revisión encontró problemas: corregirlos."""
+    lista = "\n".join(
+        f"- {p['archivo']} ({p['regla_o_criterio']}): {p['descripcion']}" for p in problemas
+    )
+    return (
+        "La revisión encontró estos problemas. Corrígelos (si algo es código que nadie pidió, "
+        "quítalo en vez de completarlo), vuelve a correr los tests y termina con un resumen:"
+        f"\n\n{lista}"
+    )
 
 
 def crear_mensaje_validacion_fallida(

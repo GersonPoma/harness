@@ -81,6 +81,11 @@ limites:
   timeout_comando_segundos: 120
   max_caracteres_salida: 4000
 
+revision:
+  activa: true
+  max_vueltas: 2
+  max_pasos: 6
+
 archivos_protegidos:
   - migrations/**
   - docs/**
@@ -103,6 +108,7 @@ archivos_protegidos:
 | `variables_entorno` | mapa texto→texto | no | `{}` | Ver [`variables_entorno`](#variables_entorno). |
 | `git` | objeto | no | (valores por defecto) | Ver [`git`](#git). |
 | `limites` | objeto | no | (valores por defecto) | Ver [`limites`](#limites). |
+| `revision` | objeto | no | (valores por defecto) | Paso de revisión del diff con el modelo. Ver [`revision`](#revision). |
 | `archivos_protegidos` | lista de globs | no | `[]` | Ver [`archivos_protegidos`](#archivos_protegidos). |
 | `requiere_agents_md` | booleano | no | `false` | Con `true`, `harness run` se detiene enseguida (código 1, antes de crear contenedores y de llamar al modelo) si el repo no tiene `AGENTS.md` o está vacío. Con `false`, solo avisa y sigue. Ver [`requiere_agents_md`](#requiere_agents_md). |
 
@@ -244,6 +250,29 @@ Variables que se pasan al **contenedor del proyecto** (no a los servicios).
 | `max_caracteres_salida` | entero | no | `4000` | Largo máximo de la salida de una herramienta que se le devuelve al modelo. Si se pasa, el harness prioriza las **líneas que parecen errores** (`ERROR`, `FAIL`, `...Exception:`, `Caused by`, `expected`/`but was`, `E   assert` de pytest, `Traceback`...) con unas líneas de contexto, y con lo que queda conserva el **final** de la salida. Lo omitido se marca con `[... N líneas omitidas ...]`, y el texto fijo de ayuda de Maven ("Re-run Maven using the -X switch...") se descarta. El log de la ejecución guarda exactamente este mismo texto. |
 | `max_caracteres_conversacion` | entero | no | `200000` | Tamaño máximo de la conversación (unos 50.000 tokens) antes de compactarla: los resultados de herramientas más viejos se reemplazan por una marca ("[Resultado omitido para ahorrar contexto: leer_archivo('src/x.py'), 120 líneas...]") y el modelo puede volver a pedirlos. Los últimos 6 pasos, el ticket, el plan y los textos del modelo nunca se tocan, y nunca se borra un mensaje. Se avisa en consola y queda en el log (`compactacion`). |
 
+### `revision`
+
+Paso de revisión: cuando la validación **pasa**, el modelo recibe el diff de lo que cambió en la
+ejecución (sin `.harness/memory.md`, con los secretos ocultos y recortado a 30.000 caracteres)
+y lo revisa contra las reglas de `AGENTS.md`, los criterios de aceptación del ticket y el
+alcance (código que ningún criterio pide). Solo puede leer (`leer_archivo`,
+`listar_directorio`, `buscar_en_codigo`) y termina con la herramienta `informar_revision`. Si
+encuentra problemas, vuelve a implementar con todas las herramientas, se valida y se revisa
+otra vez. Si se acaban las vueltas con problemas, **igual se hace el commit** (los tests
+pasan): los problemas quedan en la sección "Revisión" del PR y en un aviso en consola.
+
+| Clave | Tipo | Obligatoria | Por defecto | Descripción |
+|---|---|---|---|---|
+| `activa` | booleano | no | `true` | Con `false` no hay revisión. Para una sola ejecución, `harness run --sin-revision` (o `harness resume --sin-revision`). |
+| `max_vueltas` | entero | no | `2` | Máximo de revisiones por ejecución (≥ 1). Cada revisión con problemas, salvo la última, da otra vuelta de implementación y validación. |
+| `max_pasos` | entero | no | `6` | Pasos de cada ronda de revisión (≥ 1). **No descuentan de `limites.max_pasos`**: la revisión no le quita pasos a la implementación. El último se reserva para pedir el informe con `tool_choice`. |
+
+- Gasta pedidos: de 1 a 3 por vuelta, según cuánto lea el modelo.
+- Si el modelo no llama a `informar_revision`, se avisa, se sigue sin revisión y el PR lo
+  dice.
+- Las validaciones que siguen a una corrección pedida por la revisión no cuentan para
+  `max_intentos_validacion`.
+
 ### `archivos_protegidos`
 
 Rutas (globs, relativas a la raíz del repo) que el modelo **no puede crear, modificar ni
@@ -314,6 +343,7 @@ AGENTS.md" pasa desapercibido y el modelo trabajaría sin las convenciones del p
   error.
 - `docker.directorio_trabajo` igual a `/harness-cache`, dentro de esa ruta o que la contenga
   → error: "no puede coincidir con la caché de dependencias (/harness-cache)".
+- `revision.max_vueltas` o `revision.max_pasos` menores que 1 → error.
 - Si no existe `harness.yaml`, el harness avisa y sugiere `harness init`.
 
 ## Implementación

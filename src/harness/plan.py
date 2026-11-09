@@ -62,7 +62,7 @@ def crear_herramienta_plan(al_proponer: Callable[[Plan], None]) -> Herramienta:
         try:
             plan = Plan.model_validate(argumentos)
         except ValidationError as error:
-            raise ErrorHerramienta(f"Plan inválido: {_describir(error)}") from error
+            raise ErrorHerramienta(f"Plan inválido: {describir_error(error)}") from error
         al_proponer(plan)
         return "Plan registrado."
 
@@ -120,7 +120,8 @@ def archivos_fuera_del_plan(plan: Plan, cambios: CambiosRepo) -> list[str]:
     return sorted(ruta for ruta in tocados if ruta.lower() not in planeados)
 
 
-def _describir(error: ValidationError) -> str:
+def describir_error(error: ValidationError) -> str:
+    """Los errores de validación en una línea, para devolvérselos al modelo."""
     partes = []
     for detalle in error.errors():
         ruta = ".".join(str(parte) for parte in detalle["loc"]) or "(raíz)"

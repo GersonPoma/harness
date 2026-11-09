@@ -1,15 +1,20 @@
 """Implementación + validación: si los tests fallan, el modelo recibe el error y corrige."""
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from harness.bucle import Paso, ejecutar_bucle
 from harness.bucles import normalizar_salida
 from harness.plan import Plan
 from harness.planificacion import planificar
-from harness.prompts import MENSAJE_IMPLEMENTAR, crear_mensaje_validacion_fallida
+from harness.prompts import (
+    MENSAJE_IMPLEMENTAR,
+    crear_mensaje_revision_con_problemas,
+    crear_mensaje_validacion_fallida,
+)
 from harness.proveedores.base import ProveedorLLM
 from harness.resumen_tests import resumir_tests, seccion_tests
+from harness.revision import EstadoRevision, Revision, revisar
 from harness.tipos import Herramienta, Mensaje, Rol
 
 # Devuelve (pasó, informe con la salida de tests y lint).
@@ -44,6 +49,15 @@ class ResultadoEjecucion:
     es_plan_rechazado: bool = False
     # De la última validación que pasó: va en la descripción del PR.
     resumen_tests: str | None = None
+    revision: EstadoRevision = field(default_factory=EstadoRevision)
+    # Pasos que no descuentan de max_pasos (las rondas de revisión): están en `pasos`, pero
+    # la implementación tiene max_pasos - (pasos - pasos_extra).
+    pasos_extra: int = 0
+
+    @property
+    def pasos_con_presupuesto(self) -> int:
+        """Los pasos que cuentan contra max_pasos."""
+        return self.pasos - self.pasos_extra
 
 
 @dataclass
@@ -70,6 +84,7 @@ def ejecutar_ticket(
     planificacion: Planificacion | None = None,
     continuacion: ResultadoEjecucion | None = None,
     revisar_paso: Callable[[Paso], str | None] | None = None,
+    revision: Revision | None = None,
 ) -> ResultadoEjecucion:
     """Planifica (si se pide), implementa y valida; si la validación falla, el modelo corrige.
 
@@ -78,6 +93,8 @@ def ejecutar_ticket(
     `continuacion` es lo que ya se hizo antes de un corte (harness resume): los pasos, los
     tokens y las validaciones siguen contando desde ahí, y el plan ya está aprobado.
     `revisar_paso` mira cada paso de la implementación (detección de bucles).
+    `revision`: con los tests en verde, el modelo revisa su diff; si encuentra problemas,
+    vuelve a implementar (hasta revision.max_vueltas revisiones).
     """
     resultado = continuacion or ResultadoEjecucion(None, 0, 0, 0, False, None, 0)
     if continuacion is None and planificacion and not _planificar(
@@ -87,8 +104,9 @@ def ejecutar_ticket(
     informe_anterior = None
     while True:
         bucle = ejecutar_bucle(
-            proveedor, mensajes, herramientas, max_pasos - resultado.pasos, al_paso,
-            primer_paso=resultado.pasos + 1, al_aviso=al_aviso, revisar_paso=revisar_paso,
+            proveedor, mensajes, herramientas, max_pasos - resultado.pasos_con_presupuesto,
+            al_paso, primer_paso=resultado.pasos + 1, al_aviso=al_aviso,
+            revisar_paso=revisar_paso,
         )
         _acumular(resultado, bucle.pasos, bucle.tokens_entrada, bucle.tokens_salida)
         resultado.texto_final = bucle.texto_final
@@ -106,10 +124,17 @@ def ejecutar_ticket(
             resultado.resumen_tests = resumen
         if al_validar:
             al_validar(Validacion(resultado.validaciones, es_valido, informe, resumen))
-        vueltas = resultado.validaciones - 1
-        if es_valido or vueltas >= max_intentos_validacion:
+        if es_valido:
+            if not _hay_que_corregir_por_revision(
+                resultado, proveedor, mensajes, revision, max_pasos, al_paso, al_aviso
+            ):
+                return resultado
+            continue
+        # Las validaciones que siguieron a una corrección de la revisión no son reintentos.
+        vueltas = resultado.validaciones - 1 - resultado.revision.correcciones
+        if vueltas >= max_intentos_validacion:
             return resultado
-        if resultado.pasos >= max_pasos:
+        if resultado.pasos_con_presupuesto >= max_pasos:
             resultado.es_limite_alcanzado = True
             return resultado
         es_repetido = normalizar_salida(informe) == informe_anterior
@@ -144,6 +169,47 @@ def _planificar(
         return False
     mensajes.append(Mensaje(Rol.USUARIO, MENSAJE_IMPLEMENTAR))
     return True
+
+
+def _hay_que_corregir_por_revision(
+    resultado: ResultadoEjecucion,
+    proveedor: ProveedorLLM,
+    mensajes: list[Mensaje],
+    revision: Revision | None,
+    max_pasos: int,
+    al_paso: Callable[[Paso], None] | None,
+    al_aviso: Callable[[str], None] | None,
+) -> bool:
+    """Con los tests en verde: revisa y, si hay problemas, deja el pedido de corregirlos.
+
+    Devuelve si el modelo tiene que volver a implementar.
+    """
+    estado = resultado.revision
+    if revision is None or estado.vueltas >= revision.max_vueltas or estado.es_fallida:
+        return False
+    ronda = revisar(proveedor, mensajes, revision, resultado.pasos + 1, al_paso, al_aviso)
+    _acumular(resultado, ronda.pasos, ronda.tokens_entrada, ronda.tokens_salida)
+    # La revisión tiene su propio presupuesto: no le quita pasos a la implementación.
+    resultado.pasos_extra += ronda.pasos
+    estado.vueltas += 1
+    if ronda.informe is None:
+        estado.es_fallida = True
+        estado.problemas = []
+    else:
+        estado.es_aprobada = ronda.informe.es_aprobado
+        estado.problemas = [p.model_dump() for p in ronda.informe.problemas]
+    es_corregir = (
+        bool(estado.problemas)
+        and estado.vueltas < revision.max_vueltas
+        and resultado.pasos_con_presupuesto < max_pasos
+    )
+    if es_corregir:
+        estado.correcciones += 1
+        pedido = crear_mensaje_revision_con_problemas(estado.problemas)
+        mensajes.append(Mensaje(Rol.USUARIO, pedido))
+    if revision.al_revisar:
+        revision.al_revisar(estado)
+    return es_corregir
 
 
 def _acumular(resultado: ResultadoEjecucion, pasos: int, entrada: int, salida: int) -> None:
