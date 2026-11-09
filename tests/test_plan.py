@@ -24,7 +24,7 @@ from harness.prompts import (
 from harness.tipos import LlamadaHerramienta, Mensaje, Rol
 from tests.falsos import PLAN_SIMPLE, ProveedorFalso, pedir, proponer, terminar
 
-LECTURA = ["leer_archivo", "listar_directorio"]
+LECTURA = ["leer_archivo", "listar_directorio", "buscar_en_codigo"]
 LEER = LlamadaHerramienta("l1", "leer_archivo", {"ruta": "src/app.py"})
 ESCRIBIR = LlamadaHerramienta("e1", "escribir_archivo", {"ruta": "nuevo.py", "contenido": "x"})
 

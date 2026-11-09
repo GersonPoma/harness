@@ -59,16 +59,22 @@ class CambiosRepo:
 def tomar_instantanea(repo: Path) -> Instantanea:
     """Hash de cada archivo del repo, por ruta relativa."""
     raiz = repo.resolve()
-    rutas = _rutas_segun_git(raiz)
-    if rutas is None:
-        rutas = _rutas_sin_git(raiz)
     instantanea: Instantanea = {}
-    for ruta in rutas:
+    for ruta in listar_archivos(raiz):
         try:
             instantanea[ruta] = _hash(raiz / ruta)
         except OSError:
             continue  # Se borró o no se puede leer justo ahora: no es un cambio del modelo.
     return instantanea
+
+
+def listar_archivos(raiz: Path) -> list[str]:
+    """Rutas relativas de los archivos del repo que se siguen (las de la foto de cambios).
+
+    Con Git, las que no ignora el .gitignore; sin Git, una lista fija de carpetas ignoradas.
+    """
+    rutas = _rutas_segun_git(raiz)
+    return _rutas_sin_git(raiz) if rutas is None else rutas
 
 
 def comparar(antes: Instantanea, despues: Instantanea) -> CambiosRepo:

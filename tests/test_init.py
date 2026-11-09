@@ -30,7 +30,7 @@ comandos:
   tests: pytest -q
 """
 YAML_INVALIDO = "version: 1\nproyecto: demo\ncomandos:\n  tests: pytest\n"
-LECTURA = ["leer_archivo", "listar_directorio"]
+LECTURA = ["leer_archivo", "listar_directorio", "buscar_en_codigo"]
 
 
 def _guardar(herramienta: str, contenido: str, id_llamada: str = "g") -> RespuestaModelo:

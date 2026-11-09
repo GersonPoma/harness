@@ -11,6 +11,7 @@ from harness.herramientas.archivos import (
     leer_archivo,
     listar_directorio,
 )
+from harness.herramientas.busqueda import buscar_en_codigo
 from harness.herramientas.comandos import EjecutorComandos, ejecutar_comando
 from harness.tipos import Herramienta
 
@@ -19,7 +20,7 @@ _PARAMETRO_RUTA = {
     "description": "Ruta relativa a la raíz del repo, con '/' como separador.",
 }
 _SIN_PARAMETROS = {"type": "object", "properties": {}}
-NOMBRES_LECTURA = ("leer_archivo", "listar_directorio")
+NOMBRES_LECTURA = ("leer_archivo", "listar_directorio", "buscar_en_codigo")
 
 
 def crear_herramientas(
@@ -139,6 +140,30 @@ def _herramientas_de_archivos(
                 },
             },
             funcion=partial(listar_directorio, repo),
+        ),
+        Herramienta(
+            nombre="buscar_en_codigo",
+            descripcion=(
+                "Busca un texto en los archivos del repo y devuelve las líneas donde aparece, "
+                "como 'ruta:línea: texto'. Sirve para encontrar dónde se define o se usa una "
+                "clase o una función sin leer archivo por archivo."
+            ),
+            parametros={
+                "type": "object",
+                "properties": {
+                    "patron": {"type": "string", "description": "Texto a buscar (exacto)."},
+                    "ruta": {
+                        **_PARAMETRO_RUTA,
+                        "description": "Carpeta o archivo donde buscar; '.' es todo el repo.",
+                    },
+                    "es_regex": {
+                        "type": "boolean",
+                        "description": "Si patron es una expresión regular (por defecto, no).",
+                    },
+                },
+                "required": ["patron"],
+            },
+            funcion=partial(buscar_en_codigo, repo),
         ),
     ]
 
