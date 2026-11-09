@@ -10,7 +10,6 @@ from harness.config import ConfigModelo
 from harness.config_proyecto import ConfigLimites
 from harness.cache_dependencias import EstadoCache
 from harness.entorno_docker import ErrorDocker, Instalacion
-from harness.planificacion import calcular_pasos_plan
 from harness.proveedores.base import MOTIVO_CAIDO, ErrorProveedorCaido
 from harness.proveedores.respaldo import ProveedorConRespaldo
 from harness.sesion import (
@@ -302,57 +301,22 @@ def test_max_pasos_plan_de_harness_yaml_llega_a_la_planificacion(
     assert recibidas == [4]
 
 
-def _correr_con_limites(
-    monkeypatch: pytest.MonkeyPatch, repo: Path, limites: str, *opciones: str
-) -> tuple[list[int], str]:
-    """Corre con harness.yaml y anota el presupuesto de plan que llega a la ejecución."""
-    (repo / "harness.yaml").write_text(YAML_CON_DOCKER + limites, encoding="utf-8")
-    iniciar_repo(repo)
-    presupuestos: list[int] = []
+def test_max_pasos_ya_no_recorta_el_plan(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    # El plan tiene su propio presupuesto: --max-pasos chico no lo toca ni avisa nada.
+    yaml = YAML_CON_DOCKER + "limites:\n  max_pasos: 40\n  max_pasos_plan: 20\n"
+    (repo_sin_yaml / "harness.yaml").write_text(yaml, encoding="utf-8")
+    iniciar_repo(repo_sin_yaml)
+    recibidas: list[int] = []
 
     def ejecutar_falso(prep, max_pasos, reporte):
-        planificacion = cli._planificacion(prep, reporte)
-        if planificacion:
-            presupuestos.append(calcular_pasos_plan(max_pasos, planificacion.max_pasos_plan))
+        recibidas.append(cli._planificacion(prep, reporte).max_pasos_plan)
         raise ErrorDocker("fin de la prueba")
 
     monkeypatch.setattr(cli, "_ejecutar", ejecutar_falso)
-    _, salida = _correr(monkeypatch, repo, [], "--sin-push", *opciones)
-    return presupuestos, " ".join(salida.split())
-
-
-def test_max_pasos_menor_recorta_el_plan_y_avisa(
-    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
-) -> None:
-    limites = "limites:\n  max_pasos: 40\n  max_pasos_plan: 20\n"
-    presupuestos, salida = _correr_con_limites(
-        monkeypatch, repo_sin_yaml, limites, "--max-pasos", "15"
-    )
-    assert presupuestos == [7]
-    assert "Pasos de planificación recortados de 20 a 7 por --max-pasos 15." in salida
-    avisos = [e["mensaje"] for e in _eventos_del_log(repo_sin_yaml) if e["evento"] == "aviso"]
-    assert avisos == ["Pasos de planificación recortados de 20 a 7 por --max-pasos 15."]
-
-
-@pytest.mark.parametrize("opciones", [(), ("--max-pasos", "40"), ("--sin-plan",)])
-def test_sin_recorte_no_hay_aviso(
-    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path, opciones: tuple[str, ...]
-) -> None:
-    limites = "limites:\n  max_pasos: 40\n  max_pasos_plan: 20\n"
-    presupuestos, salida = _correr_con_limites(monkeypatch, repo_sin_yaml, limites, *opciones)
-    assert "recortados" not in salida
-    if "--sin-plan" not in opciones:
-        assert presupuestos == [20]
-
-
-def test_sin_max_pasos_plan_escrito_no_hay_aviso(
-    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
-) -> None:
-    # Sin la clave, el 10 por defecto se ajusta a la mitad sin avisar: no se recorta nada escrito.
-    presupuestos, salida = _correr_con_limites(
-        monkeypatch, repo_sin_yaml, "", "--max-pasos", "6"
-    )
-    assert presupuestos == [3]
+    _, salida = _correr(monkeypatch, repo_sin_yaml, [], "--sin-push", "--max-pasos", "15")
+    assert recibidas == [20]
     assert "recortados" not in salida
 
 
@@ -736,15 +700,23 @@ def test_muestra_el_plan_y_avisa_lo_que_quedo_fuera(
     assert eventos[-1]["fuera_del_plan"] == ["extra.py"]
 
 
-def test_aprobar_plan_con_n_termina_sin_implementar(
-    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+@pytest.fixture
+def con_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Como si hubiera alguien en la consola para responder (CliRunner no es una TTY)."""
+    monkeypatch.setattr(cli.consola, "es_terminal_interactiva", lambda: True)
+
+
+@pytest.mark.parametrize("entrada", ["n\n", "\n", ""])
+def test_aprobar_plan_con_n_enter_o_sin_respuesta_termina_sin_implementar(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path, con_terminal: None, entrada: str
 ) -> None:
     proveedor = ProveedorFalso([proponer(), _escribir("nuevo.py"), terminar()])
     codigo, salida = _correr(
-        monkeypatch, repo_sin_yaml, proveedor, "--aprobar-plan", entrada="quizas\nn\n"
+        monkeypatch, repo_sin_yaml, proveedor, "--aprobar-plan", entrada=entrada
     )
     assert codigo == 0
-    assert salida.count("¿Implementar? [s/n]") == 2
+    assert salida.count("¿Aprobar el plan? [s/n, o escribe qué cambiar]") == 1
+    assert "Tokens hasta ahora: 10 entrada / 5 salida." in salida
     assert "Plan rechazado: no se implementó nada." in salida
     assert "El modelo no modificó ningún archivo" not in salida
     assert len(proveedor.conversaciones) == 1
@@ -755,12 +727,44 @@ def test_aprobar_plan_con_n_termina_sin_implementar(
 
 
 def test_aprobar_plan_con_s_implementa(
-    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path, con_terminal: None
 ) -> None:
     respuestas = [proponer(), _escribir("nuevo.py"), terminar()]
     codigo, _ = _correr(monkeypatch, repo_sin_yaml, respuestas, "--aprobar-plan", entrada="s\n")
     assert codigo == 0
     assert (repo_sin_yaml / "nuevo.py").exists()
+
+
+def test_aprobar_plan_con_una_correccion_planifica_de_nuevo(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path, con_terminal: None
+) -> None:
+    respuestas = [proponer(), proponer(id_llamada="p2"), _escribir("nuevo.py"), terminar()]
+    proveedor = ProveedorFalso(respuestas)
+    codigo, salida = _correr(
+        monkeypatch, repo_sin_yaml, proveedor, "--aprobar-plan",
+        entrada="Que también valide el título vacío\ns\n",
+    )
+    assert codigo == 0, salida
+    assert salida.count("¿Aprobar el plan?") == 2
+    assert "El usuario pidió este cambio al plan: Que también valide el título vacío" in (
+        proveedor.conversaciones[1][-1].contenido
+    )
+    eventos = _eventos_del_log(repo_sin_yaml)
+    assert [e["es_aprobado"] for e in eventos if e["evento"] == "plan"] == [False, True]
+    (correccion,) = [e for e in eventos if e["evento"] == "correccion_plan"]
+    assert correccion["correccion"] == "Que también valide el título vacío"
+
+
+def test_aprobar_plan_sin_terminal_se_detiene_antes_de_empezar(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    monkeypatch.setattr(cli.consola, "es_terminal_interactiva", lambda: False)
+    proveedor = ProveedorFalso([])
+    codigo, salida = _correr(monkeypatch, repo_sin_yaml, proveedor, "--aprobar-plan")
+    assert codigo == 1
+    assert "--aprobar-plan necesita una terminal interactiva" in " ".join(salida.split())
+    assert proveedor.conversaciones == []
+    assert not (repo_sin_yaml / ".harness").exists()
 
 
 def test_sin_plan_y_aprobar_plan_juntos_es_error(

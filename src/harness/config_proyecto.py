@@ -9,7 +9,6 @@ from pydantic import (
     ConfigDict,
     Field,
     ValidationError,
-    ValidationInfo,
     field_validator,
 )
 from pydantic_core import ErrorDetails
@@ -87,30 +86,15 @@ class ConfigGit(_Modelo):
 class ConfigLimites(_Modelo):
     """Límites de la ejecución."""
 
+    # Pasos de implementación: cuentan recién desde que se aprueba el plan.
     max_pasos: Entero = 30
-    # None (sin escribir): la ronda de plan calcula su presupuesto a partir de max_pasos.
-    max_pasos_plan: Entero | None = None
+    # Pasos de cada ronda de plan (la primera y cada corrección); no descuentan de max_pasos.
+    max_pasos_plan: Entero = 10
     max_intentos_validacion: Entero = 3
     timeout_comando_segundos: Entero = 120
     max_caracteres_salida: Entero = 4000
     # Unos 50.000 tokens: de ahí para arriba se acortan los resultados viejos (compactacion.py).
     max_caracteres_conversacion: Entero = 200_000
-
-    @field_validator("max_pasos_plan")
-    @classmethod
-    def _plan_hasta_la_mitad(cls, valor: int | None, info: ValidationInfo) -> int | None:
-        # La planificación nunca usa más de la mitad de los pasos: la otra mitad es para
-        # implementar. Sin la clave no hay nada que validar (se calcula al ejecutar).
-        max_pasos = info.data.get("max_pasos")
-        if valor is None or max_pasos is None:
-            return valor
-        maximo = max_pasos // 2
-        if valor > maximo:
-            raise ValueError(
-                f"puede ser como máximo la mitad de max_pasos ({max_pasos} // 2 = {maximo}); "
-                f"vale {valor}"
-            )
-        return valor
 
 
 class ConfigRevision(_Modelo):

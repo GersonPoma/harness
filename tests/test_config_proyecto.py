@@ -116,32 +116,14 @@ def test_tipo_incorrecto(tmp_path: Path) -> None:
 
 
 def test_max_pasos_plan_por_defecto_y_explicito(tmp_path: Path) -> None:
-    assert _cargar(tmp_path, MINIMO).limites.max_pasos_plan is None
-    # Con max_pasos chico y sin escribir max_pasos_plan no hay error: se calcula al ejecutar.
-    assert _cargar(tmp_path, MINIMO + "limites:\n  max_pasos: 5\n").limites.max_pasos == 5
-    limites = "limites:\n  max_pasos: 20\n  max_pasos_plan: 4\n"
-    assert _cargar(tmp_path, MINIMO + limites).limites.max_pasos_plan == 4
-    # Justo la mitad está permitido; también con max_pasos impar (15 // 2 = 7).
-    limites = "limites:\n  max_pasos: 15\n  max_pasos_plan: 7\n"
-    assert _cargar(tmp_path, MINIMO + limites).limites.max_pasos_plan == 7
+    assert _cargar(tmp_path, MINIMO).limites.max_pasos_plan == 10
+    # Su propio presupuesto: puede ser mayor que max_pasos, que cuenta desde que se aprueba.
+    limites = "limites:\n  max_pasos: 5\n  max_pasos_plan: 20\n"
+    assert _cargar(tmp_path, MINIMO + limites).limites.max_pasos_plan == 20
 
 
-@pytest.mark.parametrize(("total", "plan", "maximo"), [(20, 11, 10), (20, 25, 10), (15, 8, 7)])
-def test_max_pasos_plan_como_maximo_la_mitad(
-    tmp_path: Path, total: int, plan: int, maximo: int
-) -> None:
-    limites = f"limites:\n  max_pasos: {total}\n  max_pasos_plan: {plan}\n"
-    error = _error(tmp_path, MINIMO + limites)
-    assert (
-        f"limites.max_pasos_plan: puede ser como máximo la mitad de max_pasos "
-        f"({total} // 2 = {maximo}); vale {plan}"
-    ) in error
-
-
-def test_max_pasos_plan_con_el_max_pasos_por_defecto(tmp_path: Path) -> None:
-    # Sin max_pasos se compara con el valor por defecto, 30: el máximo es 15.
-    error = _error(tmp_path, MINIMO + "limites:\n  max_pasos_plan: 16\n")
-    assert "(30 // 2 = 15); vale 16" in error
+def test_max_pasos_plan_menor_que_1_es_error(tmp_path: Path) -> None:
+    assert "max_pasos_plan" in _error(tmp_path, MINIMO + "limites:\n  max_pasos_plan: 0\n")
 
 
 def test_version_no_soportada(tmp_path: Path) -> None:

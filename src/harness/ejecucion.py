@@ -7,7 +7,7 @@ from harness.alcance import Alcance, EstadoAlcance, resolver_fuera_del_plan
 from harness.bucle import Paso, ejecutar_bucle
 from harness.bucles import normalizar_salida
 from harness.plan import Plan
-from harness.planificacion import planificar
+from harness.planificacion import MAX_PASOS_PLAN_POR_DEFECTO, planificar
 from harness.prompts import (
     MENSAJE_IMPLEMENTAR,
     crear_mensaje_revision_con_problemas,
@@ -51,9 +51,11 @@ class ResultadoEjecucion:
     # De la última validación que pasó: va en la descripción del PR.
     resumen_tests: str | None = None
     revision: EstadoRevision = field(default_factory=EstadoRevision)
+    # Lo que el usuario pidió cambiar del plan con --aprobar-plan, en orden.
+    correcciones_plan: list[str] = field(default_factory=list)
     alcance: EstadoAlcance = field(default_factory=EstadoAlcance)
-    # Pasos que no descuentan de max_pasos (revisión, fuera del plan): están en `pasos`, pero
-    # la implementación tiene max_pasos - (pasos - pasos_extra).
+    # Pasos que no descuentan de max_pasos (plan, revisión, fuera del plan): están en `pasos`,
+    # pero la implementación tiene max_pasos - (pasos - pasos_extra).
     pasos_extra: int = 0
 
     @property
@@ -67,10 +69,11 @@ class Planificacion:
     """Cómo se hace la ronda de plan antes de implementar."""
 
     herramientas_lectura: list[Herramienta]
-    # Recibe el plan para mostrarlo; si devuelve False, no se implementa (--aprobar-plan).
-    al_planear: Callable[[Plan], bool] | None = None
-    # None: 10. En los dos casos, nunca más de la mitad de max_pasos (calcular_pasos_plan).
-    max_pasos_plan: int | None = None
+    # Recibe el plan y los tokens gastados hasta ahí (para mostrarlos con --aprobar-plan).
+    # True: se implementa; False: no; un texto: es una corrección y se planifica de nuevo.
+    al_planear: Callable[[Plan, tuple[int, int]], bool | str] | None = None
+    # Pasos de cada ronda de plan: su propio presupuesto, no descuentan de max_pasos.
+    max_pasos_plan: int = MAX_PASOS_PLAN_POR_DEFECTO
 
 
 def ejecutar_ticket(
@@ -91,8 +94,9 @@ def ejecutar_ticket(
 ) -> ResultadoEjecucion:
     """Planifica (si se pide), implementa y valida; si la validación falla, el modelo corrige.
 
-    `max_pasos` es el total de todas las vueltas, plan incluido. Se vuelve de la validación a
-    la implementación como mucho `max_intentos_validacion` veces.
+    `max_pasos` es el total de las vueltas de implementación: cuenta desde que se aprueba el
+    plan (el plan tiene su propio presupuesto). Se vuelve de la validación a la implementación
+    como mucho `max_intentos_validacion` veces.
     `continuacion` es lo que ya se hizo antes de un corte (harness resume): los pasos, los
     tokens y las validaciones siguen contando desde ahí, y el plan ya está aprobado.
     `revisar_paso` mira cada paso de la implementación (detección de bucles).
@@ -102,7 +106,7 @@ def ejecutar_ticket(
     """
     resultado = continuacion or ResultadoEjecucion(None, 0, 0, 0, False, None, 0)
     if continuacion is None and planificacion and not _planificar(
-        resultado, proveedor, mensajes, planificacion, max_pasos, al_paso, al_aviso
+        resultado, proveedor, mensajes, planificacion, al_paso, al_aviso
     ):
         return resultado
     informe_anterior = None
@@ -156,23 +160,34 @@ def _planificar(
     proveedor: ProveedorLLM,
     mensajes: list[Mensaje],
     planificacion: Planificacion,
-    max_pasos: int,
     al_paso: Callable[[Paso], None] | None,
     al_aviso: Callable[[str], None] | None,
 ) -> bool:
-    """Corre la ronda de plan; devuelve si hay que seguir con la implementación."""
-    ronda = planificar(
-        proveedor, mensajes, planificacion.herramientas_lectura, max_pasos, al_paso, al_aviso,
-        max_pasos_plan=planificacion.max_pasos_plan,
-    )
-    _acumular(resultado, ronda.pasos, ronda.tokens_entrada, ronda.tokens_salida)
-    resultado.plan = ronda.plan
-    if planificacion.al_planear and not planificacion.al_planear(ronda.plan):
-        resultado.es_plan_rechazado = True
-        return False
-    if resultado.pasos >= max_pasos:
-        resultado.es_limite_alcanzado = True
-        return False
+    """Corre la ronda de plan (y una más por cada corrección del usuario); devuelve si hay
+    que seguir con la implementación."""
+    correccion = None
+    while True:
+        ronda = planificar(
+            proveedor, mensajes, planificacion.herramientas_lectura,
+            planificacion.max_pasos_plan, al_paso, al_aviso, resultado.pasos + 1, correccion,
+        )
+        _acumular(resultado, ronda.pasos, ronda.tokens_entrada, ronda.tokens_salida)
+        # El plan tiene su propio presupuesto: max_pasos cuenta desde que se aprueba.
+        resultado.pasos_extra += ronda.pasos
+        resultado.plan = ronda.plan
+        respuesta = (
+            planificacion.al_planear(
+                ronda.plan, (resultado.tokens_entrada, resultado.tokens_salida)
+            )
+            if planificacion.al_planear else True
+        )
+        if respuesta is True:
+            break
+        if respuesta is False:
+            resultado.es_plan_rechazado = True
+            return False
+        correccion = respuesta
+        resultado.correcciones_plan.append(correccion)
     mensajes.append(Mensaje(Rol.USUARIO, MENSAJE_IMPLEMENTAR))
     return True
 

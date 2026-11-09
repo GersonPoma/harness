@@ -253,8 +253,7 @@ def test_cli_init_verificar_falla_y_oculta_secretos(
 @pytest.mark.parametrize("ejemplo", [PLANTILLA_HARNESS_YAML, EJEMPLO_HARNESS_MAVEN])
 def test_los_ejemplos_del_prompt_son_harness_yaml_validos(ejemplo: str) -> None:
     # El modelo los copia: si no validan, guardar_harness_yaml se los rechazaría.
-    config = validar_texto_config(ejemplo)
-    assert config.limites.max_pasos_plan <= config.limites.max_pasos // 2
+    assert validar_texto_config(ejemplo).limites.max_pasos_plan >= 1
 
 
 def test_el_ejemplo_maven_es_el_de_tienda_api() -> None:

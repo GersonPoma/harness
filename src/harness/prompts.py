@@ -116,6 +116,16 @@ def crear_mensaje_planificar(max_pasos: int) -> str:
     )
 
 
+def crear_mensaje_correccion_plan(correccion: str, max_pasos: int) -> str:
+    """Pedido de otra ronda de plan con la corrección que escribió el usuario."""
+    return (
+        f"El usuario pidió este cambio al plan: {correccion}\n\n"
+        f"Tienes {max_pasos} pasos para explorar lo que necesites con las herramientas de "
+        "lectura. Después llama a proponer_plan con el plan completo corregido (no solo el "
+        "cambio). Todavía no puedes escribir archivos ni ejecutar comandos."
+    )
+
+
 def crear_aviso_pasos_plan(restantes: int) -> str:
     """Se agrega al resultado de una herramienta cuando quedan pocos pasos para planificar."""
     pasos = "paso" if restantes == 1 else "pasos"
@@ -176,7 +186,7 @@ variables_entorno:                  # variables que necesitan los tests, con val
   DATABASE_URL: postgresql://postgres:test@db:5432/app_test
 limites:                            # solo si el stack lo necesita (ver recomendaciones)
   max_pasos: 30
-  max_pasos_plan: 10                # como máximo max_pasos // 2
+  max_pasos_plan: 10                # pasos de cada ronda de plan; no descuentan de max_pasos
   timeout_comando_segundos: 120
   max_caracteres_salida: 4000
 archivos_protegidos:                # globs que el modelo no debe tocar

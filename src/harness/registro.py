@@ -140,6 +140,10 @@ class RegistroPasos:
             "problemas": estado.problemas,
         })
 
+    def registrar_correccion_plan(self, correccion: str) -> None:
+        """Registra lo que el usuario pidió cambiar del plan (con --aprobar-plan)."""
+        self._escribir({"evento": "correccion_plan", "correccion": correccion})
+
     def registrar_plan(self, plan: Plan, es_aprobado: bool) -> None:
         """Registra el plan propuesto y si se siguió con la implementación."""
         self._escribir({"evento": "plan", "es_aprobado": es_aprobado, **plan.model_dump()})

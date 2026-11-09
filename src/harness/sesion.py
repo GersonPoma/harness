@@ -76,6 +76,8 @@ class Sesion:
     texto_final: str | None = None
     # Cuántos tests pasaron en la última validación: también para la descripción del PR.
     resumen_tests: str | None = None
+    # Lo que el usuario pidió cambiar del plan: va en la descripción del PR.
+    correcciones_plan: list[str] = field(default_factory=list)
     # EstadoRevision como diccionario: vueltas hechas y problemas de la última.
     revision: dict[str, Any] = field(default_factory=dict)
     # EstadoAlcance como diccionario: justificados y revertidos de los cambios fuera del plan.
@@ -198,6 +200,7 @@ def armar_reanudacion(sesion: Sesion, motivo: str, cambiados: list[str]) -> Rean
         None, sesion.pasos, sesion.tokens_entrada, sesion.tokens_salida, False, None,
         sesion.validaciones, plan, revision=estado_revision(sesion),
         alcance=estado_alcance(sesion), pasos_extra=sesion.pasos_extra,
+        correcciones_plan=list(sesion.correcciones_plan),
     )
     return Reanudacion(mensajes, continuacion, sesion.repo_al_empezar)
 

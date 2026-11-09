@@ -47,6 +47,7 @@ LINEAS_INFORME_VALIDACION = 8
 SIMBOLOS_ACCION = {"crear": "[green]+[/]", "modificar": "[yellow]~[/]", "eliminar": "[red]-[/]"}
 RESPUESTAS_SI = ("s", "si", "sí")
 RESPUESTAS_NO = ("n", "no")
+PREGUNTA_PLAN = "¿Aprobar el plan? [s/n, o escribe qué cambiar] "
 LINEAS_VERIFICACION = 15
 # Los mismos que usa console.status de Rich.
 SPINNER_INDICADOR = "dots"
@@ -522,17 +523,21 @@ def mostrar_plan(plan: Plan) -> None:
     consola.print(Panel("\n".join(lineas), title="Plan"))
 
 
-def preguntar_implementar() -> bool:
-    """Pregunta si se implementa el plan; sin respuesta posible (EOF), no se implementa."""
-    while True:
-        try:
-            respuesta = consola.input(escape("¿Implementar? [s/n] ")).strip().lower()
-        except EOFError:
-            return False
-        if respuesta in RESPUESTAS_SI:
-            return True
-        if respuesta in RESPUESTAS_NO:
-            return False
+def preguntar_plan(tokens_entrada: int, tokens_salida: int) -> bool | str:
+    """Pregunta si se aprueba el plan: True (s), False (n, Enter o EOF) o el texto de una
+    corrección para planificar de nuevo."""
+    consola.print(
+        f"[dim]Tokens hasta ahora: {tokens_entrada} entrada / {tokens_salida} salida.[/]"
+    )
+    try:
+        respuesta = consola.input(escape(PREGUNTA_PLAN)).strip()
+    except EOFError:
+        return False
+    if respuesta.lower() in RESPUESTAS_SI:
+        return True
+    if not respuesta or respuesta.lower() in RESPUESTAS_NO:
+        return False
+    return respuesta
 
 
 def es_terminal_interactiva() -> bool:

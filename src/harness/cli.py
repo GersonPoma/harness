@@ -96,7 +96,7 @@ from harness.memoria import (
     notas_nuevas,
 )
 from harness.plan import Plan
-from harness.planificacion import ErrorPlan, calcular_pasos_plan
+from harness.planificacion import ErrorPlan
 from harness.prompts import crear_mensajes_iniciales
 from harness.proveedores.base import ErrorProveedor, ProveedorLLM
 from harness.proveedores.fabrica import crear_proveedor, identificador
@@ -265,14 +265,16 @@ class _Reporte:
         consola.mostrar_aviso(mensaje)
         self.registro.registrar_aviso(mensaje)
 
-    def plan(self, plan: Plan) -> bool:
-        """Muestra el plan y, con --aprobar-plan, pregunta si se implementa."""
+    def plan(self, plan: Plan, tokens: tuple[int, int]) -> bool | str:
+        """Muestra el plan y, con --aprobar-plan, pregunta si se aprueba o qué cambiar."""
         consola.mostrar_plan(plan)
-        es_aprobado = consola.preguntar_implementar() if self._es_aprobar_plan else True
-        self.registro.registrar_plan(plan, es_aprobado)
-        if es_aprobado and self.sesion:
+        respuesta = consola.preguntar_plan(*tokens) if self._es_aprobar_plan else True
+        self.registro.registrar_plan(plan, respuesta is True)
+        if isinstance(respuesta, str):
+            self.registro.registrar_correccion_plan(respuesta)
+        if respuesta is True and self.sesion:
             self.sesion.plan_aprobado(plan.model_dump())
-        return es_aprobado
+        return respuesta
 
     def fuera_del_plan(self, estado: EstadoAlcance) -> None:
         consola.mostrar_alcance(estado)
@@ -373,6 +375,12 @@ def run(
     if sin_plan and aprobar_plan:
         consola.mostrar_error("--sin-plan y --aprobar-plan no se pueden usar juntos.")
         raise typer.Exit(1)
+    if aprobar_plan and not consola.es_terminal_interactiva():
+        # Sin nadie que responda, se detiene antes de empezar (como el preflight de GitHub).
+        consola.mostrar_error(
+            "--aprobar-plan necesita una terminal interactiva para responder la pregunta."
+        )
+        raise typer.Exit(1)
     prep = _preparar_ejecucion(ticket, (repo or Path.cwd()).resolve())
     _revisar_sesion_pendiente(prep, desde_cero)
     prep.es_con_plan = not sin_plan
@@ -386,7 +394,6 @@ def run(
         reporte.aviso(_aviso_recorte_ticket(prep.datos_ticket))
     consola.mostrar_contexto(prep.contexto)
     consola.mostrar_memoria(prep.memoria)
-    _avisar_recorte_plan(prep, max_pasos, reporte)
     es_herramientas_github = not sin_herramientas_github and leer_herramientas_github_modelo()
     # El servidor MCP se abre en el preflight y se cierra al salir del with: también con
     # error o Ctrl+C.
@@ -706,6 +713,7 @@ def _terminar_ejecucion_en_sesion(
     datos.tokens_salida = resultado.tokens_salida
     datos.texto_final = resultado.texto_final
     datos.resumen_tests = resultado.resumen_tests
+    datos.correcciones_plan = list(resultado.correcciones_plan)
     datos.pasos_extra = resultado.pasos_extra
     datos.revision = asdict(resultado.revision)
     datos.alcance = asdict(resultado.alcance)
@@ -999,6 +1007,7 @@ def _retomar_entrega(
         True, sesion.validaciones, Plan.model_validate(sesion.plan) if sesion.plan else None,
         resumen_tests=sesion.resumen_tests, revision=estado_revision(sesion),
         alcance=estado_alcance(sesion), pasos_extra=sesion.pasos_extra,
+        correcciones_plan=list(sesion.correcciones_plan),
     )
     if config is None:
         prep.sesion.completar()
@@ -1346,20 +1355,6 @@ def _seguir_en_sesion(prep: _Preparacion, mensajes: list[Mensaje], antes: Instan
     """La sesión guarda la conversación viva (el bucle la va agregando) desde el principio."""
     if prep.sesion:
         prep.sesion.usar_mensajes(mensajes, antes)
-
-
-def _avisar_recorte_plan(prep: _Preparacion, max_pasos: int, reporte: _Reporte) -> None:
-    # harness.yaml ya garantiza max_pasos_plan <= max_pasos // 2: si se recorta, es porque
-    # --max-pasos bajó el total.
-    escrito = prep.config_proyecto.limites.max_pasos_plan if prep.config_proyecto else None
-    if not prep.es_con_plan or escrito is None:
-        return
-    efectivo = calcular_pasos_plan(max_pasos, escrito)
-    if efectivo < escrito:
-        reporte.aviso(
-            f"Pasos de planificación recortados de {escrito} a {efectivo} "
-            f"por --max-pasos {max_pasos}."
-        )
 
 
 def _planificacion(prep: _Preparacion, reporte: _Reporte) -> Planificacion | None:

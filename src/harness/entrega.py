@@ -375,6 +375,12 @@ def crear_cuerpo_pr(
         f"## Validación\n\n{_validacion_en_markdown(resultado, comandos)}",
         f"## Cambios\n\n{_cambios_en_markdown(cambios, notas_memoria or [])}",
     ]
+    if resultado.correcciones_plan:
+        indicaciones = "\n".join(f"- {texto}" for texto in resultado.correcciones_plan)
+        secciones.append(
+            "## Indicaciones del usuario\n\nCambios que pidió al plan antes de aprobarlo:"
+            f"\n\n{indicaciones}"
+        )
     if resultado.alcance.hay_archivos:
         secciones.append(f"## Cambios fuera del plan\n\n{_alcance_en_markdown(resultado.alcance)}")
     revision = _revision_en_markdown(resultado.revision)

@@ -12,6 +12,7 @@ from harness.prompts import (
     MENSAJE_ENTREGAR_PLAN,
     MENSAJE_ULTIMA_OPORTUNIDAD_PLAN,
     crear_aviso_pasos_plan,
+    crear_mensaje_correccion_plan,
     crear_mensaje_planificar,
 )
 from harness.proveedores.base import ProveedorLLM
@@ -45,28 +46,33 @@ def planificar(
     proveedor: ProveedorLLM,
     mensajes: list[Mensaje],
     herramientas_lectura: list[Herramienta],
-    max_pasos: int,
+    max_pasos_plan: int = MAX_PASOS_PLAN_POR_DEFECTO,
     al_paso: Callable[[Paso], None] | None = None,
     al_aviso: Callable[[str], None] | None = None,
-    max_pasos_plan: int | None = None,
+    primer_paso: int = 1,
+    correccion: str | None = None,
 ) -> ResultadoPlan:
-    """Corre la ronda de plan; termina en cuanto el modelo llama a proponer_plan.
+    """Corre una ronda de plan; termina en cuanto el modelo llama a proponer_plan.
 
-    Explora hasta `calcular_pasos_plan(max_pasos, max_pasos_plan)` pasos.
+    Explora hasta `max_pasos_plan` pasos, su propio presupuesto (no descuenta de max_pasos).
+    Con `correccion` es una ronda más después de que el usuario pidió un cambio al plan.
     """
     propuestos: list[Plan] = []
     herramienta_plan = crear_herramienta_plan(propuestos.append)
-    pasos_exploracion = calcular_pasos_plan(max_pasos, max_pasos_plan)
-    mensajes.append(Mensaje(Rol.USUARIO, crear_mensaje_planificar(pasos_exploracion)))
+    pedido_inicial = (
+        crear_mensaje_correccion_plan(correccion, max_pasos_plan)
+        if correccion is not None else crear_mensaje_planificar(max_pasos_plan)
+    )
+    mensajes.append(Mensaje(Rol.USUARIO, pedido_inicial))
     bucle = ejecutar_bucle(
         proveedor, mensajes, [*herramientas_lectura, herramienta_plan],
-        pasos_exploracion, al_paso, al_aviso=al_aviso,
+        max_pasos_plan, al_paso, primer_paso=primer_paso, al_aviso=al_aviso,
         es_fin=lambda: bool(propuestos), nota_restantes=_nota_restantes,
     )
     pasos, entrada, salida = bucle.pasos, bucle.tokens_entrada, bucle.tokens_salida
     # Respondió con texto o se le acabaron los pasos: se le pide el plan, sin explorar más.
     for intento, pedido in enumerate(PEDIDOS_ENTREGA_PLAN):
-        if propuestos or pasos >= max_pasos:
+        if propuestos:
             break
         if al_aviso:
             al_aviso(AVISO_ULTIMA_OPORTUNIDAD if intento else AVISO_FIN_EXPLORACION)
@@ -75,7 +81,7 @@ def planificar(
         # y read_file): tool_choice lo obliga a proponer_plan donde el proveedor lo acepta.
         extra = ejecutar_bucle(
             proveedor, mensajes, [herramienta_plan], 1, al_paso,
-            primer_paso=pasos + 1, al_aviso=al_aviso, es_fin=lambda: bool(propuestos),
+            primer_paso=primer_paso + pasos, al_aviso=al_aviso, es_fin=lambda: bool(propuestos),
             herramienta_obligatoria=NOMBRE_HERRAMIENTA_PLAN,
         )
         pasos += extra.pasos
@@ -84,15 +90,6 @@ def planificar(
     if not propuestos:
         raise ErrorPlan("El modelo no propuso un plan válido: se corta antes de implementar.")
     return ResultadoPlan(propuestos[-1], pasos, entrada, salida)
-
-
-def calcular_pasos_plan(max_pasos: int, max_pasos_plan: int | None) -> int:
-    """Pasos para explorar: el de harness.yaml (o 10), nunca más de la mitad del total.
-
-    `max_pasos` es el efectivo: con --max-pasos puede quedar por debajo de lo que permitía
-    harness.yaml, y entonces el valor escrito se recorta.
-    """
-    return min(max_pasos_plan or MAX_PASOS_PLAN_POR_DEFECTO, max_pasos // 2)
 
 
 def _nota_restantes(restantes: int) -> str | None:

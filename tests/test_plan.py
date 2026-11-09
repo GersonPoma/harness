@@ -11,13 +11,13 @@ from harness.planificacion import (
     AVISO_FIN_EXPLORACION,
     AVISO_ULTIMA_OPORTUNIDAD,
     ErrorPlan,
-    calcular_pasos_plan,
 )
 from harness.prompts import (
     MENSAJE_ENTREGAR_PLAN,
     MENSAJE_ULTIMA_OPORTUNIDAD_PLAN,
     MENSAJE_IMPLEMENTAR,
     crear_aviso_pasos_plan,
+    crear_mensaje_correccion_plan,
     crear_mensaje_planificar,
     crear_mensajes_iniciales,
 )
@@ -151,13 +151,13 @@ def test_sin_plan_valido_se_corta(repo: Path) -> None:
 
 def test_el_pedido_final_obliga_a_proponer_plan(repo: Path) -> None:
     proveedor = ProveedorFalso([pedir(LEER)] * 2 + [proponer(), terminar()])
-    _ejecutar(repo, proveedor, max_pasos=4)
+    _ejecutar(repo, proveedor, max_pasos_plan=2)
     # tool_choice solo en el pedido final; explorando, el modelo elige.
     assert proveedor.obligatorias[:3] == [None, None, "proponer_plan"]
 
 
 def test_un_modelo_que_ignora_el_pedido_tiene_una_ultima_oportunidad(repo: Path) -> None:
-    # Como Nemotron con --max-pasos 4: agota la exploración y sigue llamando lo que no tiene.
+    # Como Nemotron con 2 pasos de plan: agota la exploración y sigue llamando lo que no tiene.
     inventada = LlamadaHerramienta("r1", "read_file", {"path": "src/app.py"})
     proveedor = ProveedorFalso([pedir(LEER)] * 2 + [pedir(LEER), pedir(inventada)])
     avisos: list[str] = []
@@ -165,7 +165,7 @@ def test_un_modelo_que_ignora_el_pedido_tiene_una_ultima_oportunidad(repo: Path)
         ejecutar_ticket(
             proveedor, crear_mensajes_iniciales("T"), crear_herramientas(repo), 4,
             al_aviso=avisos.append,
-            planificacion=Planificacion(crear_herramientas_lectura(repo)),
+            planificacion=Planificacion(crear_herramientas_lectura(repo), max_pasos_plan=2),
         )
     assert proveedor.obligatorias == [None, None, "proponer_plan", "proponer_plan"]
     assert proveedor.conversaciones[2][-1] == Mensaje(Rol.USUARIO, MENSAJE_ENTREGAR_PLAN)
@@ -176,22 +176,22 @@ def test_un_modelo_que_ignora_el_pedido_tiene_una_ultima_oportunidad(repo: Path)
 
 def test_la_ultima_oportunidad_puede_traer_el_plan(repo: Path) -> None:
     proveedor = ProveedorFalso([pedir(LEER)] * 2 + [pedir(LEER), proponer(), terminar()])
-    resultado, _ = _ejecutar(repo, proveedor, max_pasos=6)
+    resultado, _ = _ejecutar(repo, proveedor, max_pasos=1, max_pasos_plan=2)
     assert resultado.plan == Plan.model_validate(PLAN_SIMPLE)
     assert resultado.pasos == 5
 
 
-def test_sin_pasos_para_la_ultima_oportunidad_se_corta(repo: Path) -> None:
-    # Con 3 pasos: 1 de exploración, el pedido final y la última oportunidad; con 2, no hay.
-    proveedor = ProveedorFalso([pedir(LEER), pedir(LEER)])
+def test_el_pedido_final_y_la_ultima_oportunidad_no_dependen_de_max_pasos(repo: Path) -> None:
+    # El plan tiene su propio presupuesto: con max_pasos 1 igual hay pedido final y última.
+    proveedor = ProveedorFalso([pedir(LEER)] * 3)
     with pytest.raises(ErrorPlan):
-        _ejecutar(repo, proveedor, max_pasos=2)
-    assert proveedor.obligatorias == [None, "proponer_plan"]
+        _ejecutar(repo, proveedor, max_pasos=1, max_pasos_plan=1)
+    assert proveedor.obligatorias == [None, "proponer_plan", "proponer_plan"]
 
 
 def test_plan_rechazado_no_implementa(repo: Path) -> None:
     proveedor = ProveedorFalso([proponer(), pedir(ESCRIBIR), terminar()])
-    resultado, _ = _ejecutar(repo, proveedor, al_planear=lambda _: False)
+    resultado, _ = _ejecutar(repo, proveedor, al_planear=lambda *_: False)
     assert resultado.es_plan_rechazado
     assert len(proveedor.conversaciones) == 1
     assert not (repo / "nuevo.py").exists()
@@ -212,39 +212,21 @@ def test_el_pedido_de_plan_dice_los_pasos_y_que_puede_leer_varios() -> None:
     assert "varias herramientas de lectura en una misma respuesta" in mensaje
 
 
-def test_el_pedido_de_plan_usa_los_pasos_reales(repo: Path) -> None:
-    # Sin max_pasos_plan y con 4 pasos en total: la mitad, 2.
+def test_el_pedido_de_plan_no_depende_de_max_pasos(repo: Path) -> None:
+    # Sin max_pasos_plan: 10, aunque max_pasos sea 4 (el plan tiene su propio presupuesto).
     proveedor = ProveedorFalso([proponer(), terminar()])
     _, mensajes = _ejecutar(repo, proveedor, max_pasos=4)
-    assert "Tienes 2 pasos" in mensajes[2].contenido
+    assert "Tienes 10 pasos" in mensajes[2].contenido
 
 
-@pytest.mark.parametrize(
-    ("max_pasos", "max_pasos_plan", "esperado"),
-    [
-        (30, None, 10),
-        (20, None, 10),
-        (10, None, 5),
-        (7, None, 3),
-        (30, 4, 4),
-        (30, 15, 15),
-        # --max-pasos por debajo de lo que permitía harness.yaml: se recorta a la mitad.
-        (15, 10, 7),
-        (3, 8, 1),
-    ],
-)
-def test_calcular_pasos_plan(max_pasos: int, max_pasos_plan: int | None, esperado: int) -> None:
-    assert calcular_pasos_plan(max_pasos, max_pasos_plan) == esperado
-
-
-def test_sin_la_clave_queda_la_mitad_para_implementar(repo: Path) -> None:
-    # max_pasos 10: el plan explora 5 y pide el plan; quedan pasos para escribir y terminar.
+def test_max_pasos_cuenta_desde_que_se_aprueba_el_plan(repo: Path) -> None:
+    # 5 pasos de plan y max_pasos 2: los 2 son para implementar (escribir y terminar).
     proveedor = ProveedorFalso([pedir(LEER)] * 5 + [proponer(), pedir(ESCRIBIR), terminar()])
-    resultado, _ = _ejecutar(repo, proveedor, max_pasos=10)
+    resultado, _ = _ejecutar(repo, proveedor, max_pasos=2, max_pasos_plan=5)
     assert proveedor.herramientas[5] == ["proponer_plan"]
     assert (repo / "nuevo.py").exists()
     assert not resultado.es_limite_alcanzado
-    assert resultado.pasos == 8
+    assert resultado.pasos == 8 and resultado.pasos_extra == 6
 
 
 def test_varias_lecturas_en_un_paso_quedan_identificadas(repo: Path) -> None:
@@ -289,11 +271,49 @@ def test_el_aviso_va_solo_en_el_ultimo_resultado_del_paso(repo: Path) -> None:
     assert resultados[1].endswith(crear_aviso_pasos_plan(2))
 
 
-def test_los_pasos_del_plan_cuentan_para_el_limite(repo: Path) -> None:
-    proveedor = ProveedorFalso([pedir(LEER), proponer(), pedir(ESCRIBIR)])
-    resultado, _ = _ejecutar(repo, proveedor, max_pasos=3)
+def test_los_pasos_del_plan_no_cuentan_para_el_limite(repo: Path) -> None:
+    proveedor = ProveedorFalso([pedir(LEER), proponer(), pedir(ESCRIBIR), pedir(ESCRIBIR)])
+    resultado, _ = _ejecutar(repo, proveedor, max_pasos=2)
     assert resultado.es_limite_alcanzado
-    assert resultado.pasos == 3
+    # 2 de plan y los 2 de implementación.
+    assert resultado.pasos == 4
+
+
+# --- Correcciones del usuario al plan (--aprobar-plan) ------------------------------------
+
+
+def test_una_correccion_da_otra_ronda_de_plan_con_su_propio_presupuesto(repo: Path) -> None:
+    respuestas_usuario = iter(["Agrega un test para la lista vacía", True])
+    recibidos: list = []
+
+    def al_planear(plan: Plan, tokens: tuple[int, int]) -> bool | str:
+        recibidos.append((plan, tokens))
+        return next(respuestas_usuario)
+
+    proveedor = ProveedorFalso([
+        pedir(LEER), proponer(), pedir(LEER), pedir(LEER), proponer(id_llamada="p2"),
+        pedir(ESCRIBIR), terminar(),
+    ])
+    resultado, mensajes = _ejecutar(
+        repo, proveedor, max_pasos=2, max_pasos_plan=3, al_planear=al_planear
+    )
+    assert resultado.correcciones_plan == ["Agrega un test para la lista vacía"]
+    correccion = crear_mensaje_correccion_plan("Agrega un test para la lista vacía", 3)
+    assert Mensaje(Rol.USUARIO, correccion) in mensajes
+    assert "plan completo corregido" in correccion
+    # Los tokens gastados hasta cada pregunta: 2 y 5 respuestas del modelo.
+    assert [tokens for _, tokens in recibidos] == [(20, 10), (50, 25)]
+    # Las dos rondas de plan (5 pasos) no le quitan pasos a la implementación.
+    assert not resultado.es_limite_alcanzado and (repo / "nuevo.py").exists()
+    assert resultado.pasos_extra == 5
+
+
+def test_rechazar_despues_de_corregir(repo: Path) -> None:
+    respuestas_usuario = iter(["Otro enfoque", False])
+    proveedor = ProveedorFalso([proponer(), proponer(id_llamada="p2")])
+    resultado, _ = _ejecutar(repo, proveedor, al_planear=lambda *_: next(respuestas_usuario))
+    assert resultado.es_plan_rechazado
+    assert resultado.correcciones_plan == ["Otro enfoque"]
 
 
 def test_en_la_ronda_de_plan_no_se_puede_escribir(repo: Path) -> None:
