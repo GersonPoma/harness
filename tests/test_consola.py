@@ -85,7 +85,7 @@ def test_la_salida_cruda_es_lo_mismo_que_va_a_la_terminal(
     cruda = ruta.read_bytes().decode("utf-8")
     assert cruda == salida.getvalue()
     assert "\x1b[2K" in cruda and "\r\n" not in cruda
-    assert _pantalla(cruda) == ["Instalando dependencias...", "un aviso", "fin"]
+    assert _pantalla(cruda) == ["Instalando dependencias...", "Aviso: un aviso", "fin"]
 
 
 class _TerminalFalsa(io.StringIO):
@@ -347,9 +347,9 @@ def test_un_aviso_fija_el_indicador_una_sola_vez(monkeypatch: pytest.MonkeyPatch
     consola.mostrar_aviso("fuera del indicador")
     assert _pantalla(salida.getvalue()) == [
         "Conectando con el servidor MCP github...",
-        "primer aviso",
-        "segundo aviso",
-        "fuera del indicador",
+        "Aviso: primer aviso",
+        "Aviso: segundo aviso",
+        "Aviso: fuera del indicador",
     ]
 
 
@@ -358,7 +358,7 @@ def test_sin_nada_impreso_el_indicador_queda_como_antes(monkeypatch: pytest.Monk
     with consola.estado("Preparando Docker...") as indicador:
         consola.actualizar_estado(indicador, "Instalando dependencias...")
     consola.mostrar_aviso("después")
-    assert _pantalla(salida.getvalue()) == ["Instalando dependencias...", "después"]
+    assert _pantalla(salida.getvalue()) == ["Instalando dependencias...", "Aviso: después"]
 
 
 def test_fuera_de_una_terminal_el_indicador_no_dibuja_nada(
@@ -421,8 +421,8 @@ def test_formatear_duracion(segundos: float, texto: str) -> None:
         ),
         (
             EstadoCache(motivo="otra ejecución de tienda-api la está usando (harness-x)"),
-            "Esta ejecución corre sin caché de dependencias: otra ejecución de tienda-api la "
-            "está usando (harness-x).",
+            "Aviso: Esta ejecución corre sin caché de dependencias: otra ejecución de "
+            "tienda-api la está usando (harness-x).",
         ),
     ],
 )

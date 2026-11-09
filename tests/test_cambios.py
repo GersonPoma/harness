@@ -113,9 +113,11 @@ def test_muestra_la_lista_de_archivos(salida: Console) -> None:
 
 def test_sin_cambios_avisa_en_amarillo(salida: Console) -> None:
     consola.mostrar_cambios(CambiosRepo())
-    assert salida.export_text(clear=False) == "El modelo no modificó ningún archivo.\n"
+    assert salida.export_text(clear=False) == "Aviso: El modelo no modificó ningún archivo.\n"
     # Código ANSI 33: amarillo.
-    assert "\x1b[33mEl modelo no modificó ningún archivo." in salida.export_text(styles=True)
+    assert "\x1b[33mAviso: El modelo no modificó ningún archivo." in salida.export_text(
+        styles=True
+    )
 
 
 def _escribir(ruta: Path, contenido: str = "x") -> None:

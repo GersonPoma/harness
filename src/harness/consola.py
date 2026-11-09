@@ -49,6 +49,7 @@ LINEAS_VERIFICACION = 15
 SPINNER_INDICADOR = "dots"
 REFRESCOS_POR_SEGUNDO_INDICADOR = 12.5
 SEGUNDOS_POR_MINUTO = 60
+PREFIJO_AVISO = "Aviso: "
 TEXTOS_MOTIVO_CAMBIO = {
     MOTIVO_CAIDO: "no responde después de los reintentos",
     MOTIVO_LIMITE: "sigue con el límite de pedidos (429) después de los reintentos",
@@ -593,9 +594,12 @@ def formatear_duracion(segundos: float) -> str:
 
 
 def mostrar_aviso(mensaje: str) -> None:
-    """Muestra un aviso que no corta la ejecución (por ejemplo, un reintento)."""
+    """Muestra un aviso que no corta la ejecución (por ejemplo, un reintento).
+
+    El prefijo lo distingue también sin colores (salida copiada o redirigida a un archivo).
+    """
     _fijar_indicador()
-    consola.print(f"[yellow]{escape(mensaje)}[/]")
+    consola.print(f"[yellow]{PREFIJO_AVISO}{escape(mensaje)}[/]")
 
 
 class Indicador:
