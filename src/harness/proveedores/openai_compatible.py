@@ -33,6 +33,11 @@ ESTADO_ERROR_SERVIDOR = 500
 # Un 429 de cuota diaria no se recupera esperando (se renueva una vez por día). Se reconoce
 # por el cuerpo: Gemini manda un quotaId con "PerDay" y OpenRouter "free-models-per-day".
 PATRON_CUOTA_DIARIA = re.compile(r"per[\s_-]?day", re.IGNORECASE)
+# Gemini a veces genera una llamada a herramienta que no puede leer y responde sin texto ni
+# llamadas, con este finish_reason. Pasa sobre todo con llamadas de otro proveedor en la
+# conversación (firma de reemplazo): repetir el mismo pedido suele alcanzar.
+FINISH_LLAMADA_MALFORMADA = "MALFORMED_FUNCTION_CALL"
+MAX_REPETICIONES_MALFORMADA = 2
 
 SUGERENCIA_OTRO_PROVEEDOR = (
     "configura otro proveedor en HARNESS_RESPALDO (o cambia HARNESS_PROVEEDOR / HARNESS_MODELO) "
@@ -97,7 +102,7 @@ class ProveedorOpenAICompatible:
                     "type": "function",
                     "function": {"name": herramienta_obligatoria},
                 }
-        respuesta = self._pedir_con_reintentos(parametros)
+        respuesta = self._pedir_sin_llamada_malformada(parametros)
         return _a_respuesta_modelo(respuesta, self.id)
 
     def adaptar_esquema(self, esquema: dict[str, Any]) -> dict[str, Any]:
@@ -117,6 +122,21 @@ class ProveedorOpenAICompatible:
                 "parameters": self.adaptar_esquema(herramienta.parametros),
             },
         }
+
+    def _pedir_sin_llamada_malformada(self, parametros: dict[str, Any]) -> Any:
+        # La respuesta descartada no tiene salida; su entrada no se suma a los tokens.
+        for repeticion in range(1, MAX_REPETICIONES_MALFORMADA + 1):
+            respuesta = self._pedir_con_reintentos(parametros)
+            if not _es_llamada_malformada(respuesta):
+                return respuesta
+            if self._al_reintentar:
+                self._al_reintentar(
+                    f"{self._config.proveedor.capitalize()} generó una llamada a herramienta mal "
+                    f"formada ({FINISH_LLAMADA_MALFORMADA}): se repite el pedido "
+                    f"({repeticion}/{MAX_REPETICIONES_MALFORMADA})."
+                )
+        # Si sigue igual, el bucle la trata como respuesta vacía.
+        return self._pedir_con_reintentos(parametros)
 
     def _pedir_con_reintentos(self, parametros: dict[str, Any]) -> Any:
         espera = ESPERA_INICIAL_SEGUNDOS
@@ -253,6 +273,17 @@ def _espera_sugerida(error: openai.APIError) -> float | None:
         return min(float(valor), ESPERA_MAXIMA_SEGUNDOS) if valor else None
     except ValueError:
         return None
+
+
+def _es_llamada_malformada(respuesta: Any) -> bool:
+    eleccion = respuesta.choices[0]
+    motivo = str(getattr(eleccion, "finish_reason", None) or "")
+    mensaje = eleccion.message
+    return (
+        FINISH_LLAMADA_MALFORMADA in motivo
+        and not mensaje.tool_calls
+        and not (mensaje.content or "").strip()
+    )
 
 
 def _a_respuesta_modelo(respuesta: Any, origen: str) -> RespuestaModelo:

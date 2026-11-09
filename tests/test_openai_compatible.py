@@ -58,10 +58,16 @@ class Reloj:
         self.ahora += segundos
 
 
-def respuesta_openai(texto: str | None = None, llamadas: list[Any] | None = None) -> Any:
+def respuesta_openai(
+    texto: str | None = None, llamadas: list[Any] | None = None, finish: str = "stop"
+) -> Any:
     mensaje = SimpleNamespace(content=texto, tool_calls=llamadas)
     uso = SimpleNamespace(prompt_tokens=12, completion_tokens=3)
-    return SimpleNamespace(choices=[SimpleNamespace(message=mensaje)], usage=uso)
+    eleccion = SimpleNamespace(message=mensaje, finish_reason=finish)
+    return SimpleNamespace(choices=[eleccion], usage=uso)
+
+
+MALFORMADA = "function_call_filter: MALFORMED_FUNCTION_CALL"
 
 
 def llamada_openai(
@@ -104,6 +110,42 @@ def test_personalizado_ignora_la_herramienta_obligatoria() -> None:
         [Mensaje(Rol.USUARIO, "hola")], [_herramienta_plan()], "proponer_plan"
     )
     assert "tool_choice" not in cliente.pedidos[0]
+
+
+def test_una_llamada_malformada_repite_el_pedido() -> None:
+    # Lo que devolvió Gemini al retomar después de Nemotron: sin texto ni llamadas.
+    llamada = llamada_openai("c1", "leer_archivo", '{"ruta": "app.py"}')
+    cliente = ClienteFalso([respuesta_openai(finish=MALFORMADA),
+                            respuesta_openai(llamadas=[llamada], finish="tool_calls")])
+    reloj, avisos = Reloj(), []
+    proveedor = ProveedorOpenAICompatible(
+        CONFIG, cliente=cliente, dormir=reloj.dormir, reloj=reloj, al_reintentar=avisos.append
+    )
+    respuesta = proveedor.responder([Mensaje(Rol.USUARIO, "hola")], [])
+    assert [ll.nombre for ll in respuesta.llamadas] == ["leer_archivo"]
+    assert len(cliente.pedidos) == 2 and cliente.pedidos[0] == cliente.pedidos[1]
+    assert avisos == [
+        "Gemini generó una llamada a herramienta mal formada (MALFORMED_FUNCTION_CALL): se "
+        "repite el pedido (1/2)."
+    ]
+
+
+def test_si_sigue_malformada_devuelve_la_respuesta_vacia() -> None:
+    cliente = ClienteFalso([respuesta_openai(finish=MALFORMADA)] * 3)
+    reloj = Reloj()
+    proveedor = ProveedorOpenAICompatible(CONFIG, cliente=cliente, dormir=reloj.dormir,
+                                          reloj=reloj)
+    respuesta = proveedor.responder([Mensaje(Rol.USUARIO, "hola")], [])
+    # El bucle la trata como respuesta vacía, como antes.
+    assert (respuesta.texto, respuesta.llamadas) == (None, [])
+    assert len(cliente.pedidos) == 3
+
+
+def test_una_respuesta_vacia_normal_no_se_repite() -> None:
+    cliente = ClienteFalso([respuesta_openai(finish="stop")])
+    proveedor = ProveedorOpenAICompatible(CONFIG, cliente=cliente)
+    proveedor.responder([Mensaje(Rol.USUARIO, "hola")], [])
+    assert len(cliente.pedidos) == 1
 
 
 def error_429(retry_after: str | None = None) -> openai.RateLimitError:
