@@ -25,7 +25,11 @@ from harness.cache_dependencias import EstadoCache
 from harness.entorno_docker import EntornoDocker, Instalacion, ResultadoComando
 from harness.herramientas import crear_herramientas_lectura
 from harness.herramientas.archivos import ErrorHerramienta
-from harness.prompts import crear_mensajes_init, crear_mensaje_guardar_faltantes
+from harness.prompts import (
+    crear_mensaje_corregir_harness_yaml,
+    crear_mensaje_guardar_faltantes,
+    crear_mensajes_init,
+)
 from harness.proveedores.base import ProveedorLLM
 from harness.tipos import Herramienta, Mensaje, Rol
 from harness.variables import VariablesResueltas
@@ -38,6 +42,9 @@ HERRAMIENTA_GUARDAR = {
 MAX_PASOS_INIT = 30
 # Pasos para el último pedido ("guarda lo que falta"), con solo las herramientas de guardar.
 MAX_PASOS_GUARDAR = 2
+# init --verificar: cuántas veces se le devuelve el error al modelo, y sus pasos cada vez.
+MAX_CORRECCIONES_INIT = 2
+MAX_PASOS_CORRECCION_INIT = 6
 NOMBRE_EJECUCION_VERIFICAR = "init"
 CLAVE_REQUIERE_AGENTS = "requiere_agents_md"
 LINEA_REQUIERE_AGENTS = (
@@ -92,6 +99,19 @@ class ResultadoInit:
     tokens_entrada: int = 0
     tokens_salida: int = 0
     texto_final: str | None = None
+    # La conversación, para devolverle al modelo el error de --verificar.
+    mensajes: list[Mensaje] = field(default_factory=list)
+
+
+@dataclass
+class CorreccionInit:
+    """Qué hizo el modelo con el error de --verificar: guardar otro harness.yaml o no."""
+
+    es_guardado: bool
+    texto_final: str | None
+    pasos: int
+    tokens_entrada: int
+    tokens_salida: int
 
 
 def asegurar_gitignore(repo: Path) -> list[str]:
@@ -143,6 +163,7 @@ def ejecutar_init(
         return set(resultado.creados) >= set(faltantes)
 
     mensajes = crear_mensajes_init(faltantes, existentes, imagenes)
+    resultado.mensajes = mensajes
     bucle = ejecutar_bucle(
         proveedor, mensajes, [*crear_herramientas_lectura(repo), *guardar], MAX_PASOS_INIT,
         al_paso, al_aviso=al_aviso, es_fin=es_fin,
@@ -162,6 +183,31 @@ def ejecutar_init(
         pendientes = [nombre for nombre in faltantes if nombre not in resultado.creados]
         raise ErrorInit(f"El modelo no guardó: {', '.join(pendientes)}.")
     return resultado
+
+
+def corregir_harness_yaml(
+    proveedor: ProveedorLLM,
+    mensajes: list[Mensaje],
+    repo: Path,
+    error: str,
+    primer_paso: int = 1,
+    al_paso: Callable[[Paso], None] | None = None,
+    al_aviso: Callable[[str], None] | None = None,
+) -> CorreccionInit:
+    """Le devuelve al modelo el error de --verificar para que corrija el harness.yaml que
+    escribió; puede responder con texto si el problema no es del YAML."""
+    guardados: list[str] = []
+    guardar = crear_herramientas_guardar(repo, [NOMBRE_ARCHIVO], guardados.append, al_aviso)
+    mensajes.append(Mensaje(Rol.USUARIO, crear_mensaje_corregir_harness_yaml(error)))
+    bucle = ejecutar_bucle(
+        proveedor, mensajes, [*crear_herramientas_lectura(repo), *guardar],
+        MAX_PASOS_CORRECCION_INIT, al_paso, primer_paso=primer_paso, al_aviso=al_aviso,
+        es_fin=lambda: bool(guardados),
+    )
+    return CorreccionInit(
+        bool(guardados), bucle.texto_final, bucle.pasos, bucle.tokens_entrada,
+        bucle.tokens_salida,
+    )
 
 
 def crear_herramientas_guardar(
@@ -228,7 +274,8 @@ def verificar_config(
 ) -> ResultadoComando:
     """Levanta el entorno con el harness.yaml (servicios, instalación) y corre los tests.
 
-    Solo informa: no hay bucle de corrección del YAML (queda para la fase 10).
+    Solo informa; si el harness.yaml lo generó init, la CLI le devuelve el error al modelo
+    (corregir_harness_yaml).
     """
     entorno_docker = EntornoDocker(
         repo,

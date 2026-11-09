@@ -6,8 +6,9 @@ import pytest
 from typer.testing import CliRunner
 
 from harness import cli, entorno_docker
+from harness.config import ConfigModelo
 from harness.config_proyecto import validar_texto_config
-from harness.entorno_docker import ErrorDocker, listar_imagenes
+from harness.entorno_docker import ErrorDocker, ResultadoComando, listar_imagenes
 from harness.init import (
     ErrorInit,
     advertencias_de_limites,
@@ -16,7 +17,8 @@ from harness.init import (
     sugerencia_test_logging,
 )
 from harness.herramientas.archivos import ErrorHerramienta
-from tests.falsos import ProveedorFalso, terminar
+from harness.tipos import LlamadaHerramienta
+from tests.falsos import ProveedorFalso, pedir, terminar
 
 BASE = "version: 1\nproyecto: lib\ndocker:\n  imagen: {imagen}\n  instalar:\n    - {instalar}\n"
 GRADLE = BASE.format(imagen="gradle:8.14-jdk21", instalar="gradle testClasses") + (
@@ -140,3 +142,89 @@ def test_init_muestra_la_sugerencia_sin_tocar_el_build(tmp_path: Path) -> None:
     assert "build.gradle no configura testLogging con exceptionFormat FULL" in salida
     assert 'exceptionFormat "full"' in salida
     assert (tmp_path / "build.gradle").read_text(encoding="utf-8") == build
+
+
+# --- init --verificar con corrección -----------------------------------------------------
+
+PYTHON_ROTO = PYTHON.replace("pip install -e .", "pip install -r requirements.txt")
+
+
+def _guardar(herramienta: str, contenido: str, id_llamada: str) -> object:
+    return pedir(LlamadaHerramienta(id_llamada, herramienta, {"contenido": contenido}))
+
+
+def _init_verificar(
+    monkeypatch: pytest.MonkeyPatch, repo: Path, respuestas: list, verificaciones: list
+) -> tuple[int, str, ProveedorFalso, list[str]]:
+    proveedor = ProveedorFalso(respuestas)
+    config = ConfigModelo("gemini", "m", None, "clave-falsa-0123456789")
+    monkeypatch.setattr(cli, "cargar_config", lambda: config)
+    monkeypatch.setattr(cli, "crear_proveedor", lambda *_: proveedor)
+    instalados: list[str] = []
+
+    def verificar_falso(repo, config, variables, al_avanzar=None, **opciones):
+        instalados.append(config.docker.instalar[0])
+        resultado = verificaciones.pop(0)
+        if isinstance(resultado, Exception):
+            raise resultado
+        return resultado
+
+    monkeypatch.setattr(cli, "verificar_config", verificar_falso)
+    resultado = CliRunner().invoke(cli.app, ["init", "--repo", str(repo), "--verificar"])
+    return resultado.exit_code, " ".join(resultado.output.split()), proveedor, instalados
+
+
+def test_si_la_instalacion_falla_el_modelo_corrige_y_se_verifica_de_nuevo(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    (tmp_path / "AGENTS.md").write_text("# Reglas\n", encoding="utf-8")
+    falla = ErrorDocker("Falló la instalación 'pip install -r requirements.txt': No such file")
+    respuestas = [
+        _guardar("guardar_harness_yaml", PYTHON_ROTO, "g1"),
+        _guardar("guardar_harness_yaml", PYTHON, "g2"),
+    ]
+    codigo, salida, proveedor, instalados = _init_verificar(
+        monkeypatch, tmp_path, respuestas, [falla, ResultadoComando(0, "3 passed")]
+    )
+    assert codigo == 0, salida
+    assert instalados == ["pip install -r requirements.txt", "pip install -e ."]
+    assert "Se le devuelve el error al modelo para que corrija harness.yaml (1/2)." in salida
+    assert "✓ Verificación: la instalación y los tests funcionan." in salida
+    pedido = proveedor.conversaciones[1][-1].contenido
+    assert "No such file" in pedido and "responde con texto explicando por qué" in pedido
+
+
+def test_si_el_modelo_dice_que_el_yaml_esta_bien_se_termina(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    (tmp_path / "AGENTS.md").write_text("# Reglas\n", encoding="utf-8")
+    respuestas = [
+        _guardar("guardar_harness_yaml", PYTHON, "g1"),
+        terminar("El YAML está bien: el test test_total falla en el código."),
+    ]
+    codigo, salida, _, instalados = _init_verificar(
+        monkeypatch, tmp_path, respuestas, [ResultadoComando(1, "FAILED test_total")]
+    )
+    assert codigo == 1 and len(instalados) == 1
+    assert "El modelo no cambió harness.yaml: El YAML está bien" in salida
+
+
+def test_como_mucho_dos_correcciones(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    (tmp_path / "AGENTS.md").write_text("# Reglas\n", encoding="utf-8")
+    respuestas = [_guardar("guardar_harness_yaml", PYTHON, f"g{n}") for n in range(3)]
+    fallas = [ResultadoComando(1, "FAILED") for _ in range(3)]
+    codigo, salida, _, instalados = _init_verificar(monkeypatch, tmp_path, respuestas, fallas)
+    assert codigo == 1 and len(instalados) == 3
+    assert "(2/2)" in salida and "(3/2)" not in salida
+
+
+def test_un_harness_yaml_que_ya_existia_no_se_corrige(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    (tmp_path / "AGENTS.md").write_text("# Reglas\n", encoding="utf-8")
+    (tmp_path / "harness.yaml").write_text(PYTHON, encoding="utf-8")
+    codigo, salida, proveedor, instalados = _init_verificar(
+        monkeypatch, tmp_path, [], [ResultadoComando(1, "FAILED")]
+    )
+    assert codigo == 1 and len(instalados) == 1
+    assert proveedor.conversaciones == [] and "corrija" not in salida

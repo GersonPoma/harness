@@ -81,9 +81,11 @@ from harness.herramientas.remotas import (
     crear_herramientas_mcp,
 )
 from harness.init import (
+    MAX_CORRECCIONES_INIT,
     ErrorInit,
     archivos_faltantes,
     asegurar_gitignore,
+    corregir_harness_yaml,
     ejecutar_init,
     sugerencia_test_logging,
     verificar_config,
@@ -149,6 +151,9 @@ MENSAJE_REQUIERE_AGENTS = (
     "Este proyecto requiere AGENTS.md (requiere_agents_md: true). Créalo con 'harness init'."
 )
 NOMBRE_LOG_INIT = "init"
+NOMBRE_HARNESS_YAML = "harness.yaml"
+# Lo que se le devuelve al modelo del error de init --verificar (el final, donde está la causa).
+MAX_CARACTERES_ERROR_INIT = 4000
 # Archivo donde se copia la salida cruda de la consola (diagnóstico de líneas perdidas).
 VAR_CONSOLA_CRUDA = "HARNESS_CONSOLA_CRUDA"
 AYUDA_SIN_REVISION = (
@@ -1394,8 +1399,9 @@ def init(
         consola.mostrar_error(f"No existe la carpeta del repo: {raiz}")
         raise typer.Exit(1)
     faltantes = archivos_faltantes(raiz)
+    generacion = None
     if faltantes:
-        _generar_archivos_init(raiz, faltantes)
+        generacion = _generar_archivos_init(raiz, faltantes)
     else:
         consola.mostrar_aviso("El repo ya tiene AGENTS.md y harness.yaml: no hay nada que generar.")
     agregadas = asegurar_gitignore(raiz)
@@ -1405,10 +1411,24 @@ def init(
     if sugerencia:
         consola.mostrar_sugerencia_test_logging(*sugerencia)
     if verificar:
-        _verificar_init(raiz, usar_cache=not sin_cache)
+        # Solo se corrige un harness.yaml que init generó ahora: uno que ya existía es del
+        # usuario y solo se informa.
+        es_generado = generacion is not None and NOMBRE_HARNESS_YAML in generacion.creados
+        _verificar_init(raiz, not sin_cache, generacion if es_generado else None)
 
 
-def _generar_archivos_init(repo: Path, faltantes: list[str]) -> None:
+@dataclass
+class _GeneracionInit:
+    """Lo que init generó, con la conversación y el modelo para corregir harness.yaml."""
+
+    creados: list[str]
+    proveedor: ProveedorLLM
+    mensajes: list[Mensaje]
+    reporte: _Reporte
+    pasos: int
+
+
+def _generar_archivos_init(repo: Path, faltantes: list[str]) -> _GeneracionInit:
     try:
         config = cargar_config()
     except ErrorConfiguracion as error:
@@ -1433,9 +1453,55 @@ def _generar_archivos_init(repo: Path, faltantes: list[str]) -> None:
         raise typer.Exit(CODIGO_CANCELADO) from error
     registro.registrar_fin_init(resultado)
     consola.mostrar_fin_init(resultado, str(registro.ruta))
+    return _GeneracionInit(
+        resultado.creados, proveedor, resultado.mensajes, reporte, resultado.pasos
+    )
 
 
-def _verificar_init(repo: Path, usar_cache: bool) -> None:
+def _verificar_init(
+    repo: Path, usar_cache: bool, generacion: _GeneracionInit | None = None
+) -> None:
+    """Verifica el harness.yaml; si lo generó init y falla, el modelo lo corrige (hasta
+    MAX_CORRECCIONES_INIT veces) y se verifica de nuevo."""
+    for correccion in range(MAX_CORRECCIONES_INIT + 1):
+        error = _verificar_una_vez(repo, usar_cache)
+        if error is None:
+            return
+        if generacion is None or correccion == MAX_CORRECCIONES_INIT:
+            raise typer.Exit(1)
+        consola.mostrar_aviso(
+            f"Se le devuelve el error al modelo para que corrija harness.yaml "
+            f"({correccion + 1}/{MAX_CORRECCIONES_INIT})."
+        )
+        if not _corregir_harness_yaml(repo, generacion, error):
+            raise typer.Exit(1)
+
+
+def _corregir_harness_yaml(repo: Path, generacion: _GeneracionInit, error: str) -> bool:
+    """Devuelve si el modelo guardó un harness.yaml nuevo (si no, dijo por qué con texto)."""
+    reporte = generacion.reporte
+    try:
+        correccion = corregir_harness_yaml(
+            generacion.proveedor, generacion.mensajes, repo, error, generacion.pasos + 1,
+            reporte.paso, reporte.aviso,
+        )
+    except (ErrorProveedor, ErrorRespuestaVacia) as fallo:
+        reporte.registro.registrar_error(str(fallo))
+        consola.mostrar_error(str(fallo))
+        return False
+    generacion.pasos += correccion.pasos
+    if correccion.es_guardado:
+        reporte.aviso("El modelo guardó un harness.yaml corregido: se verifica de nuevo.")
+        return True
+    reporte.aviso(
+        "El modelo no cambió harness.yaml: "
+        + (correccion.texto_final or "no dio un motivo.").strip()
+    )
+    return False
+
+
+def _verificar_una_vez(repo: Path, usar_cache: bool) -> str | None:
+    """Una verificación: None si pasa, o el error (sin secretos) para devolvérselo al modelo."""
     try:
         # Las referencias ${NOMBRE} de harness.yaml se resuelven con el .env.
         cargar_env()
@@ -1454,15 +1520,21 @@ def _verificar_init(repo: Path, usar_cache: bool) -> None:
                 al_cache=consola.mostrar_cache,
                 al_instalar=consola.mostrar_instalacion,
             )
-    except (ErrorConfigProyecto, ErrorVariables, ErrorDocker) as error:
+    except (ErrorConfigProyecto, ErrorVariables) as error:
         consola.mostrar_error(str(error))
         raise typer.Exit(1) from error
+    except ErrorDocker as error:
+        # Por ejemplo, una instalación que falla: puede ser del harness.yaml.
+        consola.mostrar_error(str(error))
+        return ocultar_secretos(str(error), variables.secretos)[-MAX_CARACTERES_ERROR_INIT:]
     except KeyboardInterrupt as error:
         consola.mostrar_error("Verificación cancelada (los contenedores se borraron).")
         raise typer.Exit(CODIGO_CANCELADO) from error
-    consola.mostrar_verificacion(resultado, ocultar_secretos(resultado.salida, variables.secretos))
+    salida = ocultar_secretos(resultado.salida, variables.secretos)
+    consola.mostrar_verificacion(resultado, salida)
     if resultado.codigo != 0 or resultado.es_tiempo_agotado:
-        raise typer.Exit(1)
+        return salida[-MAX_CARACTERES_ERROR_INIT:] or "Los tests no pasaron (sin salida)."
+    return None
 
 
 @app.command(name="ticket")

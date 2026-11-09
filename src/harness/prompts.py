@@ -336,6 +336,18 @@ def crear_mensajes_init(
     return [Mensaje(Rol.SISTEMA, PROMPT_INIT), Mensaje(Rol.USUARIO, pedido)]
 
 
+def crear_mensaje_corregir_harness_yaml(error: str) -> str:
+    """El error de harness init --verificar, para que el modelo corrija su harness.yaml."""
+    return (
+        "harness init --verificar levantó el entorno con el harness.yaml que guardaste, y "
+        f"falló:\n\n```\n{error}\n```\n\n"
+        "Si el problema es de harness.yaml (la imagen, docker.instalar, los comandos, los "
+        "servicios o las variables), corrígelo y guárdalo de nuevo, completo, con "
+        "guardar_harness_yaml. Si harness.yaml está bien y lo que falla es el código o los "
+        "tests del proyecto, no lo cambies: responde con texto explicando por qué."
+    )
+
+
 def crear_mensaje_guardar_faltantes(pendientes: list[str]) -> str:
     """Último pedido de init cuando el modelo terminó sin guardar todo."""
     return (
