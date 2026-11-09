@@ -1059,7 +1059,7 @@ def _preparar_ejecucion(
     try:
         # cargar_config carga el .env: después ya se pueden resolver los ${NOMBRE}.
         config = elegir_modelo(cargar_config(), proveedor, modelo)
-        respaldo = leer_respaldo()
+        respaldo = leer_respaldo(config)
         config_proyecto = cargar_config_proyecto(repo)
         variables = resolver_variables(config_proyecto) if config_proyecto else None
         servidores = cargar_config_mcp(RUTA_MCP)

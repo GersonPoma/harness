@@ -112,6 +112,16 @@ def test_leer_respaldo_separa_en_el_primer_dos_puntos(monkeypatch: pytest.Monkey
     assert respaldo[0].variable_api_key == "OPENROUTER_API_KEY"
 
 
+def test_leer_respaldo_quita_el_modelo_actual(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HARNESS_RESPALDO", "openrouter:nemotron:free, openrouter:gemma:free")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "clave-openrouter-0123456789")
+    actual = ConfigModelo("openrouter", "gemma:free", None, "clave-openrouter-0123456789")
+    assert [c.modelo for c in leer_respaldo(actual)] == ["nemotron:free"]
+    # El mismo modelo con otro proveedor es otro: se queda.
+    otro = ConfigModelo("groq", "nemotron:free", None, "clave-groq-0123456789")
+    assert [c.modelo for c in leer_respaldo(otro)] == ["nemotron:free", "gemma:free"]
+
+
 @pytest.mark.parametrize(
     ("valor", "mensaje"),
     [

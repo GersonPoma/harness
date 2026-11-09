@@ -88,17 +88,21 @@ def cargar_config(ruta_env: Path = RUTA_ENV) -> ConfigModelo:
     return ConfigModelo(proveedor, modelo, base_url, api_key, variable_api_key)
 
 
-def leer_respaldo() -> list[ConfigModelo]:
+def leer_respaldo(actual: ConfigModelo | None = None) -> list[ConfigModelo]:
     """Los proveedores de respaldo de HARNESS_RESPALDO, en orden ("proveedor:modelo, ...").
 
     Se separa en el primer ':' porque los modelos gratis de OpenRouter terminan en ':free'.
-    Lanza ErrorConfiguracion si una entrada no se entiende o le falta la API key.
+    Se quita el modelo `actual` si está en la lista: pasar a él sería repetir el que acaba de
+    fallar. Lanza ErrorConfiguracion si una entrada no se entiende o le falta la API key.
     """
     texto = os.environ.get(VAR_RESPALDO, "")
     respaldo = []
     for entrada in (parte.strip() for parte in texto.split(SEPARADOR_RESPALDO)):
-        if entrada:
-            respaldo.append(_leer_entrada_respaldo(entrada))
+        if not entrada:
+            continue
+        config = _leer_entrada_respaldo(entrada)
+        if actual is None or (config.proveedor, config.modelo) != (actual.proveedor, actual.modelo):
+            respaldo.append(config)
     return respaldo
 
 

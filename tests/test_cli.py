@@ -148,6 +148,28 @@ def test_respaldo_sigue_con_el_siguiente_proveedor(
     assert "clave-openrouter-0123456789" not in json.dumps(eventos)
 
 
+def test_el_respaldo_no_repite_el_modelo_principal(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    monkeypatch.setenv("HARNESS_RESPALDO", "gemini:modelo-x, openrouter:qwen/qwen3-coder:free")
+    monkeypatch.setenv("GEMINI_API_KEY", "clave-falsa-0123456789")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "clave-openrouter-0123456789")
+    recibido: dict = {}
+
+    def crear(config, al_reintentar, configs_respaldo, al_cambiar):
+        recibido["respaldo"] = [(c.proveedor, c.modelo) for c in configs_respaldo]
+        return ProveedorFalso([terminar()])
+
+    config = ConfigModelo("gemini", "modelo-x", None, "clave-falsa-0123456789")
+    monkeypatch.setattr(cli, "cargar_config", lambda: config)
+    monkeypatch.setattr(cli, "crear_proveedor", crear)
+    argumentos = ["run", str(repo_sin_yaml.parent / "T-1.md"), "--repo", str(repo_sin_yaml),
+                  "--sin-plan"]
+    resultado = CliRunner().invoke(cli.app, argumentos)
+    assert resultado.exit_code == 0, resultado.output
+    assert recibido["respaldo"] == [("openrouter", "qwen/qwen3-coder:free")]
+
+
 def test_sin_agents_md_avisa(monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path) -> None:
     _, salida = _correr(monkeypatch, repo_sin_yaml, [terminar()], "--sin-plan")
     assert "El repo no tiene AGENTS.md" in salida
