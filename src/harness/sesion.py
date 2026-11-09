@@ -37,6 +37,7 @@ MOTIVO_VALIDACION = "validacion"
 MOTIVO_CTRL_C = "ctrl_c"
 MOTIVO_PROVEEDOR = "proveedor"
 MOTIVO_ERROR = "error"
+MOTIVO_BUCLE = "bucle"
 
 
 class ErrorSesion(Exception):

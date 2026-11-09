@@ -28,6 +28,7 @@ from harness.plan import Plan, archivos_fuera_del_plan
 from harness.proveedores.base import MOTIVO_CAIDO, MOTIVO_CUOTA_DIARIA, MOTIVO_LIMITE
 from harness.proveedores.respaldo import CambioProveedor
 from harness.sesion import (
+    MOTIVO_BUCLE,
     MOTIVO_CTRL_C,
     MOTIVO_ERROR,
     MOTIVO_LIMITE_PASOS,
@@ -61,6 +62,7 @@ TEXTOS_CORTE = {
     MOTIVO_CTRL_C: "se canceló con Ctrl+C",
     MOTIVO_PROVEEDOR: "el proveedor del modelo no respondió",
     MOTIVO_ERROR: "terminó con un error",
+    MOTIVO_BUCLE: "se cortó porque el modelo repetía lo mismo",
 }
 # Sin caché porque lo pidió el usuario: no hace falta avisar en amarillo.
 MOTIVOS_SIN_CACHE_ELEGIDOS = (MOTIVO_SIN_CACHE, MOTIVO_DESACTIVADA)

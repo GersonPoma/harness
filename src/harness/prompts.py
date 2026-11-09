@@ -366,9 +366,19 @@ def crear_mensaje_retomar(motivo: str, cambiados: list[str]) -> str:
     return texto
 
 
-def crear_mensaje_validacion_fallida(informe: str, intento: int, max_intentos: int) -> str:
-    """Mensaje que recibe el modelo cuando los tests o el lint fallan al terminar."""
+def crear_mensaje_validacion_fallida(
+    informe: str, intento: int, max_intentos: int, es_repetido: bool = False
+) -> str:
+    """Mensaje que recibe el modelo cuando los tests o el lint fallan al terminar.
+
+    `es_repetido`: el mismo error que la validación fallida anterior (detección de bucles).
+    """
+    repetido = (
+        "Es exactamente el mismo error que en la validación anterior: lo que cambiaste no lo "
+        "resolvió. Replantea el enfoque en vez de repetir el mismo cambio.\n\n"
+        if es_repetido else ""
+    )
     return (
-        f"La validación falló (corrección {intento} de {max_intentos}). Revisa la salida, "
-        f"corrige el código y vuelve a terminar cuando los tests pasen.\n\n{informe}"
+        f"La validación falló (corrección {intento} de {max_intentos}). {repetido}Revisa la "
+        f"salida, corrige el código y vuelve a terminar cuando los tests pasen.\n\n{informe}"
     )

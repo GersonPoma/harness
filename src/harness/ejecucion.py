@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from harness.bucle import Paso, ejecutar_bucle
+from harness.bucles import normalizar_salida
 from harness.plan import Plan
 from harness.planificacion import planificar
 from harness.prompts import MENSAJE_IMPLEMENTAR, crear_mensaje_validacion_fallida
@@ -68,6 +69,7 @@ def ejecutar_ticket(
     al_aviso: Callable[[str], None] | None = None,
     planificacion: Planificacion | None = None,
     continuacion: ResultadoEjecucion | None = None,
+    revisar_paso: Callable[[Paso], str | None] | None = None,
 ) -> ResultadoEjecucion:
     """Planifica (si se pide), implementa y valida; si la validación falla, el modelo corrige.
 
@@ -75,16 +77,18 @@ def ejecutar_ticket(
     la implementación como mucho `max_intentos_validacion` veces.
     `continuacion` es lo que ya se hizo antes de un corte (harness resume): los pasos, los
     tokens y las validaciones siguen contando desde ahí, y el plan ya está aprobado.
+    `revisar_paso` mira cada paso de la implementación (detección de bucles).
     """
     resultado = continuacion or ResultadoEjecucion(None, 0, 0, 0, False, None, 0)
     if continuacion is None and planificacion and not _planificar(
         resultado, proveedor, mensajes, planificacion, max_pasos, al_paso, al_aviso
     ):
         return resultado
+    informe_anterior = None
     while True:
         bucle = ejecutar_bucle(
             proveedor, mensajes, herramientas, max_pasos - resultado.pasos, al_paso,
-            primer_paso=resultado.pasos + 1, al_aviso=al_aviso,
+            primer_paso=resultado.pasos + 1, al_aviso=al_aviso, revisar_paso=revisar_paso,
         )
         _acumular(resultado, bucle.pasos, bucle.tokens_entrada, bucle.tokens_salida)
         resultado.texto_final = bucle.texto_final
@@ -108,7 +112,11 @@ def ejecutar_ticket(
         if resultado.pasos >= max_pasos:
             resultado.es_limite_alcanzado = True
             return resultado
-        texto = crear_mensaje_validacion_fallida(informe, vueltas + 1, max_intentos_validacion)
+        es_repetido = normalizar_salida(informe) == informe_anterior
+        informe_anterior = normalizar_salida(informe)
+        texto = crear_mensaje_validacion_fallida(
+            informe, vueltas + 1, max_intentos_validacion, es_repetido
+        )
         mensajes.append(Mensaje(Rol.USUARIO, texto))
 
 

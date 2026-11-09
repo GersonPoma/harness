@@ -10,7 +10,8 @@ import typer
 from rich import print
 
 from harness import consola, git, github
-from harness.bucle import MAX_PASOS_POR_DEFECTO, ErrorRespuestaVacia, Paso
+from harness.bucle import MAX_PASOS_POR_DEFECTO, ErrorBucle, ErrorRespuestaVacia, Paso
+from harness.bucles import DetectorBucles
 from harness.cambios import CambiosRepo, Instantanea, comparar, tomar_instantanea
 from harness.cliente_mcp import ErrorMCP, SesionMCP
 from harness.comentario_pr import COMENTADO, YA_ESTABA, comentar_pr_en_jira
@@ -104,6 +105,7 @@ from harness.sesion import (
     ESTADO_ENTREGA,
     ESTADO_IMPLEMENTACION,
     ESTADO_PLAN,
+    MOTIVO_BUCLE,
     MOTIVO_CTRL_C,
     MOTIVO_ERROR,
     MOTIVO_LIMITE_PASOS,
@@ -388,6 +390,15 @@ def _empezar_registro(prep: _Preparacion, es_aprobar_plan: bool = False) -> _Rep
     return _Reporte(registro, es_aprobar_plan, identificador(prep.config))
 
 
+def _motivo_de(error: Exception) -> str:
+    """El motivo de corte que queda en la sesión para un error de la ejecución."""
+    if isinstance(error, ErrorProveedor):
+        return MOTIVO_PROVEEDOR
+    if isinstance(error, ErrorBucle):
+        return MOTIVO_BUCLE
+    return MOTIVO_ERROR
+
+
 def _ejecutar_y_entregar(
     prep: _Preparacion, config_entrega: ConfigEntrega | None, max_pasos: int, reporte: _Reporte
 ) -> tuple[ResultadoEjecucion, bool]:
@@ -395,10 +406,10 @@ def _ejecutar_y_entregar(
     registro = reporte.registro
     try:
         resultado, cambios = _ejecutar(prep, max_pasos, reporte)
-    except (ErrorProveedor, ErrorDocker, ErrorRespuestaVacia, ErrorPlan) as error:
+    except (ErrorProveedor, ErrorDocker, ErrorRespuestaVacia, ErrorPlan, ErrorBucle) as error:
         registro.registrar_error(str(error))
         consola.mostrar_error(str(error))
-        motivo = MOTIVO_PROVEEDOR if isinstance(error, ErrorProveedor) else MOTIVO_ERROR
+        motivo = _motivo_de(error)
         _cortar_sesion(prep, motivo, str(error))
         _cerrar_rama(prep, config_entrega, reporte)
         _sugerir_resume(prep)
@@ -1173,6 +1184,7 @@ def _ejecutar(
             al_aviso=reporte.aviso,
             planificacion=_planificacion(prep, reporte),
             continuacion=_continuacion(prep),
+            revisar_paso=DetectorBucles(prep.repo).revisar,
         )
         return resultado, comparar(antes, tomar_instantanea(prep.repo))
     # El with garantiza que los contenedores se borran aunque algo falle o haya Ctrl+C.
@@ -1234,6 +1246,7 @@ def _ejecutar_con_validacion(
         al_aviso=reporte.aviso,
         planificacion=_planificacion(prep, reporte),
         continuacion=_continuacion(prep),
+        revisar_paso=DetectorBucles(prep.repo).revisar,
     )
     return resultado, comparar(antes, tomar_instantanea(prep.repo))
 

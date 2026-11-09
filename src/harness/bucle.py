@@ -16,6 +16,10 @@ class ErrorRespuestaVacia(Exception):
     """El modelo respondió sin texto ni herramientas demasiadas veces seguidas."""
 
 
+class ErrorBucle(Exception):
+    """El modelo repite lo mismo (mismo archivo, mismo error) demasiadas veces (bucles.py)."""
+
+
 @dataclass
 class Paso:
     """Una herramienta ejecutada dentro de un paso del bucle."""
@@ -51,6 +55,7 @@ def ejecutar_bucle(
     es_fin: Callable[[], bool] | None = None,
     nota_restantes: Callable[[int], str | None] | None = None,
     herramienta_obligatoria: str | None = None,
+    revisar_paso: Callable[[Paso], str | None] | None = None,
 ) -> ResultadoBucle:
     """Llama al modelo hasta que deje de pedir herramientas o se acaben los pasos.
 
@@ -62,6 +67,8 @@ def ejecutar_bucle(
     `nota_restantes` recibe los pasos que quedan después de cada paso y puede devolver un
     texto que se agrega al último resultado de herramienta de ese paso.
     `herramienta_obligatoria` se le pide al proveedor en cada pedido (ver ProveedorLLM).
+    `revisar_paso` mira cada herramienta ejecutada: puede devolver una nota para su resultado
+    o lanzar ErrorBucle, que se propaga después de guardar los resultados del paso.
     """
     por_nombre = {h.nombre: h for h in herramientas}
     tokens_entrada = tokens_salida = 0
@@ -84,6 +91,7 @@ def ejecutar_bucle(
             Paso(numero, llamada, *ejecutar_llamada(llamada, por_nombre), indice, total)
             for indice, llamada in enumerate(respuesta.llamadas, start=1)
         ]
+        corte = _revisar(pasos_hechos, revisar_paso)
         es_ultimo = bool(es_fin and es_fin())
         if nota_restantes and not es_ultimo:
             _anotar(pasos_hechos[-1], nota_restantes(primer_paso + max_pasos - 1 - numero))
@@ -91,10 +99,26 @@ def ejecutar_bucle(
             mensajes.append(Mensaje(Rol.HERRAMIENTA, paso.resultado, id_llamada=paso.llamada.id))
             if al_paso:
                 al_paso(paso)
+        # Después de guardar los resultados: así la sesión no queda con llamadas sin respuesta.
+        if corte:
+            raise corte
         if es_ultimo:
             pasos = numero - primer_paso + 1
             return ResultadoBucle(None, pasos, tokens_entrada, tokens_salida, False)
     return ResultadoBucle(None, max_pasos, tokens_entrada, tokens_salida, True)
+
+
+def _revisar(
+    pasos: list[Paso], revisar_paso: Callable[[Paso], str | None] | None
+) -> ErrorBucle | None:
+    """Agrega las notas de revisar_paso; devuelve el corte, si alguno lo pidió."""
+    corte = None
+    for paso in pasos if revisar_paso else []:
+        try:
+            _anotar(paso, revisar_paso(paso))
+        except ErrorBucle as error:
+            corte = error
+    return corte
 
 
 def _anotar(paso: Paso, nota: str | None) -> None:
