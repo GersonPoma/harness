@@ -255,6 +255,12 @@ def test_si_la_rama_se_borro_porque_quedo_vacia_la_crea(
     codigo, salida, _, _ = _resume(monkeypatch, repo_git, [])
     assert codigo == 0, salida
     assert git(repo_git, "branch", "--show-current") == "feature/T-1"
+    texto = " ".join(salida.split())
+    assert (
+        "La rama feature/T-1 se había borrado al cortar (quedó sin cambios): se creó de nuevo "
+        "desde main." in texto
+    )
+    assert "Se sigue en la rama" not in texto
 
 
 # --- Retomar la entrega (sin modelo ni Docker) --------------------------------------------

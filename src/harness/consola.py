@@ -124,8 +124,14 @@ def mostrar_retomando(clave: str, motivo: str, pasos: int) -> None:
     )
 
 
-def mostrar_rama_retomada(config: ConfigEntrega) -> None:
-    """La rama de la ejecución que se retoma (ya existía: no se crea)."""
+def mostrar_rama_retomada(config: ConfigEntrega, es_recreada: bool = False) -> None:
+    """La rama de la ejecución que se retoma, o que se creó de nuevo porque se había borrado."""
+    if es_recreada:
+        consola.print(
+            f"[dim]La rama {escape(config.rama)} se había borrado al cortar (quedó sin cambios): "
+            f"se creó de nuevo desde {escape(config.base)}.[/]"
+        )
+        return
     consola.print(f"[dim]Se sigue en la rama {escape(config.rama)}.[/]")
 
 

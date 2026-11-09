@@ -520,28 +520,28 @@ def _preparar_rama_para_retomar(
         bool(rama.get("es_con_push", True)), bool(rama.get("es_con_pr", True)),
     )
     try:
-        _volver_a_la_rama(prep.repo, config)
+        es_recreada = _volver_a_la_rama(prep.repo, config)
         config = _verificar_github(prep, config, reporte) if config.es_con_push else config
         conectar_github(config.es_con_pr)
     except ErrorGit as error:
         reporte.registro.registrar_error(str(error))
         consola.mostrar_error(str(error))
         raise typer.Exit(1) from error
-    consola.mostrar_rama_retomada(config)
+    consola.mostrar_rama_retomada(config, es_recreada)
     return config
 
 
-def _volver_a_la_rama(repo: Path, config: ConfigEntrega) -> None:
+def _volver_a_la_rama(repo: Path, config: ConfigEntrega) -> bool:
     """Exige estar en la rama del ticket; si se borró porque quedó vacía, la crea de nuevo.
 
-    Nunca cambia de rama sola: podría pisar trabajo del usuario.
+    Nunca cambia de rama sola: podría pisar trabajo del usuario. Devuelve True si la creó.
     """
     actual = git.rama_actual(repo)
     if actual == config.rama:
-        return
+        return False
     if not git.existe_rama_local(repo, config.rama) and not git.archivos_sin_commitear(repo):
         crear_rama_del_ticket(repo, config)
-        return
+        return True
     raise ErrorGit(
         f"El repo está en '{actual or 'HEAD suelto'}': cámbiate a la rama del ticket "
         f"(git switch {config.rama}) para retomar."
