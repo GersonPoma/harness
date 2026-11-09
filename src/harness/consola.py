@@ -1,7 +1,9 @@
 """Salida por consola de una ejecución, con rich."""
 
+import atexit
 import sys
-from typing import Any, ClassVar
+from pathlib import Path
+from typing import Any, ClassVar, TextIO
 
 from rich.console import Console, ConsoleDimensions, Group
 from rich.markup import escape
@@ -85,6 +87,48 @@ class ConsolaSinUltimaColumna(Console):
 
 
 consola = ConsolaSinUltimaColumna()
+
+
+class SalidaConCopia:
+    """Escribe en la terminal y copia lo mismo, byte a byte, en un archivo.
+
+    Para comparar la salida cruda (con los códigos ANSI de Rich) con lo que muestra la
+    pantalla cuando falta una línea. La terminal sigue decidiendo si es una TTY y su fileno:
+    Rich los usa para elegir cómo dibujar.
+    """
+
+    def __init__(self, terminal: TextIO, copia: TextIO) -> None:
+        self._terminal = terminal
+        self._copia = copia
+
+    @property
+    def encoding(self) -> str:
+        return getattr(self._terminal, "encoding", None) or "utf-8"
+
+    def write(self, texto: str) -> int:
+        self._copia.write(texto)
+        # Sin búfer: si la ejecución se corta, la copia tiene todo lo que salió en pantalla.
+        self._copia.flush()
+        return self._terminal.write(texto)
+
+    def flush(self) -> None:
+        self._copia.flush()
+        self._terminal.flush()
+
+    def isatty(self) -> bool:
+        return self._terminal.isatty()
+
+    def fileno(self) -> int:
+        return self._terminal.fileno()
+
+
+def grabar_salida_cruda(ruta: Path) -> None:
+    """Desde ahora, todo lo que se escribe en la consola se copia también en `ruta`."""
+    # newline="": sin convertir los saltos de línea (en Windows, a \r\n), para que la copia
+    # sea exactamente lo que se envió.
+    copia = ruta.open("w", encoding="utf-8", newline="")
+    atexit.register(copia.close)
+    consola.file = SalidaConCopia(consola.file, copia)
 
 
 def forzar_salida_utf8() -> None:

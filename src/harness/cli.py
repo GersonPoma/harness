@@ -1,3 +1,4 @@
+import os
 from collections.abc import Callable
 from contextlib import ExitStack, nullcontext
 from dataclasses import dataclass, field, replace
@@ -141,6 +142,8 @@ MENSAJE_REQUIERE_AGENTS = (
     "Este proyecto requiere AGENTS.md (requiere_agents_md: true). Créalo con 'harness init'."
 )
 NOMBRE_LOG_INIT = "init"
+# Archivo donde se copia la salida cruda de la consola (diagnóstico de líneas perdidas).
+VAR_CONSOLA_CRUDA = "HARNESS_CONSOLA_CRUDA"
 AYUDA_SIN_CACHE = (
     "No usar la caché de dependencias: se descarga todo de nuevo (el volumen no se toca)."
 )
@@ -1417,4 +1420,9 @@ def version() -> None:
 
 def main() -> None:
     consola.forzar_salida_utf8()
+    # El .env se carga antes de lo habitual solo para que HARNESS_CONSOLA_CRUDA pueda estar ahí.
+    cargar_env()
+    ruta_cruda = os.environ.get(VAR_CONSOLA_CRUDA, "").strip()
+    if ruta_cruda:
+        consola.grabar_salida_cruda(Path(ruta_cruda))
     app()

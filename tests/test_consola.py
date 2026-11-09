@@ -61,9 +61,72 @@ def test_el_comando_harness_arranca_por_main() -> None:
 def test_main_pasa_a_utf8_antes_de_arrancar(monkeypatch: pytest.MonkeyPatch) -> None:
     orden: list[str] = []
     monkeypatch.setattr(consola, "forzar_salida_utf8", lambda: orden.append("utf8"))
+    monkeypatch.setattr(cli, "cargar_env", lambda: orden.append("env"))
     monkeypatch.setattr(cli, "app", lambda: orden.append("app"))
     cli.main()
-    assert orden == ["utf8", "app"]
+    assert orden == ["utf8", "env", "app"]
+
+
+# --- Salida cruda (HARNESS_CONSOLA_CRUDA) ------------------------------------------------
+
+
+def test_la_salida_cruda_es_lo_mismo_que_va_a_la_terminal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    salida = _terminal_en_texto(monkeypatch)
+    ruta = tmp_path / "cruda.txt"
+    consola.grabar_salida_cruda(ruta)
+    with consola.estado("Instalando dependencias..."):
+        consola.mostrar_aviso("un aviso")
+    consola.consola.print("[bold]fin[/]")
+    consola.consola.file.flush()
+
+    # Byte a byte, con los códigos ANSI y sin convertir los saltos de línea.
+    cruda = ruta.read_bytes().decode("utf-8")
+    assert cruda == salida.getvalue()
+    assert "\x1b[2K" in cruda and "\r\n" not in cruda
+    assert _pantalla(cruda) == ["Instalando dependencias...", "un aviso", "fin"]
+
+
+class _TerminalFalsa(io.StringIO):
+    def isatty(self) -> bool:
+        return True
+
+    def fileno(self) -> int:
+        return 1
+
+
+@pytest.mark.parametrize("es_terminal", [True, False])
+def test_la_copia_no_cambia_como_dibuja_rich(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, es_terminal: bool
+) -> None:
+    # Rich decide por isatty y fileno si dibuja para una terminal: se los pregunta a la real.
+    terminal = _TerminalFalsa() if es_terminal else io.StringIO()
+    monkeypatch.setattr(consola, "consola", consola.ConsolaSinUltimaColumna(file=terminal))
+    consola.grabar_salida_cruda(tmp_path / "cruda.txt")
+    assert consola.consola.is_terminal is es_terminal
+    if es_terminal:
+        assert consola.consola.file.fileno() == 1
+
+
+def test_main_activa_la_salida_cruda(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    ruta = tmp_path / "cruda.txt"
+    monkeypatch.setenv("HARNESS_CONSOLA_CRUDA", str(ruta))
+    monkeypatch.setattr(consola, "forzar_salida_utf8", lambda: None)
+    monkeypatch.setattr(cli, "cargar_env", lambda: None)
+    recibidas: list[Path] = []
+    monkeypatch.setattr(consola, "grabar_salida_cruda", recibidas.append)
+    monkeypatch.setattr(cli, "app", lambda: None)
+    cli.main()
+    assert recibidas == [ruta]
+
+
+def test_main_sin_la_variable_no_copia_nada(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(consola, "forzar_salida_utf8", lambda: None)
+    monkeypatch.setattr(cli, "cargar_env", lambda: None)
+    monkeypatch.setattr(consola, "grabar_salida_cruda", lambda _: pytest.fail("no debía copiar"))
+    monkeypatch.setattr(cli, "app", lambda: None)
+    cli.main()
 
 
 def _mostrar_paso(monkeypatch: pytest.MonkeyPatch, argumentos: dict) -> str:
