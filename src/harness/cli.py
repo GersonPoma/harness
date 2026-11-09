@@ -216,7 +216,7 @@ class _Reporte:
     ) -> None:
         self.registro = registro
         self._es_aprobar_plan = es_aprobar_plan
-        self._ultimo_paso = 0
+        self.ultimo_paso = 0
         # Los modelos que respondieron, en orden (más de uno si se pasó al respaldo).
         self.modelos_usados = [modelo] if modelo else []
         self.sesion: SesionEnCurso | None = None
@@ -225,7 +225,7 @@ class _Reporte:
         self._notas_pendientes: list[tuple[Path, str]] = []
 
     def paso(self, paso: Paso) -> None:
-        self._ultimo_paso = paso.numero
+        self.ultimo_paso = paso.numero
         consola.mostrar_paso(paso)
         self.registro.registrar_paso(paso)
         for repo, nota in self._notas_pendientes:
@@ -237,7 +237,7 @@ class _Reporte:
 
     def cambio_proveedor(self, cambio: CambioProveedor) -> None:
         # El pedido que falló es el del paso siguiente al último que terminó.
-        paso = self._ultimo_paso + 1
+        paso = self.ultimo_paso + 1
         self.modelos_usados.append(cambio.siguiente)
         consola.mostrar_cambio_proveedor(cambio, paso)
         self.registro.registrar_cambio_proveedor(cambio, paso)
@@ -565,6 +565,8 @@ def _retomar_sesion(prep: _Preparacion, sesion: Sesion, reporte: _Reporte) -> No
     if sesion.modelos_usados[-1:] != [actual]:
         sesion.modelos_usados.append(actual)
     reporte.modelos_usados = list(sesion.modelos_usados)
+    # Los pasos siguen la numeración de antes del corte (también en el aviso del respaldo).
+    reporte.ultimo_paso = sesion.pasos
     sesion.proveedor = actual
     sesion.motivo_corte = sesion.detalle_corte = None
     prep.sesion = SesionEnCurso(prep.repo, sesion, prep.secretos, reporte.aviso)

@@ -12,6 +12,8 @@ from harness.cambios import CambiosRepo
 from harness.config import ConfigModelo
 from harness.comentario_pr import COMENTADO, POR_REST, ResultadoComentario
 from harness.ejecucion import ResultadoEjecucion
+from harness.proveedores.base import MOTIVO_LIMITE, ErrorProveedorCaido
+from harness.proveedores.respaldo import ProveedorConRespaldo
 from harness.git import ErrorGit
 from harness.github import PedidoPullRequest, PullRequest
 from harness.sesion import (
@@ -75,6 +77,31 @@ def _resume(
 def _eventos(repo: Path) -> list[dict]:
     ultimo = sorted((repo / ".harness" / "logs").glob("T-1-*.jsonl"))[-1]
     return [json.loads(linea) for linea in ultimo.read_text(encoding="utf-8").splitlines()]
+
+
+def test_el_aviso_del_respaldo_cuenta_los_pasos_de_antes_del_corte(
+    monkeypatch: pytest.MonkeyPatch, repo: Path
+) -> None:
+    assert _run(monkeypatch, repo, [pedir(LEER), pedir(LEER)], "--sin-plan",
+                "--max-pasos", "2") == 1
+    limite = ErrorProveedorCaido("Gemma: 429 Too Many Requests.", MOTIVO_LIMITE)
+    principal = ProveedorFalso([limite])
+    respaldo = ProveedorFalso([terminar("Listo")])
+
+    def crear(config, al_reintentar, configs_respaldo, al_cambiar):
+        nombres = ["openrouter/gemma", "openrouter/nemotron"]
+        return ProveedorConRespaldo(list(zip(nombres, [principal, respaldo])), al_cambiar)
+
+    monkeypatch.setattr(cli, "cargar_config", lambda: CONFIG)
+    monkeypatch.setattr(cli, "crear_proveedor", crear)
+    resultado = CliRunner().invoke(cli.app, ["resume", "T-1", "--repo", str(repo)])
+    assert resultado.exit_code == 0, resultado.output
+    # El pedido que falló es el del paso 3: los 2 de antes del corte cuentan.
+    assert "se sigue con openrouter/nemotron desde el paso 3." in " ".join(
+        resultado.output.split()
+    )
+    (cambio,) = [e for e in _eventos(repo) if e["evento"] == "proveedor"]
+    assert cambio["paso"] == 3
 
 
 def test_retoma_un_corte_por_limite_y_termina(
