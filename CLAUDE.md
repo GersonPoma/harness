@@ -49,14 +49,17 @@ harness/
 ├── uv.lock
 ├── mcp.example.json        # modelo de mcp.json (GitHub y Jira; el real va en .gitignore)
 └── src/harness/
-    ├── cli.py              # punto de entrada (typer): run, init, version
+    ├── cli.py              # punto de entrada (typer): run, resume, ticket, init, version
     ├── bucle.py            # bucle de tool calling
     ├── ejecucion.py        # plan + implementación + validación
     ├── planificacion.py    # ronda de plan (proponer_plan)
     ├── prompts.py          # textos que recibe el modelo
     ├── tipos.py            # Mensaje, Herramienta, LlamadaHerramienta, RespuestaModelo
-    ├── consola.py          # salida con rich (nunca en la última columna)
+    ├── consola.py          # salida con rich (sin la última columna; HARNESS_CONSOLA_CRUDA)
     ├── registro.py         # log JSONL de cada ejecución
+    ├── sesion.py           # .harness/sessions/<TICKET>.json para harness resume
+    ├── memoria.py          # .harness/memory.md y la herramienta guardar_memoria
+    ├── compactacion.py     # acorta resultados viejos cuando la conversación crece
     ├── config.py           # .env: proveedor, modelo, tokens
     ├── config_proyecto.py  # harness.yaml del repo objetivo
     ├── entorno_docker.py   # contenedores del proyecto y sus servicios
@@ -73,7 +76,7 @@ harness/
     ├── jira_mcp.py         # comentarios de Jira por MCP (remoto o Docker)
     ├── comentario_pr.py    # link del PR en el ticket, por MCP o REST
     ├── herramientas/       # las del modelo: archivos, comandos y remotas (MCP)
-    └── proveedores/        # ProveedorLLM, presets y adaptación de esquemas
+    └── proveedores/        # ProveedorLLM, presets, esquemas y respaldo entre proveedores
 ```
 
 Todo el código nuevo va dentro de `src/harness/`.
@@ -117,11 +120,12 @@ uv tool install -e .      # dejar "harness" como comando global (editable)
 ## Memoria (ver plan para el detalle)
 
 - Dentro de una ejecución: la lista `messages`, con recorte de salidas largas
-  y resumen de pasos viejos cuando crece demasiado.
+  y compactación de resultados viejos cuando crece demasiado.
 - Del proyecto: `AGENTS.md` / `harness.yaml` del repo objetivo.
 - Entre ejecuciones, en el repo objetivo:
-  - `.harness/memory.md` (se sube a Git) + herramienta `save_memory(nota)`
+  - `.harness/memory.md` (se sube a Git) + herramienta `guardar_memoria(nota)`
   - `.harness/sessions/<TICKET>.json` para `harness resume` (no se sube)
+- Si el proveedor se cae, la conversación sigue con el siguiente de `HARNESS_RESPALDO`.
 
 ## Convenciones de código
 
