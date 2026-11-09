@@ -13,6 +13,7 @@ from harness.cambios import CambiosRepo
 from harness.carpetas import CARPETA_LOGS
 from harness.config_proyecto import ConfigComandos, ConfigGit
 from harness.ejecucion import ResultadoEjecucion
+from harness.alcance import EstadoAlcance
 from harness.git import ErrorGit
 from harness.revision import EstadoRevision
 from harness.secretos import es_archivo_de_secretos
@@ -374,6 +375,8 @@ def crear_cuerpo_pr(
         f"## Validación\n\n{_validacion_en_markdown(resultado, comandos)}",
         f"## Cambios\n\n{_cambios_en_markdown(cambios, notas_memoria or [])}",
     ]
+    if resultado.alcance.hay_archivos:
+        secciones.append(f"## Cambios fuera del plan\n\n{_alcance_en_markdown(resultado.alcance)}")
     revision = _revision_en_markdown(resultado.revision)
     if revision:
         secciones.append(f"## Revisión\n\n{revision}")
@@ -381,6 +384,13 @@ def crear_cuerpo_pr(
         secciones.append(f"## Memoria del proyecto\n\n{_memoria_en_markdown(notas_memoria)}")
     secciones.append(f"---\n_Generado por harness con `{modelo}`. Revísalo antes de aprobarlo._")
     return "\n\n".join(secciones)
+
+
+def _alcance_en_markdown(estado: EstadoAlcance) -> str:
+    lineas = [f"- `{ruta}`: {motivo}" for ruta, motivo in estado.justificados.items()]
+    lineas += [f"- `{ruta}`: revertido (nadie lo pedía)." for ruta in estado.revertidos]
+    lineas += [f"- `{ruta}`: **sin justificar**." for ruta in estado.pendientes]
+    return "\n".join(lineas)
 
 
 def _revision_en_markdown(estado: EstadoRevision) -> str | None:

@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from harness.alcance import EstadoAlcance
 from harness.cambios import Instantanea, tomar_instantanea
 from harness.ejecucion import ResultadoEjecucion
 from harness.git import ErrorGit, ejecutar_git
@@ -77,6 +78,8 @@ class Sesion:
     resumen_tests: str | None = None
     # EstadoRevision como diccionario: vueltas hechas y problemas de la última.
     revision: dict[str, Any] = field(default_factory=dict)
+    # EstadoAlcance como diccionario: justificados y revertidos de los cambios fuera del plan.
+    alcance: dict[str, Any] = field(default_factory=dict)
     motivo_corte: str | None = None
     detalle_corte: str | None = None
 
@@ -130,6 +133,10 @@ class SesionEnCurso:
 
     def revision(self, estado: EstadoRevision) -> None:
         self.sesion.revision = asdict(estado)
+        self.guardar()
+
+    def alcance(self, estado: EstadoAlcance) -> None:
+        self.sesion.alcance = asdict(estado)
         self.guardar()
 
     def cambio_de_proveedor(self, siguiente: str) -> None:
@@ -190,7 +197,7 @@ def armar_reanudacion(sesion: Sesion, motivo: str, cambiados: list[str]) -> Rean
     continuacion = ResultadoEjecucion(
         None, sesion.pasos, sesion.tokens_entrada, sesion.tokens_salida, False, None,
         sesion.validaciones, plan, revision=estado_revision(sesion),
-        pasos_extra=sesion.pasos_extra,
+        alcance=estado_alcance(sesion), pasos_extra=sesion.pasos_extra,
     )
     return Reanudacion(mensajes, continuacion, sesion.repo_al_empezar)
 
@@ -198,6 +205,11 @@ def armar_reanudacion(sesion: Sesion, motivo: str, cambiados: list[str]) -> Rean
 def estado_revision(sesion: Sesion) -> EstadoRevision:
     """Cómo iba la revisión al cortar (vacía en sesiones de antes de la revisión)."""
     return EstadoRevision(**sesion.revision) if sesion.revision else EstadoRevision()
+
+
+def estado_alcance(sesion: Sesion) -> EstadoAlcance:
+    """Qué se justificó o revirtió antes del corte."""
+    return EstadoAlcance(**sesion.alcance) if sesion.alcance else EstadoAlcance()
 
 
 def cabeza(repo: Path) -> str | None:

@@ -58,6 +58,24 @@ def ejecutar_git(repo: Path, *argumentos: str, timeout: int = TIMEOUT_LOCAL_SEGU
     return proceso.stdout.rstrip()
 
 
+def leer_de_head(repo: Path, ruta: str) -> bytes | None:
+    """El contenido exacto (bytes) de `ruta` en HEAD, o None si en HEAD no existe.
+
+    Lanza ErrorGit si el repo no usa Git. Sin texto ni rstrip: se restaura tal cual.
+    """
+    ejecutar_git(repo, "rev-parse", "--verify", "--quiet", "HEAD")
+    try:
+        proceso = subprocess.run(
+            ["git", "-C", str(repo), "show", f"HEAD:{ruta}"],
+            capture_output=True,
+            timeout=TIMEOUT_LOCAL_SEGUNDOS,
+            env={**os.environ, **ENTORNO_SIN_PREGUNTAS},
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as error:
+        raise ErrorGit(f"No se pudo leer {ruta} de HEAD: {error}") from error
+    return proceso.stdout if proceso.returncode == 0 else None
+
+
 def _detalle_error(salida: str) -> str:
     """La salida de git sin los avisos (LF/CRLF y similares), que no son la causa del error."""
     lineas = [linea for linea in salida.splitlines() if not linea.startswith(PREFIJO_AVISO)]

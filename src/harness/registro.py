@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from harness.alcance import EstadoAlcance
 from harness.bucle import Paso
 from harness.cache_dependencias import EstadoCache
 from harness.cambios import CambiosRepo
@@ -118,6 +119,15 @@ class RegistroPasos:
             "tokens_entrada": resultado.tokens_entrada,
             "tokens_salida": resultado.tokens_salida,
             "texto_final": resultado.texto_final,
+        })
+
+    def registrar_fuera_del_plan(self, estado: EstadoAlcance) -> None:
+        """Registra qué justificó o revirtió el modelo de lo que cambió fuera del plan."""
+        self._escribir({
+            "evento": "fuera_del_plan",
+            "justificados": estado.justificados,
+            "revertidos": estado.revertidos,
+            "pendientes": estado.pendientes,
         })
 
     def registrar_revision(self, estado: EstadoRevision) -> None:

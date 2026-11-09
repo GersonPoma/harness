@@ -11,6 +11,7 @@ from rich import print
 
 from harness import consola, git, github
 from harness.bucle import MAX_PASOS_POR_DEFECTO, ErrorBucle, ErrorRespuestaVacia, Paso
+from harness.alcance import Alcance, EstadoAlcance
 from harness.bucles import DetectorBucles
 from harness.revision import EstadoRevision, Revision, armar_diff
 from harness.cambios import CambiosRepo, Instantanea, comparar, tomar_instantanea
@@ -120,6 +121,7 @@ from harness.sesion import (
     cabeza,
     cargar_sesion,
     descartar_sesion,
+    estado_alcance,
     estado_revision,
 )
 from harness.tipos import Herramienta, Mensaje
@@ -271,6 +273,12 @@ class _Reporte:
         if es_aprobado and self.sesion:
             self.sesion.plan_aprobado(plan.model_dump())
         return es_aprobado
+
+    def fuera_del_plan(self, estado: EstadoAlcance) -> None:
+        consola.mostrar_alcance(estado)
+        self.registro.registrar_fuera_del_plan(estado)
+        if self.sesion:
+            self.sesion.alcance(estado)
 
     def revision(self, estado: EstadoRevision) -> None:
         consola.mostrar_revision(estado)
@@ -700,6 +708,7 @@ def _terminar_ejecucion_en_sesion(
     datos.resumen_tests = resultado.resumen_tests
     datos.pasos_extra = resultado.pasos_extra
     datos.revision = asdict(resultado.revision)
+    datos.alcance = asdict(resultado.alcance)
     # Con plan o con validaciones, la ronda de plan ya pasó: un corte se retoma implementando.
     if datos.estado == ESTADO_PLAN and (resultado.plan is not None or resultado.validaciones):
         datos.estado = ESTADO_IMPLEMENTACION
@@ -989,7 +998,7 @@ def _retomar_entrega(
         sesion.texto_final, sesion.pasos, sesion.tokens_entrada, sesion.tokens_salida, False,
         True, sesion.validaciones, Plan.model_validate(sesion.plan) if sesion.plan else None,
         resumen_tests=sesion.resumen_tests, revision=estado_revision(sesion),
-        pasos_extra=sesion.pasos_extra,
+        alcance=estado_alcance(sesion), pasos_extra=sesion.pasos_extra,
     )
     if config is None:
         prep.sesion.completar()
@@ -1272,6 +1281,10 @@ def _ejecutar_con_validacion(
         continuacion=_continuacion(prep),
         revisar_paso=DetectorBucles(prep.repo).revisar,
         revision=_revision(prep, config_proyecto, antes, reporte),
+        alcance=Alcance(
+            prep.repo, antes, crear_herramientas_lectura(prep.repo), entorno.marcar_cambio,
+            reporte.fuera_del_plan,
+        ),
     )
     return resultado, comparar(antes, tomar_instantanea(prep.repo))
 

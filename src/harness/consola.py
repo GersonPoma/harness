@@ -21,6 +21,7 @@ from harness.ejecucion import ResultadoEjecucion, Validacion
 from harness.cache_dependencias import MOTIVO_DESACTIVADA, EstadoCache
 from harness.entorno_docker import MOTIVO_SIN_CACHE, Instalacion, ResultadoComando
 from harness.entrega import ConfigEntrega, ResultadoEntrega
+from harness.alcance import EstadoAlcance
 from harness.github import PullRequest
 from harness.revision import EstadoRevision
 from harness.init import ResultadoInit
@@ -291,6 +292,18 @@ def mostrar_validacion(validacion: Validacion) -> None:
     consola.print(f"[dim]{escape(_ultimas_lineas(validacion.informe))}[/]")
 
 
+def mostrar_alcance(estado: EstadoAlcance) -> None:
+    """Qué hizo el modelo con los archivos que cambiaron fuera del plan."""
+    for ruta, motivo in estado.justificados.items():
+        consola.print(f"[dim]Fuera del plan, justificado: {escape(ruta)}: {escape(motivo)}[/]")
+    for ruta in estado.revertidos:
+        consola.print(f"[dim]Fuera del plan, revertido: {escape(ruta)}[/]")
+    if estado.pendientes:
+        mostrar_aviso(
+            f"Fuera del plan, sin justificar ni revertir: {', '.join(estado.pendientes)}."
+        )
+
+
 def mostrar_revision(estado: EstadoRevision) -> None:
     """Cómo terminó una ronda de revisión: aprobada, con problemas, o sin informe."""
     if estado.es_fallida:
@@ -335,7 +348,10 @@ def mostrar_fin(resultado: ResultadoEjecucion, cambios: CambiosRepo, ruta_log: s
     if not resultado.es_plan_rechazado:
         mostrar_cambios(cambios)
         if resultado.plan:
-            mostrar_fuera_del_plan(archivos_fuera_del_plan(resultado.plan, cambios))
+            # Los justificados ya se mostraron con su motivo.
+            justificados = resultado.alcance.justificados
+            fuera = archivos_fuera_del_plan(resultado.plan, cambios)
+            mostrar_fuera_del_plan([ruta for ruta in fuera if ruta not in justificados])
     consola.print(
         f"[dim]Pasos: {resultado.pasos} · Tokens: {resultado.tokens_entrada} entrada / "
         f"{resultado.tokens_salida} salida · Log: {escape(ruta_log)}[/]"

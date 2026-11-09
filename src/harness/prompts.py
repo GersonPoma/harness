@@ -18,6 +18,9 @@ se usa algo, buscar_en_codigo es más rápido que leer archivo por archivo.
 
 Al trabajar:
 - Respeta las convenciones y el estilo del código existente.
+- Implementa solo lo que piden los criterios del ticket: nada de endpoints, campos o clases \
+de más, aunque parezcan útiles o sean de otro ticket. Ante un error, antes de agregar código, \
+prefiere quitar lo que sobra.
 - Para modificar un archivo, léelo primero y cambia solo lo necesario con editar_archivo. \
 Usa escribir_archivo para crear archivos o cuando cambia casi todo el contenido.
 - Si una herramienta devuelve un error, analízalo y corrige la llamada (salvo los rechazos \
@@ -369,6 +372,18 @@ def crear_mensaje_retomar(motivo: str, cambiados: list[str]) -> str:
             f"{', '.join(cambiados)}. Léelos antes de tocarlos."
         )
     return texto
+
+
+def crear_mensaje_fuera_del_plan(rutas: list[str]) -> str:
+    """Pedido de justificar o revertir los archivos que cambiaron sin estar en el plan."""
+    lista = "\n".join(f"- {ruta}" for ruta in rutas)
+    return (
+        "Estos archivos cambiaron y no estaban en tu plan:\n\n"
+        f"{lista}\n\n"
+        "Para cada uno: si un criterio del ticket lo pide, llama a justificar_cambio con ese "
+        "criterio (la justificación va en la descripción del PR); si no, llama a "
+        "revertir_archivo para dejarlo como estaba. No agregues código nuevo en esta etapa."
+    )
 
 
 def crear_mensaje_revision(diff: str) -> str:

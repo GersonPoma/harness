@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from harness.alcance import Alcance, EstadoAlcance, resolver_fuera_del_plan
 from harness.bucle import Paso, ejecutar_bucle
 from harness.bucles import normalizar_salida
 from harness.plan import Plan
@@ -50,7 +51,8 @@ class ResultadoEjecucion:
     # De la última validación que pasó: va en la descripción del PR.
     resumen_tests: str | None = None
     revision: EstadoRevision = field(default_factory=EstadoRevision)
-    # Pasos que no descuentan de max_pasos (las rondas de revisión): están en `pasos`, pero
+    alcance: EstadoAlcance = field(default_factory=EstadoAlcance)
+    # Pasos que no descuentan de max_pasos (revisión, fuera del plan): están en `pasos`, pero
     # la implementación tiene max_pasos - (pasos - pasos_extra).
     pasos_extra: int = 0
 
@@ -85,6 +87,7 @@ def ejecutar_ticket(
     continuacion: ResultadoEjecucion | None = None,
     revisar_paso: Callable[[Paso], str | None] | None = None,
     revision: Revision | None = None,
+    alcance: Alcance | None = None,
 ) -> ResultadoEjecucion:
     """Planifica (si se pide), implementa y valida; si la validación falla, el modelo corrige.
 
@@ -95,6 +98,7 @@ def ejecutar_ticket(
     `revisar_paso` mira cada paso de la implementación (detección de bucles).
     `revision`: con los tests en verde, el modelo revisa su diff; si encuentra problemas,
     vuelve a implementar (hasta revision.max_vueltas revisiones).
+    `alcance`: antes de validar, el modelo justifica o revierte lo que cambió fuera del plan.
     """
     resultado = continuacion or ResultadoEjecucion(None, 0, 0, 0, False, None, 0)
     if continuacion is None and planificacion and not _planificar(
@@ -115,6 +119,8 @@ def ejecutar_ticket(
             return resultado
         if validar is None:
             return resultado
+        if alcance and resultado.plan:
+            _resolver_alcance(resultado, proveedor, mensajes, alcance, al_paso, al_aviso)
 
         es_valido, informe = validar()
         resultado.validaciones += 1
@@ -169,6 +175,24 @@ def _planificar(
         return False
     mensajes.append(Mensaje(Rol.USUARIO, MENSAJE_IMPLEMENTAR))
     return True
+
+
+def _resolver_alcance(
+    resultado: ResultadoEjecucion,
+    proveedor: ProveedorLLM,
+    mensajes: list[Mensaje],
+    alcance: Alcance,
+    al_paso: Callable[[Paso], None] | None,
+    al_aviso: Callable[[str], None] | None,
+) -> None:
+    """Justificar o revertir lo que cambió fuera del plan (con su propio presupuesto)."""
+    ronda = resolver_fuera_del_plan(
+        proveedor, mensajes, resultado.plan, alcance, resultado.alcance, resultado.pasos + 1,
+        al_paso, al_aviso,
+    )
+    if ronda is not None:
+        _acumular(resultado, ronda.pasos, ronda.tokens_entrada, ronda.tokens_salida)
+        resultado.pasos_extra += ronda.pasos
 
 
 def _hay_que_corregir_por_revision(
