@@ -221,11 +221,16 @@ class _Reporte:
         self.modelos_usados = [modelo] if modelo else []
         self.sesion: SesionEnCurso | None = None
         self._es_memoria_revisada = False
+        # Las notas se guardan durante el paso; se muestran después de él, no antes.
+        self._notas_pendientes: list[tuple[Path, str]] = []
 
     def paso(self, paso: Paso) -> None:
         self._ultimo_paso = paso.numero
         consola.mostrar_paso(paso)
         self.registro.registrar_paso(paso)
+        for repo, nota in self._notas_pendientes:
+            self._mostrar_nota(repo, nota)
+        self._notas_pendientes.clear()
         # Después de cada herramienta: un corte en cualquier momento pierde como mucho un paso.
         if self.sesion:
             self.sesion.paso(paso.numero)
@@ -263,6 +268,9 @@ class _Reporte:
             self.sesion.validacion()
 
     def nota_guardada(self, repo: Path, nota: str) -> None:
+        self._notas_pendientes.append((repo, nota))
+
+    def _mostrar_nota(self, repo: Path, nota: str) -> None:
         consola.mostrar_nota_guardada(nota)
         self.registro.registrar_memoria(nota)
         if not self._es_memoria_revisada:

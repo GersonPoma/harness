@@ -778,9 +778,12 @@ def test_el_modelo_guarda_una_nota_y_la_siguiente_ejecucion_la_ve(
     respuestas = [_guardar_memoria("Los tests necesitan DB_URL."), terminar()]
     codigo, salida = _correr(monkeypatch, repo_sin_yaml, respuestas, "--sin-plan")
     assert codigo == 0
-    assert "Memoria: nota guardada en .harness/memory.md: - Los tests necesitan DB_URL." in (
-        " ".join(salida.split())
-    )
+    texto = " ".join(salida.split())
+    assert "Memoria: nota guardada en .harness/memory.md: - Los tests necesitan DB_URL." in texto
+    # La nota sale después de su paso, no antes.
+    assert texto.index("[1] guardar_memoria(") < texto.index("Memoria: nota guardada")
+    eventos = [e["evento"] for e in _eventos_del_log(repo_sin_yaml)]
+    assert eventos.index("herramienta") < eventos.index("memoria")
     memoria = (repo_sin_yaml / ".harness" / "memory.md").read_text(encoding="utf-8")
     assert "- Los tests necesitan DB_URL. (T-1, " in memoria
     (evento,) = [e for e in _eventos_del_log(repo_sin_yaml) if e["evento"] == "memoria"]

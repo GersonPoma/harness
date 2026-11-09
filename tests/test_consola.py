@@ -229,6 +229,75 @@ def test_el_indicador_queda_con_su_ultimo_mensaje(monkeypatch: pytest.MonkeyPatc
     assert grabadora.export_text().splitlines() == ["Instalando dependencias [1/2]..."]
 
 
+def _terminal_en_texto(monkeypatch: pytest.MonkeyPatch) -> io.StringIO:
+    salida = io.StringIO()
+    terminal = consola.ConsolaSinUltimaColumna(
+        file=salida, width=80, force_terminal=True, color_system=None
+    )
+    monkeypatch.setattr(consola, "consola", terminal)
+    return salida
+
+
+def _pantalla(salida: str) -> list[str]:
+    """Lo que queda en una terminal: interpreta \\r, \\n, borrar línea y subir el cursor."""
+    lineas, fila, columna = [""], 0, 0
+    for parte in re.split(r"(\x1b\[[0-9;?]*[A-Za-z]|\r|\n)", salida):
+        if parte == "\n":
+            fila, columna = fila + 1, 0
+            if fila == len(lineas):
+                lineas.append("")
+        elif parte == "\r":
+            columna = 0
+        elif parte == "\x1b[2K":
+            lineas[fila] = ""
+        elif re.fullmatch(r"\x1b\[\d*A", parte):
+            fila -= int(parte[2:-1] or 1)
+        elif parte and not parte.startswith("\x1b"):
+            actual = lineas[fila].ljust(columna)
+            lineas[fila] = actual[:columna] + parte + actual[columna + len(parte):]
+            columna += len(parte)
+    return [linea for linea in lineas if linea]
+
+
+def test_lo_que_se_imprime_durante_el_indicador_sale_despues_de_su_mensaje(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    salida = _terminal_en_texto(monkeypatch)
+    with consola.estado("Preparando Docker...") as indicador:
+        consola.actualizar_estado(indicador, "Esperando a que el servicio db esté listo...")
+        consola.mostrar_cache(EstadoCache("harness-cache-tareas"))
+        consola.actualizar_estado(indicador, "Instalando dependencias...")
+        consola.mostrar_instalacion(Instalacion(8.2, True))
+    assert _pantalla(salida.getvalue()) == [
+        "Esperando a que el servicio db esté listo...",
+        "Caché de dependencias: volumen harness-cache-tareas (reutilizado).",
+        "Instalando dependencias...",
+        "Dependencias instaladas en 8 s.",
+    ]
+
+
+def test_un_aviso_fija_el_indicador_una_sola_vez(monkeypatch: pytest.MonkeyPatch) -> None:
+    salida = _terminal_en_texto(monkeypatch)
+    with consola.estado("Conectando con el servidor MCP github..."):
+        consola.mostrar_aviso("primer aviso")
+        consola.mostrar_aviso("segundo aviso")
+    consola.mostrar_aviso("fuera del indicador")
+    assert _pantalla(salida.getvalue()) == [
+        "Conectando con el servidor MCP github...",
+        "primer aviso",
+        "segundo aviso",
+        "fuera del indicador",
+    ]
+
+
+def test_sin_nada_impreso_el_indicador_queda_como_antes(monkeypatch: pytest.MonkeyPatch) -> None:
+    salida = _terminal_en_texto(monkeypatch)
+    with consola.estado("Preparando Docker...") as indicador:
+        consola.actualizar_estado(indicador, "Instalando dependencias...")
+    consola.mostrar_aviso("después")
+    assert _pantalla(salida.getvalue()) == ["Instalando dependencias...", "después"]
+
+
 def test_fuera_de_una_terminal_el_indicador_no_dibuja_nada(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

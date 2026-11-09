@@ -1,9 +1,9 @@
 """Salida por consola de una ejecución, con rich."""
 
 import sys
-from typing import Any
+from typing import Any, ClassVar
 
-from rich.console import Console, ConsoleDimensions
+from rich.console import Console, ConsoleDimensions, Group
 from rich.markup import escape
 from rich.live import Live
 from rich.panel import Panel
@@ -506,6 +506,7 @@ def mostrar_verificacion(resultado: ResultadoComando, salida: str) -> None:
 
 def mostrar_cache(cache: EstadoCache) -> None:
     """Si la ejecución usa la caché de dependencias y con qué volumen, o por qué no."""
+    _fijar_indicador()
     if cache.es_usada:
         estado = "nuevo: esta vez se descarga todo" if cache.es_creado else "reutilizado"
         texto = f"Caché de dependencias: volumen {cache.volumen} ({estado})."
@@ -523,6 +524,7 @@ def mostrar_instalacion(instalacion: Instalacion) -> None:
     """Cuánto tardó la instalación de dependencias (si falló, el error ya lo dice)."""
     if not instalacion.es_ok:
         return
+    _fijar_indicador()
     duracion = formatear_duracion(instalacion.segundos)
     if instalacion.es_reinstalacion:
         texto = f"Dependencias reinstaladas en {duracion} (cambió {instalacion.archivo_cambiado})."
@@ -542,6 +544,7 @@ def formatear_duracion(segundos: float) -> str:
 
 def mostrar_aviso(mensaje: str) -> None:
     """Muestra un aviso que no corta la ejecución (por ejemplo, un reintento)."""
+    _fijar_indicador()
     consola.print(f"[yellow]{escape(mensaje)}[/]")
 
 
@@ -555,8 +558,12 @@ class Indicador:
     dibuja nada.
     """
 
+    # El que está en pantalla: un mensaje que se imprime mientras tanto lo fija antes.
+    activo: ClassVar["Indicador | None"] = None
+
     def __init__(self, mensaje: str) -> None:
         self._mensaje = mensaje
+        self._es_fijado = False
         self._spinner = Spinner(SPINNER_INDICADOR, text=Text(mensaje))
         self._live: Live | None = None
         if consola.is_terminal:
@@ -571,17 +578,41 @@ class Indicador:
         """Cambia el mensaje (por ejemplo, cada etapa de la preparación de Docker)."""
         self._mensaje = mensaje
         self._spinner.update(text=Text(mensaje))
+        if self._es_fijado and self._live is not None:
+            self._es_fijado = False
+            self._live.update(self._spinner, refresh=True)
+
+    def fijar(self) -> None:
+        """Deja el mensaje actual como una línea, antes de otra que se imprime durante la tarea.
+
+        Sin esto, lo que se imprime mientras el indicador gira sale arriba de él, y al cerrarse
+        su mensaje queda después ("Dependencias instaladas" antes que "Instalando...").
+        """
+        if self._live is None or self._es_fijado:
+            return
+        self._es_fijado = True
+        consola.print(Text(self._mensaje, style="dim"))
+        self._live.update(Group(), refresh=True)
 
     def __enter__(self) -> "Indicador":
+        Indicador.activo = self
         if self._live is not None:
             self._live.start()
         return self
 
     def __exit__(self, *_: object) -> None:
+        Indicador.activo = None
         if self._live is not None:
-            # La última imagen, sin el spinner, queda como una línea propia (stop la dibuja).
-            self._live.update(Text(self._mensaje, style="dim"))
+            # La última imagen, sin el spinner, queda como una línea propia (stop la dibuja);
+            # si ya se fijó, no queda nada que dibujar.
+            final = Group() if self._es_fijado else Text(self._mensaje, style="dim")
+            self._live.update(final)
             self._live.stop()
+
+
+def _fijar_indicador() -> None:
+    if Indicador.activo is not None:
+        Indicador.activo.fijar()
 
 
 def estado(mensaje: str) -> Indicador:
