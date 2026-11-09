@@ -53,7 +53,7 @@ from harness.config_proyecto import (
 from harness.contexto import ContextoProyecto, cargar_agents_md
 from harness.ejecucion import Planificacion, ResultadoEjecucion, Validacion, ejecutar_ticket
 from harness.cache_dependencias import EstadoCache
-from harness.entorno_docker import EntornoDocker, ErrorDocker, Instalacion
+from harness.entorno_docker import EntornoDocker, ErrorDocker, Instalacion, listar_imagenes
 from harness.entrega import (
     ConfigEntrega,
     CrearPr,
@@ -85,6 +85,7 @@ from harness.init import (
     archivos_faltantes,
     asegurar_gitignore,
     ejecutar_init,
+    sugerencia_test_logging,
     verificar_config,
 )
 from harness.memoria import (
@@ -1400,6 +1401,9 @@ def init(
     agregadas = asegurar_gitignore(raiz)
     if agregadas:
         consola.mostrar_gitignore(agregadas)
+    sugerencia = sugerencia_test_logging(raiz)
+    if sugerencia:
+        consola.mostrar_sugerencia_test_logging(*sugerencia)
     if verificar:
         _verificar_init(raiz, usar_cache=not sin_cache)
 
@@ -1416,7 +1420,9 @@ def _generar_archivos_init(repo: Path, faltantes: list[str]) -> None:
     reporte = _Reporte(registro)
     try:
         proveedor = crear_proveedor(config, reporte.reintento)
-        resultado = ejecutar_init(proveedor, repo, reporte.paso, reporte.aviso)
+        resultado = ejecutar_init(
+            proveedor, repo, reporte.paso, reporte.aviso, imagenes=listar_imagenes()
+        )
     except (ErrorProveedor, ErrorRespuestaVacia, ErrorInit) as error:
         registro.registrar_error(str(error))
         consola.mostrar_error(str(error))

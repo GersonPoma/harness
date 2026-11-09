@@ -49,6 +49,36 @@ LINEAS_GITIGNORE = (".harness/logs/", ".harness/sessions/")
 COMENTARIO_GITIGNORE = "# Datos locales del harness (.harness/memory.md sí se sube)"
 
 
+@dataclass(frozen=True)
+class MinimosStack:
+    """Límites recomendados para un stack compilado (ver el prompt de init)."""
+
+    timeout_comando_segundos: int
+    max_caracteres_salida: int
+
+
+MINIMOS_GRADLE = MinimosStack(timeout_comando_segundos=1200, max_caracteres_salida=6000)
+MINIMOS_MAVEN = MinimosStack(timeout_comando_segundos=600, max_caracteres_salida=6000)
+BLOQUES_TEST_LOGGING = {
+    "build.gradle.kts": (
+        "tasks.test {\n"
+        "    testLogging {\n"
+        "        events(\"failed\")\n"
+        "        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL\n"
+        "    }\n"
+        "}"
+    ),
+    "build.gradle": (
+        "test {\n"
+        "    testLogging {\n"
+        "        events \"failed\"\n"
+        "        exceptionFormat \"full\"\n"
+        "    }\n"
+        "}"
+    ),
+}
+
+
 class ErrorInit(Exception):
     """El modelo no guardó todos los archivos que faltaban."""
 
@@ -93,8 +123,12 @@ def ejecutar_init(
     repo: Path,
     al_paso: Callable[[Paso], None] | None = None,
     al_aviso: Callable[[str], None] | None = None,
+    imagenes: list[str] | None = None,
 ) -> ResultadoInit:
-    """Pide al modelo los archivos que faltan; termina cuando los guardó todos."""
+    """Pide al modelo los archivos que faltan; termina cuando los guardó todos.
+
+    `imagenes`: las de Docker ya descargadas, para que el modelo las prefiera.
+    """
     faltantes = archivos_faltantes(repo)
     resultado = ResultadoInit()
     if not faltantes:
@@ -103,12 +137,12 @@ def ejecutar_init(
         nombre: (repo / nombre).read_text(encoding="utf-8-sig", errors="replace")
         for nombre in ARCHIVOS_INIT if nombre not in faltantes
     }
-    guardar = crear_herramientas_guardar(repo, faltantes, resultado.creados.append)
+    guardar = crear_herramientas_guardar(repo, faltantes, resultado.creados.append, al_aviso)
 
     def es_fin() -> bool:
         return set(resultado.creados) >= set(faltantes)
 
-    mensajes = crear_mensajes_init(faltantes, existentes)
+    mensajes = crear_mensajes_init(faltantes, existentes, imagenes)
     bucle = ejecutar_bucle(
         proveedor, mensajes, [*crear_herramientas_lectura(repo), *guardar], MAX_PASOS_INIT,
         al_paso, al_aviso=al_aviso, es_fin=es_fin,
@@ -131,9 +165,16 @@ def ejecutar_init(
 
 
 def crear_herramientas_guardar(
-    repo: Path, faltantes: list[str], al_guardar: Callable[[str], None]
+    repo: Path,
+    faltantes: list[str],
+    al_guardar: Callable[[str], None],
+    al_aviso: Callable[[str], None] | None = None,
 ) -> list[Herramienta]:
-    """Una herramienta por archivo que falta; solo esas pueden escribir en el repo."""
+    """Una herramienta por archivo que falta; solo esas pueden escribir en el repo.
+
+    guardar_harness_yaml no guarda, la primera vez, un YAML con límites por debajo de lo
+    recomendado para su stack: el modelo lo corrige o insiste con ignorar_advertencias.
+    """
     herramientas = []
     if NOMBRE_AGENTS in faltantes:
         def guardar_agents_md(contenido: str) -> str:
@@ -145,18 +186,33 @@ def crear_herramientas_guardar(
             guardar_agents_md,
         ))
     if NOMBRE_ARCHIVO in faltantes:
-        def guardar_harness_yaml(contenido: str) -> str:
+        def guardar_harness_yaml(contenido: str, ignorar_advertencias: bool = False) -> str:
             try:
-                validar_texto_config(contenido)
+                config = validar_texto_config(contenido)
             except ErrorConfigProyecto as error:
                 raise ErrorHerramienta(f"{error}\nCorrige el YAML y vuelve a llamar.") from error
+            advertencias = advertencias_de_limites(config)
+            if advertencias and not ignorar_advertencias:
+                lista = "\n".join(f"- {advertencia}" for advertencia in advertencias)
+                raise ErrorHerramienta(
+                    f"No se guardó: hay límites por debajo de lo recomendado.\n{lista}\n"
+                    "Corrígelos, o vuelve a llamar con ignorar_advertencias: true si tienes un "
+                    "motivo para dejarlos así."
+                )
+            if advertencias and al_aviso:
+                al_aviso(
+                    f"{NOMBRE_ARCHIVO} se guardó con advertencias (el modelo las ignoró): "
+                    + " ".join(advertencias)
+                )
             return _guardar(repo, NOMBRE_ARCHIVO, _con_requiere_agents(contenido), al_guardar)
 
         herramientas.append(_herramienta_guardar(
             HERRAMIENTA_GUARDAR[NOMBRE_ARCHIVO],
-            "Valida y guarda harness.yaml en la raíz del repo. Si no cumple el formato, "
-            "devuelve los errores y no guarda nada.",
+            "Valida y guarda harness.yaml en la raíz del repo. Si no cumple el formato, o si "
+            "sus límites están por debajo de lo recomendado para el stack, devuelve los "
+            "errores o las advertencias y no guarda nada.",
             guardar_harness_yaml,
+            con_ignorar_advertencias=True,
         ))
     return herramientas
 
@@ -214,20 +270,75 @@ def _solo_para(guardar: list[Herramienta], pendientes: list[str]) -> list[Herram
 
 
 def _herramienta_guardar(
-    nombre: str, descripcion: str, funcion: Callable[[str], str]
+    nombre: str,
+    descripcion: str,
+    funcion: Callable[..., str],
+    con_ignorar_advertencias: bool = False,
 ) -> Herramienta:
+    propiedades: dict[str, object] = {
+        "contenido": {"type": "string", "description": "Contenido completo."},
+    }
+    if con_ignorar_advertencias:
+        propiedades["ignorar_advertencias"] = {
+            "type": "boolean",
+            "description": "Guardar aunque haya advertencias de límites (solo con un motivo).",
+        }
     return Herramienta(
         nombre=nombre,
         descripcion=descripcion,
-        parametros={
-            "type": "object",
-            "properties": {
-                "contenido": {"type": "string", "description": "Contenido completo."},
-            },
-            "required": ["contenido"],
-        },
+        parametros={"type": "object", "properties": propiedades, "required": ["contenido"]},
         funcion=funcion,
     )
+
+
+def advertencias_de_limites(config: ConfigProyecto) -> list[str]:
+    """Límites por debajo de lo recomendado para el stack (Gradle o Maven) del harness.yaml.
+
+    Pasó en library-api: init escribió 600 s para Gradle (la primera instalación tardó 11
+    minutos sobre una carpeta montada desde Windows) y agregó --no-daemon.
+    """
+    comandos = [*config.docker.instalar, config.comandos.tests, config.comandos.lint or ""]
+    texto = " ".join([config.docker.imagen, *comandos]).lower()
+    if "gradle" in texto:
+        stack, minimos = "Gradle", MINIMOS_GRADLE
+    elif "mvn" in texto or "maven" in texto:
+        stack, minimos = "Maven", MINIMOS_MAVEN
+    else:
+        return []
+    limites = config.limites
+    advertencias = []
+    if limites.timeout_comando_segundos < minimos.timeout_comando_segundos:
+        advertencias.append(
+            f"limites.timeout_comando_segundos es {limites.timeout_comando_segundos}: en "
+            f"{stack} se recomienda {minimos.timeout_comando_segundos} (la primera instalación "
+            "descarga muchas dependencias)."
+        )
+    if limites.max_caracteres_salida < minimos.max_caracteres_salida:
+        advertencias.append(
+            f"limites.max_caracteres_salida es {limites.max_caracteres_salida}: en {stack} se "
+            f"recomienda {minimos.max_caracteres_salida} (sus errores son largos)."
+        )
+    if stack == "Gradle" and any("--no-daemon" in comando for comando in comandos):
+        advertencias.append(
+            "--no-daemon hace más lento cada comando: el contenedor vive toda la ejecución y "
+            "el daemon de Gradle se reutiliza entre comandos. Quítalo."
+        )
+    return advertencias
+
+
+def sugerencia_test_logging(repo: Path) -> tuple[str, str] | None:
+    """(archivo, bloque) si el build de Gradle no muestra el detalle de las fallas de tests.
+
+    Sin exceptionFormat FULL, Gradle muestra "AssertionError at Archivo.java:49" sin el valor
+    esperado ni el obtenido, y el modelo corrige a ciegas (LIB-2 tardó dos intentos).
+    """
+    for nombre, bloque in BLOQUES_TEST_LOGGING.items():
+        ruta = repo / nombre
+        if ruta.is_file():
+            if "exceptionformat" in ruta.read_text(encoding="utf-8-sig", errors="replace").lower():
+                return None
+            return nombre, bloque
+    return None
 
 
 def _guardar(repo: Path, nombre: str, contenido: str, al_guardar: Callable[[str], None]) -> str:

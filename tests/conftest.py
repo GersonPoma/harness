@@ -26,3 +26,5 @@ def sin_mcp_del_usuario(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None
     monkeypatch.delenv("HARNESS_MCP_HERRAMIENTAS_MODELO", raising=False)
     monkeypatch.delenv("HARNESS_RESPALDO", raising=False)
     monkeypatch.delenv("HARNESS_CONSOLA_CRUDA", raising=False)
+    # harness init consulta las imágenes descargadas: los tests no dependen del Docker local.
+    monkeypatch.setattr("harness.cli.listar_imagenes", lambda: [])

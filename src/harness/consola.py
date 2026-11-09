@@ -204,6 +204,16 @@ def mostrar_nota_guardada(nota: str) -> None:
     consola.print(f"[dim]Memoria: nota guardada en {RUTA_MEMORIA}: {escape(nota)}[/]")
 
 
+def mostrar_sugerencia_test_logging(archivo: str, bloque: str) -> None:
+    """El build de Gradle no muestra el detalle de las fallas: el bloque para agregarle."""
+    mostrar_aviso(
+        f"{archivo} no configura testLogging con exceptionFormat FULL: cuando un test falla, "
+        "Gradle no muestra el valor esperado ni el obtenido y el modelo corrige a ciegas. "
+        f"Se sugiere agregar a {archivo} (el harness no lo modifica):"
+    )
+    consola.print(Panel(escape(bloque), title=archivo, expand=False))
+
+
 def mostrar_compactacion(compactacion: Compactacion) -> None:
     """La conversación creció demasiado y se acortaron los resultados viejos."""
     omitidos = compactacion.resultados_omitidos

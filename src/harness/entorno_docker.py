@@ -37,6 +37,8 @@ TIMEOUT_INSTALACION_SEGUNDOS = 900
 # Una imagen como postgres:16 pesa cientos de MB: la primera descarga puede tardar.
 TIMEOUT_DESCARGA_SEGUNDOS = 600
 TIMEOUT_DOCKER_SEGUNDOS = 60
+TIMEOUT_LISTAR_IMAGENES_SEGUNDOS = 15
+MAX_IMAGENES_LISTADAS = 50
 # Margen para que el timeout de dentro del contenedor actúe antes que el del host.
 MARGEN_TIMEOUT_HOST_SEGUNDOS = 10
 INTERVALO_LISTO_SEGUNDOS = 1.0
@@ -111,6 +113,25 @@ def ejecutar_proceso(
     except FileNotFoundError as error:
         raise ErrorDocker("No se encontró el comando 'docker': instala Docker Desktop.") from error
     return proceso.returncode, proceso.stdout
+
+
+def listar_imagenes() -> list[str]:
+    """Las imágenes de Docker ya descargadas ("repositorio:tag"), o [] si Docker no responde.
+
+    Para harness init: elegir una ya descargada evita que --verificar dependa de la red.
+    """
+    try:
+        codigo, salida = ejecutar_proceso(
+            ["docker", "image", "ls", "--format", "{{.Repository}}:{{.Tag}}"],
+            TIMEOUT_LISTAR_IMAGENES_SEGUNDOS,
+        )
+    except ErrorDocker:
+        return []
+    if codigo != 0:
+        return []
+    imagenes = [linea.strip() for linea in salida.splitlines()]
+    validas = [i for i in imagenes if i and "<none>" not in i]
+    return list(dict.fromkeys(validas))[:MAX_IMAGENES_LISTADAS]
 
 
 class EntornoDocker:

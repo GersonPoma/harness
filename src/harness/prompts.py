@@ -315,13 +315,23 @@ Ejemplo de un proyecto Maven con Spring Boot y PostgreSQL:
 {EJEMPLO_HARNESS_MAVEN}"""
 
 
-def crear_mensajes_init(faltantes: list[str], existentes: dict[str, str]) -> list[Mensaje]:
-    """Conversación inicial de harness init: qué archivos faltan y los que ya existen."""
+def crear_mensajes_init(
+    faltantes: list[str], existentes: dict[str, str], imagenes: list[str] | None = None
+) -> list[Mensaje]:
+    """Conversación inicial de harness init: qué archivos faltan, los que ya existen y las
+    imágenes de Docker ya descargadas."""
     pedido = f"Escribe estos archivos, que faltan en el repo: {', '.join(faltantes)}."
     for nombre, contenido in existentes.items():
         pedido += (
             f"\n\n{nombre} ya existe (no lo cambies; úsalo como contexto):\n\n"
             f"{contenido.strip()}"
+        )
+    if imagenes:
+        pedido += (
+            "\n\nImágenes de Docker ya descargadas en esta máquina: "
+            f"{', '.join(imagenes)}. Si alguna sirve para el proyecto (la misma herramienta y "
+            "una versión compatible), prefiérela en docker.imagen y en servicios: así no hay "
+            "que descargar nada y --verificar no depende de la red."
         )
     return [Mensaje(Rol.SISTEMA, PROMPT_INIT), Mensaje(Rol.USUARIO, pedido)]
 
