@@ -1229,29 +1229,32 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
   - [x] **Avisos y log:** la caché usada (o por qué no) y los segundos de cada instalación.
   - [x] **Prueba real:** tienda-api de 51 s a 8 s (81 MB) y library-api de 2 min 33 s a
         17 s (319 MB); Ctrl+C sin contenedores y con la caché intacta.
-- [ ] **9.** Memoria y continuidad: manejo de contexto (recorte + resumen),
-      `.harness/memory.md` con `save_memory`, y `harness resume`
-  - [ ] **Cambio automático de proveedor al agotarse la cuota.** Lista de respaldo de
-        perfiles en `config.toml` (por ejemplo `respaldo = ["fuerte", "groq"]`, ver perfiles en
-        la fase 12). Si se agota la cuota diaria, avisar en consola, pasar al siguiente y
-        seguir desde el mismo paso. Depende del resumen de contexto: una conversación larga de
-        Gemini no entra en los 8.000 tokens por minuto de Groq.
-  - [ ] **Distinguir los dos 429:** el límite por minuto (esperar y reintentar) y la cuota
-        diaria (no se recupera hasta medianoche, hora del Pacífico: cortar o cambiar de
-        proveedor).
-  - [ ] **`harness resume` acepta `--proveedor` y `--modelo`**, para retomar con otra IA un
-        ticket que quedó a medias. Las sesiones ya se guardan con tipos propios, así que no
-        dependen del proveedor.
-  - [ ] **"Cuota agotada" como causa de corte** que se puede retomar con `resume` (junto a
-        error, Ctrl+C, límite de tokens y sin internet).
-  - [ ] **PR pendiente en `harness resume <TICKET>`:** si la ejecución anterior terminó con
-        el push hecho y sin PR (el PR falló), crear solo el PR con la descripción guardada en
-        `.harness/logs/<TICKET>-pr.md`, sin volver a correr el modelo.
-  - [ ] **Retomar una ejecución cortada por límite de pasos o de tokens.** Hoy los cambios
-        quedan sin commitear en `feature/<TICKET>`. `harness resume <TICKET>` debe aceptar ese
-        estado (la rama ya existe y el árbol está sucio: no crea rama nueva ni lo trata como
-        error), y el mensaje final de la ejecución cortada debe sugerir
-        `harness resume <TICKET>`.
+- [x] **9.** Memoria y continuidad (ver [Respaldo entre proveedores](#respaldo-entre-proveedores)
+      y [Memoria](#memoria))
+  - [x] **Cambio automático de proveedor** cuando el actual se cae o agota la cuota:
+        `HARNESS_RESPALDO=proveedor:modelo, …` en el `.env` (los perfiles de `config.toml`
+        pasan a la fase 12), aviso en consola y la misma conversación con el siguiente,
+        desde el mismo paso. Sin repetir el modelo actual; las firmas de Gemini solo vuelven
+        a Gemini, y las llamadas de otro proveedor llevan la firma de reemplazo.
+  - [x] **Distinguir los dos 429:** el límite por minuto (reintentar) y la cuota diaria
+        (pasar al siguiente sin reintentar; sin respaldo, cortar enseguida).
+  - [x] **`harness resume` acepta `--proveedor` y `--modelo`.**
+  - [x] **"Cuota agotada" como causa de corte** que se puede retomar (motivo `proveedor`,
+        junto a `limite_pasos`, `validacion`, `ctrl_c` y `error`).
+  - [x] **PR pendiente en `harness resume <TICKET>`:** la entrega se retoma por etapas
+        (push, PR con la descripción guardada, comentario en Jira), sin modelo ni Docker.
+  - [x] **Retomar una ejecución cortada por límite de pasos**, Ctrl+C, proveedor caído o
+        validación fallida: sesión en `.harness/sessions/<TICKET>.json`, rama con cambios sin
+        commitear aceptada, y el mensaje final sugiere `harness resume <TICKET>`.
+  - [x] **Memoria del proyecto:** `.harness/memory.md` con `guardar_memoria`, cargada como
+        datos y no como instrucciones, sin secretos, y que vale cuando se mergea el PR.
+  - [x] **Compactación** de resultados viejos (`limites.max_caracteres_conversacion`).
+  - [x] **Plan obligatorio al final de la exploración:** `tool_choice` con `proponer_plan` y
+        una última oportunidad con un mensaje explícito.
+  - [x] **Prueba real** en tareas-api: respaldo por 503 y por cuota diaria (con un proxy
+        local), `resume` por límite, por Ctrl+C, con otro proveedor y de OpenRouter a
+        Gemini, y la memoria de MEM-1. Los arreglos que salieron de ella están en la
+        sección de [Memoria](#memoria).
 - [ ] **10.** Calidad de la ejecución
   - [ ] **Paso de revisión con el modelo.** Después de que los tests pasan, mostrarle al
         modelo el `git diff`, el `AGENTS.md` y el ticket, y pedirle que revise si se viola
