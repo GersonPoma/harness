@@ -114,6 +114,23 @@ class ConfigRevision(_Modelo):
     max_pasos: Entero = 6
 
 
+class ConfigJiraProyecto(_Modelo):
+    """Qué hace el harness con el ticket de Jira (los nombres de estado son de cada flujo)."""
+
+    # Al abrir el PR, el ticket pasa a este estado (por ejemplo "En revisión"); None: no se
+    # mueve.
+    estado_al_abrir_pr: str | None = None
+
+    @field_validator("estado_al_abrir_pr")
+    @classmethod
+    def _no_vacio(cls, valor: str | None) -> str | None:
+        if valor is None:
+            return None
+        if not valor.strip():
+            raise ValueError("no puede estar vacío: usa null para no mover el ticket")
+        return valor.strip()
+
+
 class ConfigProyecto(_Modelo):
     """Contenido validado de harness.yaml."""
 
@@ -127,6 +144,7 @@ class ConfigProyecto(_Modelo):
     git: ConfigGit = ConfigGit()
     limites: ConfigLimites = ConfigLimites()
     revision: ConfigRevision = ConfigRevision()
+    jira: ConfigJiraProyecto = ConfigJiraProyecto()
     archivos_protegidos: list[str] = []
     requiere_agents_md: bool = False
 

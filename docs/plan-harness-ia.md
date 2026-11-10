@@ -1781,9 +1781,18 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         Hecho en `secretos.es_archivo_de_secretos`, el único punto que miran `leer_archivo`,
         `escribir_archivo`, `editar_archivo`, `buscar_en_codigo` y el montaje vacío del
         contenedor; el prompt lo nombra.
-  - [ ] **Mover el ticket de Jira a "En revisión" al abrir el PR** (una transición de
+  - [x] **Mover el ticket de Jira a "En revisión" al abrir el PR** (una transición de
         Jira), opcional por proyecto porque cada flujo de trabajo nombra distinto sus
         estados.
+        Hecho con `jira.estado_al_abrir_pr` en `harness.yaml` (`null` por defecto; ver
+        `docs/harness-yaml.md`). Después del comentario con el link del PR, `jira.mover_ticket`
+        lee el estado actual y las transiciones (`GET /issue/<clave>/transitions`) y hace el
+        `POST` con la que lleva a ese estado (por su destino o su nombre, sin mayúsculas ni
+        tildes). Si ya estaba, no hace nada; si no hay transición, avisa con las que hay; si
+        Jira lo rechaza, solo avisa. Por la API REST: los servidores MCP probados tienen
+        herramientas de transición, pero no se comprobó el formato que devuelven. Log:
+        `jira_transicion`.
+        _Pendiente de prueba real._
   - [x] **`.gitattributes` con `* text=auto eol=lf`**, para unificar los finales de línea y
         que deje de aparecer el aviso de LF/CRLF en Windows.
         Hecho: el índice ya estaba todo en LF, así que `git add --renormalize .` no cambió

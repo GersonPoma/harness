@@ -2,7 +2,11 @@ from pathlib import Path
 
 import pytest
 
-from harness.config_proyecto import ErrorConfigProyecto, cargar_config_proyecto
+from harness.config_proyecto import (
+    ErrorConfigProyecto,
+    cargar_config_proyecto,
+    validar_texto_config,
+)
 
 MINIMO = """\
 version: 1
@@ -228,3 +232,17 @@ def test_max_caracteres_conversacion(tmp_path: Path) -> None:
     assert "limites.max_caracteres_conversacion" in _error(
         tmp_path, MINIMO + "limites:\n  max_caracteres_conversacion: 0\n"
     )
+
+
+# --- jira ---------------------------------------------------------------------------------
+
+
+def test_jira_estado_al_abrir_pr() -> None:
+    base = "version: 1\nproyecto: p\ndocker:\n  imagen: python:3.12\ncomandos:\n  tests: pytest\n"
+    assert validar_texto_config(base).jira.estado_al_abrir_pr is None
+    config = validar_texto_config(base + "jira:\n  estado_al_abrir_pr: En revisión\n")
+    assert config.jira.estado_al_abrir_pr == "En revisión"
+    with pytest.raises(ErrorConfigProyecto, match="estado_al_abrir_pr"):
+        validar_texto_config(base + "jira:\n  estado_al_abrir_pr: '  '\n")
+    with pytest.raises(ErrorConfigProyecto, match="jira.otra"):
+        validar_texto_config(base + "jira:\n  otra: 1\n")

@@ -25,6 +25,7 @@ from harness.entorno_docker import MOTIVO_SIN_CACHE, Conservados, Instalacion, R
 from harness.entrega import ConfigEntrega, ResultadoEntrega
 from harness.alcance import EstadoAlcance
 from harness.github import PullRequest
+from harness.jira import MOVIDO, SIN_TRANSICION, YA_ESTABA_EN_ESTADO, ResultadoTransicion
 from harness.revision import EstadoRevision
 from harness.init import ResultadoInit
 from harness.limpieza import IMAGEN as TIPO_IMAGEN
@@ -476,6 +477,23 @@ def mostrar_comentario_jira(
         mostrar_aviso(
             f"No se pudo comentar en {clave}: {resultado.error} Agrégalo a mano: {url_pr}"
         )
+
+
+def mostrar_transicion_jira(clave: str, estado: str, resultado: ResultadoTransicion) -> None:
+    """Si el ticket pasó al estado de jira.estado_al_abrir_pr, o por qué no."""
+    if resultado.estado == MOVIDO:
+        desde = f" (desde {escape(resultado.desde)})" if resultado.desde else ""
+        consola.print(f"[bold green]✓ {escape(clave)}[/] pasó a {escape(estado)}{desde}.")
+    elif resultado.estado == YA_ESTABA_EN_ESTADO:
+        mostrar_aviso(f"{clave} ya estaba en {estado}: no se movió.")
+    elif resultado.estado == SIN_TRANSICION:
+        disponibles = ", ".join(resultado.disponibles) or "ninguno"
+        mostrar_aviso(
+            f"No se movió {clave} a '{estado}': desde '{resultado.desde}' solo se puede pasar "
+            f"a {disponibles}. Revisa jira.estado_al_abrir_pr en harness.yaml."
+        )
+    else:
+        mostrar_aviso(f"No se movió {clave} a '{estado}': {resultado.error}")
 
 
 def mostrar_jira_mcp(servidor: str, transporte: str) -> None:

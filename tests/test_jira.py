@@ -265,3 +265,60 @@ def test_los_tickets_reales_traen_sus_datos_y_una_linea_en_blanco(numero: int) -
     # Los datos, cada uno en su línea, y una línea en blanco antes de la descripción.
     assert cabecera.endswith("**Tipo:** Tarea\n**Prioridad:** Medium")
     assert descripcion == (DATOS_JIRA / f"TAREAS-{numero}.md").read_text(encoding="utf-8").strip()
+
+
+# --- Mover el ticket al abrir el PR -------------------------------------------------------
+
+from harness.jira import (  # noqa: E402
+    MOVIDO,
+    SIN_TRANSICION,
+    YA_ESTABA_EN_ESTADO,
+    mover_ticket,
+)
+
+TRANSICIONES = {"transitions": [
+    {"id": "21", "name": "Empezar", "to": {"name": "En curso"}},
+    {"id": "31", "name": "Pedir revisión", "to": {"name": "En revisión"}},
+    {"id": "41", "name": "Terminar", "to": {"name": "Listo"}},
+]}
+
+
+def _estado(nombre: str) -> httpx.Response:
+    return httpx.Response(200, json={"fields": {"status": {"name": nombre}}})
+
+
+def test_mueve_con_la_transicion_que_lleva_al_estado() -> None:
+    jira = JiraFalso(_estado("En curso"), httpx.Response(200, json=TRANSICIONES),
+                     httpx.Response(204))
+    resultado = mover_ticket(CONFIG, "TAREAS-3", "en  REVISION", jira.transporte)
+    assert (resultado.estado, resultado.desde) == (MOVIDO, "En curso")
+    lectura, transiciones, post = jira.pedidos
+    assert lectura.url.params["fields"] == "status"
+    assert transiciones.url.path.endswith("/rest/api/3/issue/TAREAS-3/transitions")
+    assert post.method == "POST" and json.loads(post.content) == {"transition": {"id": "31"}}
+
+
+def test_tambien_por_el_nombre_de_la_transicion() -> None:
+    jira = JiraFalso(_estado("En curso"), httpx.Response(200, json=TRANSICIONES),
+                     httpx.Response(204))
+    assert mover_ticket(CONFIG, "T-1", "Pedir revisión", jira.transporte).estado == MOVIDO
+
+
+def test_si_ya_esta_en_ese_estado_no_pide_nada_mas() -> None:
+    jira = JiraFalso(_estado("En Revisión"))
+    resultado = mover_ticket(CONFIG, "T-1", "En revisión", jira.transporte)
+    assert resultado.estado == YA_ESTABA_EN_ESTADO and len(jira.pedidos) == 1
+
+
+def test_sin_transicion_a_ese_estado_dice_cuales_hay() -> None:
+    jira = JiraFalso(_estado("Por hacer"), httpx.Response(200, json=TRANSICIONES))
+    resultado = mover_ticket(CONFIG, "T-1", "Code review", jira.transporte)
+    assert resultado.estado == SIN_TRANSICION
+    assert resultado.disponibles == ["En curso", "En revisión", "Listo"]
+
+
+def test_si_jira_rechaza_la_transicion_es_un_error() -> None:
+    rechazo = httpx.Response(400, json={"errorMessages": ["Falta el campo Resolución"]})
+    jira = JiraFalso(_estado("En curso"), httpx.Response(200, json=TRANSICIONES), rechazo)
+    with pytest.raises(ErrorJira, match="Jira no movió T-1 a 'En revisión': 400 Falta el campo"):
+        mover_ticket(CONFIG, "T-1", "En revisión", jira.transporte)

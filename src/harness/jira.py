@@ -1,11 +1,13 @@
 """Jira Cloud por su API REST v3: verificar credenciales, leer el ticket y sus comentarios,
-y comentar.
+comentar y mover el ticket de estado (una transición).
 
 El ticket se lee siempre por aquí (no por MCP): el ADF de la v3 pasa por nuestro conversor sin
 perder nada. Los servidores MCP probados devuelven la descripción ya convertida y pierden
 casillas, paneles o menciones (ver docs/plan-harness-ia.md, "Cómo se conectan los MCP").
 """
 
+import unicodedata
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -30,8 +32,26 @@ CODIGO_PROHIBIDO = 403
 CODIGO_NO_ENCONTRADO = 404
 
 
+# Cómo terminó mover_ticket.
+MOVIDO = "movido"
+YA_ESTABA_EN_ESTADO = "ya_estaba"
+SIN_TRANSICION = "sin_transicion"
+FALLO_TRANSICION = "error"
+
+
 class ErrorJira(Exception):
     """Jira rechazó el pedido o no se pudo conectar."""
+
+
+@dataclass(frozen=True)
+class ResultadoTransicion:
+    """Si el ticket pasó al estado pedido, ya estaba, o no hay una transición hacia él."""
+
+    estado: str
+    desde: str | None = None
+    # Con SIN_TRANSICION: a qué estados sí se puede pasar desde el actual.
+    disponibles: list[str] = field(default_factory=list)
+    error: str | None = None
 
 
 def obtener_cloud_id(
@@ -120,6 +140,65 @@ def comentar(
     )
     if not respuesta.is_success:
         raise ErrorJira(f"Jira no agregó el comentario en {clave}: {_describir(respuesta)}")
+
+
+def mover_ticket(
+    config: ConfigJira, clave: str, estado: str, transporte: httpx.BaseTransport | None = None
+) -> ResultadoTransicion:
+    """Pasa el ticket al estado `estado` con la transición que lleva a él.
+
+    Cada flujo de Jira nombra distinto sus estados y transiciones: se busca la transición
+    cuyo estado de destino (o nombre) coincide, sin importar mayúsculas ni tildes. Lanza
+    ErrorJira si Jira rechaza un pedido.
+    """
+    actual = _estado_actual(config, clave, transporte)
+    if actual is not None and _normalizar(actual) == _normalizar(estado):
+        return ResultadoTransicion(YA_ESTABA_EN_ESTADO, actual)
+    respuesta = _pedir(config, "GET", f"/issue/{clave}/transitions", transporte)
+    datos = _leer_json(respuesta) if respuesta.is_success else None
+    if not isinstance(datos, dict):
+        raise ErrorJira(f"No se pudieron leer las transiciones de {clave}: {_describir(respuesta)}")
+    transiciones = [t for t in datos.get("transitions") or [] if isinstance(t, dict)]
+    elegida = next((t for t in transiciones if _lleva_a(t, estado)), None)
+    if elegida is None:
+        disponibles = [_destino(t) for t in transiciones]
+        return ResultadoTransicion(SIN_TRANSICION, actual, [d for d in disponibles if d])
+    respuesta = _pedir(
+        config, "POST", f"/issue/{clave}/transitions", transporte,
+        json={"transition": {"id": str(elegida.get("id"))}},
+    )
+    if not respuesta.is_success:
+        raise ErrorJira(f"Jira no movió {clave} a '{estado}': {_describir(respuesta)}")
+    return ResultadoTransicion(MOVIDO, actual)
+
+
+def _estado_actual(
+    config: ConfigJira, clave: str, transporte: httpx.BaseTransport | None
+) -> str | None:
+    respuesta = _pedir(config, "GET", f"/issue/{clave}", transporte, params={"fields": "status"})
+    datos = _leer_json(respuesta) if respuesta.is_success else None
+    if not isinstance(datos, dict):
+        raise ErrorJira(f"No se pudo leer el estado de {clave}: {_describir(respuesta)}")
+    return _nombre((datos.get("fields") or {}).get("status"))
+
+
+def _lleva_a(transicion: dict[str, Any], estado: str) -> bool:
+    buscado = _normalizar(estado)
+    return buscado in (_normalizar(_destino(transicion) or ""),
+                       _normalizar(str(transicion.get("name") or "")))
+
+
+def _destino(transicion: dict[str, Any]) -> str | None:
+    return _nombre(transicion.get("to"))
+
+
+def _normalizar(texto: str) -> str:
+    """Minúsculas, sin tildes y con los espacios unificados ('En  Revisión' = 'en revision')."""
+    sin_tildes = "".join(
+        letra for letra in unicodedata.normalize("NFD", texto)
+        if unicodedata.category(letra) != "Mn"
+    )
+    return " ".join(sin_tildes.lower().split())
 
 
 def texto_comentario_pr(es_borrador: bool) -> str:

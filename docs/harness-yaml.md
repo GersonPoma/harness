@@ -88,6 +88,9 @@ revision:
   max_vueltas: 2
   max_pasos: 6
 
+jira:
+  estado_al_abrir_pr: En revisión   # null (por defecto): el ticket no se mueve
+
 archivos_protegidos:
   - migrations/**
   - docs/**
@@ -111,6 +114,7 @@ archivos_protegidos:
 | `git` | objeto | no | (valores por defecto) | Ver [`git`](#git). |
 | `limites` | objeto | no | (valores por defecto) | Ver [`limites`](#limites). |
 | `revision` | objeto | no | (valores por defecto) | Paso de revisión del diff con el modelo. Ver [`revision`](#revision). |
+| `jira` | objeto | no | (valores por defecto) | Qué hace el harness con el ticket de Jira al abrir el PR. Ver [`jira`](#jira). |
 | `archivos_protegidos` | lista de globs | no | `[]` | Ver [`archivos_protegidos`](#archivos_protegidos). |
 | `requiere_agents_md` | booleano | no | `false` | Con `true`, `harness run` se detiene enseguida (código 1, antes de crear contenedores y de llamar al modelo) si el repo no tiene `AGENTS.md` o está vacío. Con `false`, solo avisa y sigue. Ver [`requiere_agents_md`](#requiere_agents_md). |
 
@@ -287,6 +291,16 @@ pasan): los problemas quedan en la sección "Revisión" del PR y en un aviso en 
 - Las validaciones que siguen a una corrección pedida por la revisión no cuentan para
   `max_intentos_validacion`.
 
+### `jira`
+
+Solo cuenta con un ticket de Jira (no con un `.md` local) y un PR abierto (no con `--sin-push`
+ni `--sin-pr`). Va en `harness.yaml` porque cada flujo de trabajo de Jira nombra distinto sus
+estados.
+
+| Clave | Tipo | Obligatoria | Por defecto | Descripción |
+|---|---|---|---|---|
+| `estado_al_abrir_pr` | texto o `null` | no | `null` | Después de comentar el link del PR, el ticket pasa a este estado (por ejemplo `En revisión`). Se busca la transición cuyo estado de destino (o nombre) coincide, sin importar mayúsculas ni tildes, por la API REST de Jira. Si el ticket ya estaba ahí no se hace nada; si no hay una transición a ese estado desde el actual, se avisa con las que hay. Si Jira lo rechaza, solo se avisa: el PR ya existe. Queda en el log como `jira_transicion`. |
+
 ### `archivos_protegidos`
 
 Rutas (globs, relativas a la raíz del repo) que el modelo **no puede crear, modificar ni
@@ -362,6 +376,8 @@ AGENTS.md" pasa desapercibido y el modelo trabajaría sin las convenciones del p
 - `revision.max_vueltas` o `revision.max_pasos` menores que 1 → error.
 - `docker.timeout_descarga_segundos` menor que 1 o que no sea un entero → error.
 - `docker.usuario_host` que no sea booleano → error.
+- `jira.estado_al_abrir_pr` vacío (o solo espacios) → error: para no mover el ticket va `null`
+  o se omite.
 - Si no existe `harness.yaml`, el harness avisa y sugiere `harness init`.
 
 ## Implementación

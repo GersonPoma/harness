@@ -86,7 +86,14 @@ from harness.git import ErrorGit
 from harness.herramientas import crear_herramientas, crear_herramientas_lectura
 from harness.herramientas.comandos import EjecutorComandos, validar_proyecto
 from harness.herramientas.protegidos import GuardiaProtegidos
-from harness.jira import ErrorJira, leer_ticket, verificar_credenciales
+from harness.jira import (
+    FALLO_TRANSICION,
+    ErrorJira,
+    ResultadoTransicion,
+    leer_ticket,
+    mover_ticket,
+    verificar_credenciales,
+)
 from harness.jira_mcp import ComentariosJiraMCP, herramientas_usadas, preparar_comentarios
 from harness.herramientas.remotas import (
     HERRAMIENTAS_LECTURA_GITHUB,
@@ -1053,6 +1060,7 @@ def _entregar(
     # solo se avisa: no cambia el código de salida.
     if entrega.pull_request is not None and prep.config_jira is not None:
         _comentar_en_jira(prep, entrega.pull_request, reporte)
+        _mover_en_jira(prep, reporte)
     _cerrar_entrega_en_sesion(prep, config)
     return entrega.error_pr is None
 
@@ -1144,6 +1152,23 @@ def _comentar_en_jira(prep: _Preparacion, pull_request: PullRequest, reporte: _R
     consola.mostrar_comentario_jira(
         prep.ticket, prep.datos_ticket.url or "", pull_request.url, resultado
     )
+
+
+def _mover_en_jira(prep: _Preparacion, reporte: _Reporte) -> None:
+    """Con jira.estado_al_abrir_pr en harness.yaml, el ticket pasa a ese estado (por REST).
+
+    Si Jira lo rechaza o no hay una transición a ese estado, solo se avisa: el PR ya existe.
+    """
+    config_proyecto = prep.config_proyecto
+    estado = config_proyecto.jira.estado_al_abrir_pr if config_proyecto else None
+    if estado is None or prep.config_jira is None:
+        return
+    try:
+        resultado = mover_ticket(prep.config_jira, prep.ticket, estado)
+    except ErrorJira as error:
+        resultado = ResultadoTransicion(FALLO_TRANSICION, error=str(error))
+    reporte.registro.registrar_transicion_jira(prep.ticket, estado, resultado)
+    consola.mostrar_transicion_jira(prep.ticket, estado, resultado)
 
 
 def _anotar_entrega(prep: _Preparacion, entrega: ResultadoEntrega) -> None:

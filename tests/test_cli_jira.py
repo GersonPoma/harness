@@ -554,3 +554,57 @@ def test_harness_ticket_no_usa_el_indicador_animado(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(cli.consola, "estado", lambda mensaje: usados.append(mensaje))
     resultado = CliRunner().invoke(cli.app, ["ticket", "TAREAS-1"])
     assert resultado.exit_code == 0 and usados == []
+
+
+# --- Mover el ticket al abrir el PR -------------------------------------------------------
+
+from types import SimpleNamespace  # noqa: E402
+
+from harness.config_proyecto import validar_texto_config  # noqa: E402
+from harness.jira import MOVIDO, ErrorJira, ResultadoTransicion  # noqa: E402
+from harness.registro import RegistroPasos  # noqa: E402
+
+YAML_JIRA = (
+    "version: 1\nproyecto: p\ndocker:\n  imagen: python:3.12\ncomandos:\n  tests: pytest\n"
+    "jira:\n  estado_al_abrir_pr: En revisión\n"
+)
+
+
+def _mover(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, yaml: str, efecto) -> tuple:
+    pedidos: list[tuple] = []
+
+    def mover_falso(config, clave, estado):
+        pedidos.append((clave, estado))
+        if isinstance(efecto, Exception):
+            raise efecto
+        return efecto
+
+    monkeypatch.setattr(cli, "mover_ticket", mover_falso)
+    prep = SimpleNamespace(
+        config_proyecto=validar_texto_config(yaml), config_jira=object(), ticket="TAREAS-3"
+    )
+    registro = RegistroPasos(tmp_path, "TAREAS-3", secretos=[])
+    cli._mover_en_jira(prep, cli._Reporte(registro))
+    texto = registro.ruta.read_text("utf-8") if registro.ruta.exists() else ""
+    eventos = [json.loads(linea) for linea in texto.splitlines()]
+    return pedidos, eventos
+
+
+def test_mueve_el_ticket_si_harness_yaml_lo_pide(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    pedidos, eventos = _mover(monkeypatch, tmp_path, YAML_JIRA,
+                              ResultadoTransicion(MOVIDO, "En curso"))
+    assert pedidos == [("TAREAS-3", "En revisión")]
+    assert eventos[-1]["evento"] == "jira_transicion" and eventos[-1]["resultado"] == MOVIDO
+
+
+def test_sin_la_clave_no_se_mueve(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    sin_clave = YAML_JIRA.split("jira:")[0]
+    pedidos, eventos = _mover(monkeypatch, tmp_path, sin_clave, ResultadoTransicion(MOVIDO))
+    assert pedidos == [] and eventos == []
+
+
+def test_si_jira_falla_solo_se_avisa(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    pedidos, eventos = _mover(monkeypatch, tmp_path, YAML_JIRA, ErrorJira("Jira no responde"))
+    assert eventos[-1]["resultado"] == "error" and eventos[-1]["error"] == "Jira no responde"

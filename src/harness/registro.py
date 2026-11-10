@@ -19,6 +19,7 @@ from harness.entorno_docker import Instalacion
 from harness.entrega import ConfigEntrega, ResultadoEntrega
 from harness.herramientas.comandos import HERRAMIENTAS_DE_COMANDOS, leer_codigo_salida
 from harness.init import ResultadoInit
+from harness.jira import ResultadoTransicion
 from harness.plan import Plan, archivos_fuera_del_plan
 from harness.proveedores.respaldo import CambioProveedor
 from harness.revision import EstadoRevision
@@ -201,6 +202,20 @@ class RegistroPasos:
             "ticket": clave,
             "estado": resultado.estado,
             "camino": resultado.camino,
+            "error": resultado.error,
+        })
+
+    def registrar_transicion_jira(
+        self, clave: str, estado: str, resultado: ResultadoTransicion
+    ) -> None:
+        """Registra si el ticket pasó al estado de jira.estado_al_abrir_pr."""
+        self._escribir({
+            "evento": "jira_transicion",
+            "ticket": clave,
+            "estado_pedido": estado,
+            "resultado": resultado.estado,
+            "desde": resultado.desde,
+            "disponibles": resultado.disponibles,
             "error": resultado.error,
         })
 
