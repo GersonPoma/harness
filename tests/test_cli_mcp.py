@@ -41,7 +41,7 @@ def _con_mcp_json(
     }
     ruta = tmp_path / "mcp.json"
     ruta.write_text(json.dumps({"mcpServers": {"github": servidor}}), encoding="utf-8")
-    monkeypatch.setattr(cli, "RUTA_MCP", ruta)
+    monkeypatch.setattr(cli, "ruta_mcp", lambda: ruta)
     monkeypatch.setenv("GITHUB_TOKEN", "github_pat_secreto")
 
 

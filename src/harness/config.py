@@ -17,6 +17,7 @@ from harness.config_usuario import (
     ErrorConfigUsuario,
     leer_config_usuario,
     ruta_config,
+    ruta_mcp_usuario,
 )
 from harness.proveedores.presets import PRESETS, PROVEEDOR_PERSONALIZADO
 
@@ -34,8 +35,9 @@ SEPARADOR_PROVEEDOR = ":"
 ORIGEN_RESPALDO_USUARIO = "respaldo de config.toml"
 # Solo para el pull request: el push usa las credenciales de Git del usuario.
 VAR_TOKEN_GITHUB = "GITHUB_TOKEN"
-# Servidores MCP del usuario (formato mcpServers), junto al .env mientras se desarrolla.
-RUTA_MCP = RUTA_ENV.parent / "mcp.json"
+# Servidores MCP del usuario (formato mcpServers): ~/.harness/mcp.json; si no existe, el de
+# desarrollo, junto al .env.
+RUTA_MCP_DESARROLLO = RUTA_ENV.parent / "mcp.json"
 # "0" para no darle al modelo las herramientas de GitHub por MCP (el PR sigue por MCP).
 VAR_HERRAMIENTAS_GITHUB_MODELO = "HARNESS_MCP_HERRAMIENTAS_MODELO"
 VALORES_DESACTIVADO = ("0", "false", "no")
@@ -258,6 +260,12 @@ def _leer_entrada_respaldo(entrada: str, origen: str = VAR_RESPALDO) -> ConfigMo
     variable = preset.variable_api_key
     api_key = _leer_obligatoria(variable, f"la API key de '{proveedor}' (de {origen})")
     return ConfigModelo(proveedor, modelo, preset.base_url, api_key, variable)
+
+
+def ruta_mcp() -> Path:
+    """El mcp.json que se usa: ~/.harness/mcp.json, o el de desarrollo si ese no existe."""
+    usuario = ruta_mcp_usuario()
+    return usuario if usuario.is_file() else RUTA_MCP_DESARROLLO
 
 
 def leer_token_github() -> str | None:

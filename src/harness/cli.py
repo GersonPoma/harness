@@ -19,7 +19,6 @@ from harness.cliente_mcp import ErrorMCP, SesionMCP
 from harness.comentario_pr import COMENTADO, YA_ESTABA, comentar_pr_en_jira
 from harness.compactacion import Compactacion, ProveedorQueCompacta
 from harness.config import (
-    RUTA_MCP,
     VAR_JIRA_TOKEN,
     VAR_TOKEN_GITHUB,
     ConfigJira,
@@ -32,6 +31,7 @@ from harness.config import (
     leer_herramientas_github_modelo,
     leer_respaldo,
     leer_token_github,
+    ruta_mcp,
     secretos_de_usuario,
 )
 from harness.config_usuario import aviso_permisos
@@ -1217,7 +1217,7 @@ def _preparar_ejecucion(
         respaldo = leer_respaldo(config)
         config_proyecto = cargar_config_proyecto(repo)
         variables = resolver_variables(config_proyecto) if config_proyecto else None
-        servidores = cargar_config_mcp(RUTA_MCP)
+        servidores = cargar_config_mcp(ruta_mcp())
         servidor_github = elegir_servidor_github(servidores)
         servidor_jira = elegir_servidor_jira(servidores)
         datos_ticket, config_jira = _ticket_y_jira(ticket, guardado)

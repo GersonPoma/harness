@@ -251,3 +251,41 @@ def test_motivo_sin_servidor() -> None:
 def test_rest_es_un_nombre_reservado(tmp_path: Path, nombre: str) -> None:
     with pytest.raises(ErrorConfigMCP, match=f"'{nombre}' es un nombre reservado en mcp.json"):
         _cargar(tmp_path, {nombre: {"command": "docker"}})
+
+
+# --- ~/.harness/mcp.json y la plantilla ---------------------------------------------------
+
+from harness import config as modulo_config  # noqa: E402
+from harness.config_usuario import (  # noqa: E402
+    ErrorConfigUsuario,
+    crear_mcp_usuario,
+    plantilla_mcp,
+    ruta_mcp_usuario,
+)
+
+
+def test_usa_el_de_la_carpeta_del_usuario_y_si_no_el_de_desarrollo(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    desarrollo = tmp_path / "repo-harness" / "mcp.json"
+    monkeypatch.setattr(modulo_config, "RUTA_MCP_DESARROLLO", desarrollo)
+    assert modulo_config.ruta_mcp() == desarrollo
+    ruta_mcp_usuario().parent.mkdir(parents=True)
+    ruta_mcp_usuario().write_text('{"mcpServers": {}}', encoding="utf-8")
+    assert modulo_config.ruta_mcp() == ruta_mcp_usuario()
+
+
+def test_la_plantilla_viaja_en_el_paquete_y_se_puede_leer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    datos = json.loads(plantilla_mcp())
+    assert set(datos["mcpServers"]) == {"github", "github-remoto", "jira", "jira-remoto"}
+    # Sin secretos: solo referencias ${NOMBRE}.
+    assert "${GITHUB_TOKEN}" in plantilla_mcp() and "ghp_" not in plantilla_mcp()
+    for variable in ("GITHUB_TOKEN", "JIRA_URL", "JIRA_EMAIL", "JIRA_API_TOKEN",
+                     "JIRA_MCP_TOKEN"):
+        monkeypatch.setenv(variable, "valor-de-prueba-0123456789")
+    ruta = crear_mcp_usuario()
+    assert set(cargar_config_mcp(ruta)) == set(datos["mcpServers"])
+    with pytest.raises(ErrorConfigUsuario, match="ya existe"):
+        crear_mcp_usuario()

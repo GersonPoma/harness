@@ -1,8 +1,9 @@
 """Servidores MCP del usuario, en mcp.json con el formato "mcpServers" de otros clientes MCP.
 
-Es configuración de cada máquina (credenciales, Docker), así que nunca va en harness.yaml. En
-desarrollo vive en la raíz del repo del harness, junto al .env; los secretos no se escriben
-ahí: se referencian como ${NOMBRE} y se toman del entorno.
+Es configuración de cada máquina (credenciales, Docker), así que nunca va en harness.yaml. Vive
+en ~/.harness/mcp.json (en desarrollo, si ese no existe, en la raíz del repo del harness, junto
+al .env); los secretos no se escriben ahí: se referencian como ${NOMBRE} y se toman del entorno
+(o de las credenciales de ~/.harness/config.toml).
 """
 
 import base64

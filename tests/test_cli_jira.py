@@ -286,7 +286,7 @@ def test_el_prompt_explica_los_criterios_marcados_como_hechos() -> None:
 def _mcp_json(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, servidores: dict) -> None:
     ruta = tmp_path / "mcp.json"
     ruta.write_text(json.dumps({"mcpServers": servidores}), encoding="utf-8")
-    monkeypatch.setattr(cli, "RUTA_MCP", ruta)
+    monkeypatch.setattr(cli, "ruta_mcp", lambda: ruta)
 
 
 def _jira_falso(tmp_path: Path, estilo: str = "docker") -> dict:

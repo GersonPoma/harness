@@ -48,7 +48,6 @@ harness/
 │   └── harness-yaml.md     # especificación completa de harness.yaml
 ├── pyproject.toml          # [project.scripts] define el comando "harness"
 ├── uv.lock
-├── mcp.example.json        # modelo de mcp.json (GitHub y Jira; el real va en .gitignore)
 └── src/harness/
     ├── cli.py              # punto de entrada (typer): run, resume, ticket, init, version
     ├── bucle.py            # bucle de tool calling
@@ -74,7 +73,9 @@ harness/
     ├── entrega.py          # rama, commit, push y PR
     ├── git.py              # git del host
     ├── github.py           # PR por la API REST
-    ├── config_mcp.py       # mcp.json (mcpServers)
+    ├── config_usuario.py   # ~/.harness/config.toml: perfiles, respaldo, revisor, credenciales
+    ├── config_mcp.py       # mcp.json (mcpServers), en ~/.harness/ o junto al .env
+    ├── plantillas/         # mcp.example.json (lo copia harness config a ~/.harness/)
     ├── cliente_mcp.py      # SesionMCP: stdio o HTTP, síncrona sobre anyio
     ├── github_mcp.py       # PR con create_pull_request del servidor MCP
     ├── ticket.py           # Ticket: origen (clave de Jira o .md local) y texto al modelo

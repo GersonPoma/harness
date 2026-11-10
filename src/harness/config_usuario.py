@@ -8,6 +8,7 @@ proceso con menos prioridad que el entorno real y el .env (ver config.cargar_env
 
 import json
 import os
+from importlib import resources
 import re
 import stat
 import tempfile
@@ -23,6 +24,8 @@ from harness.proveedores.presets import PRESETS, PROVEEDOR_PERSONALIZADO
 CARPETA_USUARIO = Path.home() / ".harness"
 NOMBRE_CONFIG = "config.toml"
 NOMBRE_MCP = "mcp.json"
+# Viaja dentro del paquete: quien lo instala con uv tool install no tiene el repo.
+PLANTILLA_MCP = "plantillas/mcp.example.json"
 PATRON_PERFIL = re.compile(r"[a-z0-9_-]+")
 PATRON_VARIABLE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 SEPARADOR_PROVEEDOR = ":"
@@ -125,6 +128,20 @@ def ruta_config() -> Path:
 def ruta_mcp_usuario() -> Path:
     """~/.harness/mcp.json."""
     return CARPETA_USUARIO / NOMBRE_MCP
+
+
+def plantilla_mcp() -> str:
+    """El mcp.json de ejemplo (GitHub y Jira, por Docker y remotos), sin secretos."""
+    return resources.files("harness").joinpath(PLANTILLA_MCP).read_text(encoding="utf-8")
+
+
+def crear_mcp_usuario() -> Path:
+    """Copia la plantilla a ~/.harness/mcp.json; no pisa uno que ya exista."""
+    ruta = ruta_mcp_usuario()
+    if ruta.exists():
+        raise ErrorConfigUsuario(f"{ruta} ya existe: no se pisa.")
+    _escribir_privado(ruta, plantilla_mcp())
+    return ruta
 
 
 def leer_config_usuario(ruta: Path | None = None) -> ConfigUsuario:

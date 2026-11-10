@@ -13,7 +13,8 @@ wheels/
 .env
 .env.*
 !.env.example
-# Servidores MCP de cada usuario (ver mcp.example.json)
+# Servidores MCP de desarrollo (los de cada usuario van en ~/.harness/mcp.json; ver
+# src/harness/plantillas/mcp.example.json)
 mcp.json
 
 # Datos de ejecución del harness

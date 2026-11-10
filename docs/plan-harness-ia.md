@@ -586,9 +586,10 @@ del servidor oficial de GitHub desde la fase 6 (`cliente_mcp.py`, `config_mcp.py
 ### Configuración: `mcp.json`
 
 Mismo formato `mcpServers` que otros clientes MCP. Es configuración de cada usuario
-(credenciales, Docker), así que **nunca va en `harness.yaml`**: en desarrollo, `mcp.json` en la
-raíz del repo del harness (en `.gitignore`; el modelo es `mcp.example.json`); en la fase 12,
-`~/.harness/mcp.json`.
+(credenciales, Docker), así que **nunca va en `harness.yaml`**: va en `~/.harness/mcp.json`
+(fase 12; `harness config` lo crea a partir de la plantilla
+`src/harness/plantillas/mcp.example.json`, que viaja dentro del paquete). Si ese no existe, se
+usa el de desarrollo, `mcp.json` en la raíz del repo del harness (en `.gitignore`).
 
 ```json
 {
