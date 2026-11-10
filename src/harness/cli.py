@@ -490,7 +490,7 @@ def _ejecutar_y_entregar(
         _sugerir_resume(prep)
         raise typer.Exit(CODIGO_CANCELADO) from error
     registro.registrar_fin(resultado, cambios)
-    consola.mostrar_fin(resultado, cambios, str(registro.ruta))
+    consola.mostrar_fin(resultado, cambios, str(registro.ruta), prep.contexto)
     _terminar_ejecucion_en_sesion(prep, resultado, config_entrega)
     es_entrega_ok = True
     if config_entrega:

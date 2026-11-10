@@ -1675,8 +1675,11 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
           `respaldo = ["fuerte", "groq"]`, con el mismo formato. El `.env` gana sobre
           `config.toml`, con el mismo orden de prioridad que el resto.
   - [ ] **Logs más legibles** (resumen por ejecución, tiempos por etapa).
-  - [ ] **Repetir el aviso de "falta AGENTS.md" en el resumen final**: hoy aparece una vez
+  - [x] **Repetir el aviso de "falta AGENTS.md" en el resumen final**: hoy aparece una vez
         al inicio y se pierde detrás de "Instalando dependencias...".
+        Hecho: si falta (o está vacío), el final de `run` y de `resume` repite "Aviso: El repo
+        no tiene AGENTS.md: el modelo trabajó sin las convenciones del proyecto. Créalo con
+        'harness init'.", antes de los pasos y los tokens.
   - [x] **Ocultar también `.envrc`** (archivo de direnv, que suele tener secretos) en las
         herramientas y dentro del contenedor, igual que `.env`.
         Hecho en `secretos.es_archivo_de_secretos`, el único punto que miran `leer_archivo`,

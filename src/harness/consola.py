@@ -42,6 +42,10 @@ from harness.sesion import (
 from harness.ticket import FUENTE_LOCAL, Ticket
 
 MAX_CARACTERES_RESUMEN = 120
+AVISO_FIN_SIN_AGENTS = (
+    "El repo no tiene AGENTS.md: el modelo trabajó sin las convenciones del proyecto. "
+    "Créalo con 'harness init'."
+)
 MAX_CARACTERES_ARGUMENTO = 60
 MAX_CARACTERES_RUTA = 60
 ELIPSIS = "…"
@@ -364,8 +368,17 @@ def _problemas(cantidad: int) -> str:
     return "1 problema" if cantidad == 1 else f"{cantidad} problemas"
 
 
-def mostrar_fin(resultado: ResultadoEjecucion, cambios: CambiosRepo, ruta_log: str) -> None:
-    """Muestra cómo terminó la ejecución, qué archivos cambió, los tokens y el log."""
+def mostrar_fin(
+    resultado: ResultadoEjecucion,
+    cambios: CambiosRepo,
+    ruta_log: str,
+    contexto: ContextoProyecto | None = None,
+) -> None:
+    """Muestra cómo terminó la ejecución, qué archivos cambió, los tokens y el log.
+
+    Si faltaba AGENTS.md lo repite: el aviso del inicio queda arriba, detrás de la instalación
+    y de los pasos.
+    """
     if resultado.es_plan_rechazado:
         mostrar_aviso("Plan rechazado: no se implementó nada.")
     elif resultado.es_limite_alcanzado:
@@ -391,6 +404,8 @@ def mostrar_fin(resultado: ResultadoEjecucion, cambios: CambiosRepo, ruta_log: s
             justificados = resultado.alcance.justificados
             fuera = archivos_fuera_del_plan(resultado.plan, cambios)
             mostrar_fuera_del_plan([ruta for ruta in fuera if ruta not in justificados])
+    if contexto is not None and not contexto.tiene_contenido:
+        mostrar_aviso(AVISO_FIN_SIN_AGENTS)
     consola.print(
         f"[dim]Pasos: {resultado.pasos} · Tokens: {resultado.tokens_entrada} entrada / "
         f"{resultado.tokens_salida} salida · Log: {escape(ruta_log)}[/]"

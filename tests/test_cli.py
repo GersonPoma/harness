@@ -886,3 +886,20 @@ def test_la_respuesta_final_se_ve_con_su_numero_y_queda_en_el_log(
     pasos = [e["paso"] for e in eventos if e["evento"] in ("herramienta", "respuesta")]
     assert pasos == [1, 2]
     assert eventos[-1]["evento"] == "fin" and eventos[-1]["pasos"] == 2
+
+
+def test_sin_agents_md_lo_repite_al_final(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    codigo, salida = _correr(monkeypatch, repo_sin_yaml, [terminar()], "--sin-plan")
+    assert codigo == 0
+    final = " ".join(salida[salida.index("Resultado"):].split())
+    assert "Aviso: El repo no tiene AGENTS.md: el modelo trabajó sin las convenciones" in final
+
+
+def test_con_agents_md_no_lo_repite_al_final(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    (repo_sin_yaml / "AGENTS.md").write_text("# Reglas\n", encoding="utf-8")
+    codigo, salida = _correr(monkeypatch, repo_sin_yaml, [terminar()], "--sin-plan")
+    assert codigo == 0 and "trabajó sin las convenciones" not in " ".join(salida.split())
