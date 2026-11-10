@@ -58,9 +58,11 @@ from harness.entorno_docker import (
     EntornoDocker,
     ErrorDocker,
     Instalacion,
+    ejecutar_proceso,
     listar_imagenes,
     verificar_docker,
 )
+from harness.limpieza import borrar, planear
 from harness.entrega import (
     ConfigEntrega,
     CrearPr,
@@ -1612,6 +1614,88 @@ def _verificar_una_vez(repo: Path, usar_cache: bool, conservar: bool = False) ->
     if resultado.codigo != 0 or resultado.es_tiempo_agotado:
         return salida[-MAX_CARACTERES_ERROR_INIT:] or "Los tests no pasaron (sin salida)."
     return None
+
+
+@app.command()
+def limpiar(
+    cache: Annotated[
+        bool,
+        typer.Option(
+            "--cache", help="También los volúmenes de la caché de dependencias (etiqueta "
+            "harness.cache)."
+        ),
+    ] = False,
+    proyecto: Annotated[
+        str | None,
+        typer.Option(help="Con --cache: solo el volumen de caché de ese proyecto."),
+    ] = None,
+    imagenes: Annotated[
+        bool,
+        typer.Option(
+            "--imagenes", help="También las imágenes del harness.yaml del repo, si ningún "
+            "contenedor las usa."
+        ),
+    ] = False,
+    si: Annotated[
+        bool, typer.Option("--si", help="No preguntar: borrar directamente (para scripts).")
+    ] = False,
+    repo: Annotated[
+        Path | None,
+        typer.Option(help="Con --imagenes: el repo del harness.yaml; por defecto, la carpeta "
+                     "actual."),
+    ] = None,
+) -> None:
+    """Borra lo que dejó el harness en Docker (contenedores, redes y, si se pide, más).
+
+    Solo lo que tiene la etiqueta harness=1 y no es de una ejecución viva. Muestra qué va a
+    borrar y cuánto ocupa, y pregunta antes.
+    """
+    if proyecto and not cache:
+        consola.mostrar_error("--proyecto va con --cache.")
+        raise typer.Exit(1)
+    nombres_imagenes = None
+    if imagenes:
+        nombres_imagenes = _imagenes_del_proyecto((repo or Path.cwd()).resolve())
+    try:
+        verificar_docker()
+        with consola.estado("Buscando lo que creó el harness en Docker..."):
+            plan = planear(ejecutar_proceso, cache, proyecto, nombres_imagenes)
+    except ErrorDocker as error:
+        consola.mostrar_error(str(error))
+        raise typer.Exit(1) from error
+    consola.mostrar_plan_limpieza(plan, imagenes)
+    if not plan.a_borrar:
+        return
+    if not si:
+        if not consola.es_terminal_interactiva():
+            consola.mostrar_error(
+                "Sin terminal interactiva no se borra nada: para confirmar desde un script, "
+                "usa 'harness limpiar --si'."
+            )
+            raise typer.Exit(1)
+        if not consola.preguntar_borrar():
+            consola.mostrar_aviso("No se borró nada.")
+            return
+    resultado = borrar(ejecutar_proceso, plan)
+    consola.mostrar_resultado_limpieza(resultado)
+    if resultado.fallidos:
+        raise typer.Exit(1)
+
+
+def _imagenes_del_proyecto(repo: Path) -> list[str]:
+    """Las imágenes del harness.yaml del repo (la del proyecto y las de los servicios)."""
+    try:
+        cargar_env()
+        config_proyecto = cargar_config_proyecto(repo)
+    except ErrorConfigProyecto as error:
+        consola.mostrar_error(str(error))
+        raise typer.Exit(1) from error
+    if config_proyecto is None:
+        consola.mostrar_error(
+            f"--imagenes usa las imágenes del harness.yaml, y {repo} no tiene uno (usa --repo)."
+        )
+        raise typer.Exit(1)
+    return [config_proyecto.docker.imagen, *(s.imagen for s in config_proyecto.servicios)]
 
 
 @app.command(name="ticket")

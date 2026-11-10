@@ -1519,9 +1519,13 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         `docker exec -it <contenedor> sh` por contenedor y cómo borrarlos (`harness limpiar` o
         los `docker rm` / `docker network rm` exactos). Al empezar otra ejecución no se
         borran solos: solo `harness limpiar`.
-  - [ ] **Etiquetas propias en contenedores y redes** (`harness=1`, `harness.ticket=...`):
+  - [x] **Etiquetas propias en contenedores y redes** (`harness=1`, `harness.ticket=...`):
         listar con `docker ps -a --filter label=harness=1` y limpiar cualquier resto huérfano
         del harness, no solo los que tienen el mismo nombre.
+        Hecho: contenedores, servicios, redes y contenedores MCP llevan `harness=1`,
+        `harness.proyecto`, `harness.ticket`, `harness.ejecucion`, `harness.pid` y
+        `harness.host` (los MCP, `harness.tipo=mcp`). Los restos huérfanos los borra
+        `harness limpiar`.
   - [x] **`_limpiar_restos` no debe matar otra ejecución viva.** Hoy borra los contenedores
         con el mismo nombre que la ejecución nueva: con dos `init --verificar` simultáneos
         del mismo proyecto (los dos se llaman `harness-<proyecto>-init`), o el mismo ticket
@@ -1548,13 +1552,22 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         `timeout -s KILL` dentro del contenedor; si la imagen no lo trae, queda solo el
         timeout del lado del host. Las imágenes basadas en Debian o Alpine lo traen; una
         imagen mínima (distroless) no, y sus comandos fallarían con "timeout: not found".
-  - [ ] **Comando `harness limpiar`:** borra los contenedores, redes y volúmenes
+  - [x] **Comando `harness limpiar`:** borra los contenedores, redes y volúmenes
         huérfanos del harness; con `--cache`, los volúmenes de caché de dependencias (los
         de la etiqueta `harness.cache`, nunca por patrón de nombre; todos o el de un
         proyecto con `--proyecto`), **mostrando el tamaño de cada uno antes de borrar**;
         con `--imagenes`, solo las imágenes usadas por los `harness.yaml`, sin tocar las
         de otros proyectos. Las imágenes se descargan una sola vez y Docker las reutiliza;
         lo que se repite en cada ejecución son las dependencias (ver volumen de caché).
+        Hecho (`limpieza.py`):
+        - todo se lista con `--filter label=harness=1` y se borra por id;
+        - lo de una ejecución viva se muestra como "no se toca";
+        - un volumen de caché o una imagen que usa cualquier contenedor (del harness o no)
+          no se borra;
+        - `--imagenes` usa solo el `harness.yaml` del repo actual (`--repo`), por nombre
+          (`docker rmi <imagen>`), y avisa que pueden estar compartidas;
+        - antes de borrar muestra cada elemento con su tamaño y el total, y pregunta
+          `[s/N]`. Sin terminal no borra nada (código 1); `--si` es para scripts.
   - [ ] **Tiempo máximo de descarga de imágenes configurable y con progreso:** hoy son 600 s
         fijos (`TIMEOUT_DESCARGA_SEGUNDOS`) y no se ve cuánto falta; las imágenes de Gradle o
         Maven son grandes.

@@ -51,6 +51,8 @@ class Recurso:
     es_corriendo: bool = False
     # Volúmenes que monta el contenedor (para no borrar uno en uso).
     volumenes: tuple[str, ...] = ()
+    # Lo que ocupa en disco (la capa escribible de un contenedor), si se pidió y se sabe.
+    bytes: int | None = None
 
     @property
     def es_conservado(self) -> bool:
@@ -154,11 +156,14 @@ def es_de_ejecucion_viva(
     return (vivo or proceso_vivo)(int(pid))
 
 
-def listar(ejecutar: Ejecutor, tipo: str, filtros: list[str]) -> list[Recurso]:
+def listar(
+    ejecutar: Ejecutor, tipo: str, filtros: list[str], con_tamano: bool = False
+) -> list[Recurso]:
     """Los recursos de un tipo que cumplen todos los filtros ('label=...'), con sus datos.
 
-    Si docker falla o responde algo que no se entiende, la lista sale vacía: quien la usa
-    para borrar no borra nada.
+    Con `con_tamano`, los contenedores traen lo que ocupan (docker inspect --size). Si docker
+    falla o responde algo que no se entiende, la lista sale vacía: quien la usa para borrar
+    no borra nada.
     """
     argumentos_filtro = [parte for filtro in filtros for parte in ("--filter", filtro)]
     listado = {
@@ -171,7 +176,7 @@ def listar(ejecutar: Ejecutor, tipo: str, filtros: list[str]) -> list[Recurso]:
     if not ids:
         return []
     inspeccion = {
-        CONTENEDOR: ["docker", "inspect"],
+        CONTENEDOR: ["docker", "inspect", *(["--size"] if con_tamano else [])],
         RED: ["docker", "network", "inspect"],
         VOLUMEN: ["docker", "volume", "inspect"],
     }[tipo]
@@ -192,6 +197,7 @@ def _a_recurso(tipo: str, datos: dict) -> Recurso | None:
         config = datos.get("Config") or {}
         estado = datos.get("State") or {}
         montajes = datos.get("Mounts") or []
+        tamano = datos.get("SizeRw")
         return Recurso(
             tipo,
             str(datos.get("Id", "")),
@@ -199,6 +205,7 @@ def _a_recurso(tipo: str, datos: dict) -> Recurso | None:
             dict(config.get("Labels") or {}),
             bool(estado.get("Running")),
             tuple(str(m.get("Name")) for m in montajes if m.get("Type") == "volume"),
+            tamano if isinstance(tamano, int) else None,
         )
     nombre = str(datos.get("Name", ""))
     # Los volúmenes no tienen id: se identifican (y se borran) por su nombre.

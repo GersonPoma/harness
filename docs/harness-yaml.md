@@ -136,7 +136,9 @@ archivos_protegidos:
 - Solo se guardan descargas: no se monta la caché del usuario (`~/.m2`, `~/.gradle`), no se
   guardan secretos, y antes de instalar se borran `init.d/` y `gradle.properties` de la caché
   de Gradle (Gradle los ejecutaría en cada build).
-- El volumen se crea la primera vez y **nunca se borra solo**. Para una ejecución sin caché:
+- El volumen se crea la primera vez y **nunca se borra solo**: se borra con
+  `harness limpiar --cache` (todos) o `harness limpiar --cache --proyecto <proyecto>`, que
+  muestra su tamaño y pregunta antes. Para una ejecución sin caché:
   `harness run --sin-cache` o `harness init --verificar --sin-cache`. Si otra ejecución del
   mismo proyecto está viva, la nueva corre sin caché y lo avisa.
 

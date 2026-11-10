@@ -22,6 +22,7 @@ harness run <TICKET>      # procesar un ticket: rama, código, tests, commit, pu
 harness resume <TICKET>   # continuar una ejecución que se cortó
 harness ticket <TICKET>   # ver el ticket tal como lo recibe el modelo
 harness init              # generar AGENTS.md / harness.yaml en un repo objetivo
+harness limpiar           # borrar lo que dejó el harness en Docker (--cache, --imagenes)
 harness config            # guardar credenciales la primera vez
 harness version
 ```
@@ -68,6 +69,8 @@ harness/
     ├── config_proyecto.py  # harness.yaml del repo objetivo
     ├── entorno_docker.py   # contenedores del proyecto y sus servicios
     ├── cache_dependencias.py  # volumen de caché de dependencias por proyecto
+    ├── etiquetas.py        # etiquetas harness=1 y si la ejecución dueña sigue viva
+    ├── limpieza.py         # harness limpiar: solo por etiqueta, nunca lo de una ejecución viva
     ├── entrega.py          # rama, commit, push y PR
     ├── git.py              # git del host
     ├── github.py           # PR por la API REST

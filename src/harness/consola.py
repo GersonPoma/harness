@@ -25,6 +25,8 @@ from harness.alcance import EstadoAlcance
 from harness.github import PullRequest
 from harness.revision import EstadoRevision
 from harness.init import ResultadoInit
+from harness.limpieza import IMAGEN as TIPO_IMAGEN
+from harness.limpieza import Elemento, PlanLimpieza, ResultadoLimpieza
 from harness.memoria import MAX_CARACTERES_MEMORIA, RUTA_MEMORIA, Memoria
 from harness.plan import Plan, archivos_fuera_del_plan
 from harness.proveedores.base import MOTIVO_CAIDO, MOTIVO_CUOTA_DIARIA, MOTIVO_LIMITE
@@ -45,6 +47,9 @@ MAX_CARACTERES_RUTA = 60
 ELIPSIS = "…"
 LINEAS_INFORME_VALIDACION = 8
 SIMBOLOS_ACCION = {"crear": "[green]+[/]", "modificar": "[yellow]~[/]", "eliminar": "[red]-[/]"}
+UNIDADES_TAMANO = (("GB", 10**9), ("MB", 10**6), ("kB", 10**3))
+# Hasta 10 de una unidad se muestra un decimal (1.2 GB); desde ahí, sin decimales (81 MB).
+DECIMALES_HASTA = 10
 RESPUESTAS_SI = ("s", "si", "sí")
 RESPUESTAS_NO = ("n", "no")
 PREGUNTA_PLAN = "¿Aprobar el plan? [s/n, o escribe qué cambiar] "
@@ -584,6 +589,68 @@ def preguntar_continuar_sin_pr() -> bool:
             return True
         if not respuesta or respuesta in RESPUESTAS_NO:
             return False
+
+
+def preguntar_borrar() -> bool:
+    """Pregunta si se borra lo listado por harness limpiar; Enter o EOF es que no."""
+    while True:
+        try:
+            respuesta = consola.input(escape("¿Borrar todo lo de la lista? [s/N] ")).strip().lower()
+        except EOFError:
+            return False
+        if respuesta in RESPUESTAS_SI:
+            return True
+        if not respuesta or respuesta in RESPUESTAS_NO:
+            return False
+
+
+def formatear_tamano(bytes_: int | None) -> str:
+    """'81 MB', '1.2 GB' o '-' si no se sabe (unidades decimales, como docker)."""
+    if bytes_ is None:
+        return "-"
+    for unidad, factor in UNIDADES_TAMANO:
+        if bytes_ >= factor:
+            valor = bytes_ / factor
+            return f"{valor:.1f} {unidad}" if valor < DECIMALES_HASTA else f"{valor:.0f} {unidad}"
+    return f"{bytes_} B"
+
+
+def mostrar_plan_limpieza(plan: PlanLimpieza, con_imagenes: bool) -> None:
+    """Lo que harness limpiar va a borrar (con su tamaño y el total) y lo que deja."""
+    if plan.a_borrar:
+        consola.print("[bold]Se va a borrar:[/]")
+        for elemento in plan.a_borrar:
+            consola.print(f"  {_linea_elemento(elemento)}")
+        total = formatear_tamano(plan.total_bytes)
+        consola.print(f"[bold]Total: {len(plan.a_borrar)} elemento(s), {escape(total)}.[/]")
+    else:
+        consola.print("No hay nada que borrar.")
+    if plan.omitidos:
+        consola.print("[dim]No se toca:[/]")
+        for elemento, motivo in plan.omitidos:
+            consola.print(f"[dim]  {_linea_elemento(elemento)}: {escape(motivo)}[/]")
+    if con_imagenes and any(e.tipo == TIPO_IMAGEN for e in plan.a_borrar):
+        mostrar_aviso(
+            "Las imágenes pueden estar compartidas con otros proyectos tuyos: si otro las usa, "
+            "Docker las descargará de nuevo la próxima vez."
+        )
+
+
+def _linea_elemento(elemento: Elemento) -> str:
+    detalle = f" ({elemento.detalle})" if elemento.detalle else ""
+    tamano = formatear_tamano(elemento.bytes)
+    return escape(f"{elemento.tipo:<10} {elemento.nombre}{detalle}  {tamano}")
+
+
+def mostrar_resultado_limpieza(resultado: ResultadoLimpieza) -> None:
+    """Cuánto se liberó y qué no se pudo borrar."""
+    liberado = formatear_tamano(resultado.bytes_liberados)
+    consola.print(
+        f"[bold green]✓ Borrado(s) {len(resultado.borrados)} elemento(s)[/] "
+        f"({escape(liberado)})."
+    )
+    for elemento, error in resultado.fallidos:
+        mostrar_aviso(f"No se pudo borrar {elemento.tipo} {elemento.nombre}: {error}")
 
 
 def mostrar_github_verificado(repo: str) -> None:
