@@ -45,6 +45,7 @@ class RegistroPasos:
         respaldo: list[str] | None = None,
         perfil: str | None = None,
         origen: str | None = None,
+        revisor: str | None = None,
     ) -> None:
         """Registra con qué proveedor, modelo y AGENTS.md empezó (nunca la API key)."""
         contexto = contexto or ContextoProyecto()
@@ -55,6 +56,7 @@ class RegistroPasos:
             "perfil": perfil,
             "origen_modelo": origen,
             "respaldo": respaldo or [],
+            "revisor": revisor,
             "agents_md": contexto.existe,
             "agents_md_caracteres": contexto.caracteres_originales,
             "agents_md_recortado": contexto.es_recortado,
@@ -145,6 +147,7 @@ class RegistroPasos:
             "vuelta": estado.vueltas,
             "es_aprobada": estado.es_aprobada,
             "es_fallida": estado.es_fallida,
+            "modelo": estado.modelo,
             "problemas": estado.problemas,
         })
 

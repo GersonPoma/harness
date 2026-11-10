@@ -326,6 +326,10 @@ def _respaldo_en_uso(usuario: ConfigUsuario) -> str | None:
 
 def _revisor_en_uso(usuario: ConfigUsuario) -> str | None:
     """Quién revisa el diff, si no es el mismo modelo que implementa."""
+    texto = os.environ.get(configuracion.VAR_REVISOR, "").strip()
+    if texto:
+        variable = configuracion.VAR_REVISOR
+        return f"{texto} ({variable} {_de(origen_variable(variable))})"
     return f"{usuario.revisor} (config.toml)" if usuario.revisor else None
 
 

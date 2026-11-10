@@ -210,7 +210,7 @@ def test_resume_sigue_contando_las_vueltas_y_los_pasos_extra() -> None:
 
 def test_sin_revision_en_harness_yaml_o_con_la_opcion(tmp_path: Path) -> None:
     config = validar_texto_config(YAML)
-    prep = SimpleNamespace(repo=tmp_path, secretos=[], es_con_revision=True)
+    prep = SimpleNamespace(repo=tmp_path, secretos=[], es_con_revision=True, revisor=None)
     reporte = SimpleNamespace(revision=lambda _: None)
     assert cli._revision(prep, config, {}, reporte) is not None
     prep.es_con_revision = False
@@ -218,3 +218,73 @@ def test_sin_revision_en_harness_yaml_o_con_la_opcion(tmp_path: Path) -> None:
     apagada = validar_texto_config(YAML + "revision:\n  activa: false\n")
     prep.es_con_revision = True
     assert cli._revision(prep, apagada, {}, reporte) is None
+
+
+# --- Revisar con un modelo distinto -------------------------------------------------------
+
+from harness.proveedores.base import ErrorProveedor  # noqa: E402
+
+
+def _con_revisor(revisor: ProveedorFalso, estados: list | None = None) -> Revision:
+    revision = _revision(estados=estados)
+    revision.proveedor = revisor
+    revision.modelo = "openrouter/revisor"
+    return revision
+
+
+def test_el_revisor_recibe_la_conversacion_y_el_principal_no_revisa() -> None:
+    principal = ProveedorFalso([terminar("Listo")])
+    revisor = ProveedorFalso([_informar(False, [PROBLEMA]), _informar(True, id_llamada="r2")])
+    principal_2 = ProveedorFalso([terminar("Listo"), terminar("Corregido")])
+    resultado, mensajes = _ejecutar(principal_2, _con_revisor(revisor))
+    # El principal implementa (y corrige); el revisor hace las dos revisiones.
+    assert len(principal_2.conversaciones) == 2 and len(revisor.conversaciones) == 2
+    assert "+ código nuevo" in revisor.conversaciones[0][-1].contenido
+    assert resultado.revision.es_aprobada and resultado.revision.modelo == "openrouter/revisor"
+    # Sus tokens se suman: 2 del principal y 2 del revisor, de 10 cada uno.
+    assert resultado.tokens_entrada == 40
+    assert principal.conversaciones == []
+
+
+def test_si_el_revisor_se_cae_se_sigue_sin_revision() -> None:
+    avisos: list[str] = []
+    estados: list[EstadoRevision] = []
+    revisor = ProveedorFalso([ErrorProveedor("'openrouter' respondió con error 404: no existe")])
+    proveedor = ProveedorFalso([terminar("Listo")])
+    mensajes = [Mensaje(Rol.USUARIO, "T")]
+    resultado = ejecutar_ticket(
+        proveedor, mensajes, [], 10, validar=lambda: (True, "## Tests (x)\n3 passed"),
+        max_intentos_validacion=2, revision=_con_revisor(revisor, estados),
+        al_aviso=avisos.append,
+    )
+    assert resultado.es_validado and resultado.revision.es_fallida
+    assert avisos == [
+        "El revisor openrouter/revisor falló: 'openrouter' respondió con error 404: no existe "
+        "Se sigue sin revisión."
+    ]
+    assert [e.es_fallida for e in estados] == [True]
+    assert "el revisor `openrouter/revisor` falló" in _cuerpo(resultado.revision)
+
+
+def test_si_se_cae_el_principal_en_la_revision_se_corta() -> None:
+    proveedor = ProveedorFalso([terminar("Listo"), ErrorProveedor("caído")])
+    with pytest.raises(ErrorProveedor):
+        _ejecutar(proveedor, _revision())
+
+
+def test_el_pr_dice_quien_reviso() -> None:
+    estado = EstadoRevision(vueltas=1, es_aprobada=True, modelo="openrouter/revisor")
+    assert "Revisó `openrouter/revisor`, un modelo distinto del que implementó." in (
+        _cuerpo(estado)
+    )
+
+
+def test_el_revisor_desde_el_cli_usa_su_propio_proveedor(tmp_path: Path) -> None:
+    from harness.config import ConfigModelo
+
+    config = validar_texto_config(YAML)
+    revisor = ConfigModelo("groq", "llama", None, "clave-groq-0123456789", "GROQ_API_KEY")
+    prep = SimpleNamespace(repo=tmp_path, secretos=[], es_con_revision=True, revisor=revisor)
+    reporte = SimpleNamespace(revision=lambda _: None, reintento=lambda _: None)
+    revision = cli._revision(prep, config, {}, reporte)
+    assert revision.modelo == "groq/llama" and revision.proveedor is not None

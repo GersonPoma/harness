@@ -33,6 +33,9 @@ VAR_API_KEY_ENV = "HARNESS_API_KEY_ENV"
 # Proveedores de respaldo, en orden: si el principal se cae, la ejecución sigue con estos.
 VAR_RESPALDO = "HARNESS_RESPALDO"
 SEPARADOR_RESPALDO = ","
+# Quién revisa el diff, si no es el mismo modelo que implementó (perfil o proveedor:modelo).
+VAR_REVISOR = "HARNESS_REVISOR"
+ORIGEN_REVISOR_USUARIO = "revisor de config.toml"
 SEPARADOR_PROVEEDOR = ":"
 ORIGEN_RESPALDO_USUARIO = "respaldo de config.toml"
 # Solo para el pull request: el push usa las credenciales de Git del usuario.
@@ -223,6 +226,27 @@ def leer_respaldo(actual: ConfigModelo | None = None) -> list[ConfigModelo]:
         if actual is None or (config.proveedor, config.modelo) != (actual.proveedor, actual.modelo):
             respaldo.append(config)
     return respaldo
+
+
+def leer_revisor(
+    opcion: str | None = None, actual: ConfigModelo | None = None
+) -> ConfigModelo | None:
+    """El modelo que hace el paso de revisión: --revisor, HARNESS_REVISOR (entorno o .env) o
+    `revisor` de config.toml, con ese orden. None si no hay ninguno o es el mismo `actual`
+    (revisa el mismo modelo que implementó)."""
+    usuario = leer_usuario()
+    entrada, origen = opcion, "--revisor"
+    if not entrada:
+        entrada, origen = os.environ.get(VAR_REVISOR, "").strip(), VAR_REVISOR
+    if not entrada:
+        entrada, origen = usuario.revisor, ORIGEN_REVISOR_USUARIO
+    if not entrada:
+        return None
+    config = leer_entrada(entrada, usuario, origen)
+    if actual is not None and (config.proveedor, config.modelo) == (actual.proveedor,
+                                                                    actual.modelo):
+        return None
+    return config
 
 
 def leer_entrada(entrada: str, usuario: ConfigUsuario, origen: str) -> ConfigModelo:

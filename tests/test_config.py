@@ -239,3 +239,29 @@ def test_falta_una_key_sin_nombrar_solo_el_env(
         "'harness config --credencial OPENROUTER_API_KEY' (o ponla en el entorno o, en "
         "desarrollo, en el .env)."
     )
+
+
+# --- Revisor ------------------------------------------------------------------------------
+
+from harness.config import ConfigModelo, leer_revisor  # noqa: E402
+
+
+def test_revisor_con_el_orden_de_prioridad(sin_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    guardar_config_usuario(ConfigUsuario(
+        revisor="fuerte",
+        perfiles={"fuerte": Perfil(proveedor="groq", modelo="gpt-oss"),
+                  "rapido": Perfil(proveedor="gemini", modelo="flash")},
+        credenciales={"GROQ_API_KEY": CLAVE_GROQ, "GEMINI_API_KEY": CLAVE_GEMINI},
+    ))
+    cargar_env(sin_env)
+    assert leer_revisor().perfil == "fuerte"
+    monkeypatch.setenv("HARNESS_REVISOR", "rapido")
+    assert leer_revisor().perfil == "rapido"
+    assert leer_revisor("groq:llama").modelo == "llama"
+    # El mismo modelo que implementa no es otro revisor.
+    actual = ConfigModelo("gemini", "flash", None, CLAVE_GEMINI)
+    assert leer_revisor(None, actual) is None
+
+
+def test_sin_revisor(sin_env: Path) -> None:
+    assert leer_revisor() is None

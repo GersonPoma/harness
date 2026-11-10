@@ -30,6 +30,7 @@ from harness.config import (
     leer_config_jira,
     leer_herramientas_github_modelo,
     leer_respaldo,
+    leer_revisor,
     leer_token_github,
     ruta_mcp,
     secretos_de_usuario,
@@ -178,6 +179,10 @@ AYUDA_SIN_CACHE = (
 AYUDA_PERFIL = "Perfil de ~/.harness/config.toml para esta ejecución (ver harness perfiles)."
 AYUDA_PROVEEDOR = "Proveedor para esta ejecución (con --modelo); gana sobre el perfil y el .env."
 AYUDA_MODELO = "Modelo para esta ejecución (sin --proveedor, del proveedor que se usaría)."
+AYUDA_REVISOR = (
+    "Modelo que hace el paso de revisión (un perfil o proveedor:modelo); por defecto, el mismo "
+    "que implementa (o HARNESS_REVISOR / revisor de config.toml)."
+)
 AYUDA_CONSERVAR = (
     "No borrar los contenedores ni la red al terminar, para entrar a depurar (se borran "
     "después con 'harness limpiar')."
@@ -206,6 +211,8 @@ class _Preparacion:
     es_conservar: bool = False
     # HARNESS_RESPALDO: si el proveedor principal se cae, se sigue con estos, en orden.
     respaldo: list[ConfigModelo] = field(default_factory=list)
+    # Otro modelo para el paso de revisión (None: revisa el mismo que implementa).
+    revisor: ConfigModelo | None = None
     # .harness/sessions/<TICKET>.json, para harness resume (se crea después de la rama).
     sesion: SesionEnCurso | None = None
     # Con harness resume: la conversación guardada y lo ya hecho (None: se empieza de cero).
@@ -250,7 +257,8 @@ class _Preparacion:
         tokens = [t for t in (self.token_github, token_jira) if t]
         mcp = [s for servidor in (self.servidor_github, self.servidor_jira) if servidor
                for s in servidor.secretos]
-        respaldo = [config.api_key for config in self.respaldo]
+        revisores = [self.revisor] if self.revisor else []
+        respaldo = [config.api_key for config in [*self.respaldo, *revisores]]
         return [
             self.config.api_key, *respaldo, *self.variables.secretos, *tokens, *mcp,
             *self.secretos_usuario,
@@ -412,6 +420,7 @@ def run(
     perfil: Annotated[str | None, typer.Option(help=AYUDA_PERFIL)] = None,
     proveedor: Annotated[str | None, typer.Option(help=AYUDA_PROVEEDOR)] = None,
     modelo: Annotated[str | None, typer.Option(help=AYUDA_MODELO)] = None,
+    revisor: Annotated[str | None, typer.Option(help=AYUDA_REVISOR)] = None,
     desde_cero: Annotated[
         bool,
         typer.Option(
@@ -432,7 +441,8 @@ def run(
         )
         raise typer.Exit(1)
     prep = _preparar_ejecucion(
-        ticket, (repo or Path.cwd()).resolve(), proveedor=proveedor, modelo=modelo, perfil=perfil
+        ticket, (repo or Path.cwd()).resolve(), proveedor=proveedor, modelo=modelo, perfil=perfil,
+        revisor=revisor,
     )
     _revisar_sesion_pendiente(prep, desde_cero)
     prep.es_con_plan = not sin_plan
@@ -467,14 +477,15 @@ def _empezar_registro(prep: _Preparacion, es_aprobar_plan: bool = False) -> _Rep
     registro = RegistroPasos(prep.repo, prep.ticket, secretos=prep.secretos)
     respaldo = [identificador(config) for config in prep.respaldo]
     config = prep.config
+    revisor = identificador(prep.revisor) if prep.revisor else None
     registro.registrar_inicio(
         config.proveedor, config.modelo, prep.contexto, respaldo=respaldo, perfil=config.perfil,
-        origen=config.origen,
+        origen=config.origen, revisor=revisor,
     )
     registro.registrar_ticket(prep.datos_ticket)
     consola.mostrar_inicio(
         prep.ticket, str(prep.repo), config.proveedor, config.modelo, respaldo, config.perfil,
-        config.origen,
+        config.origen, revisor,
     )
     return _Reporte(registro, es_aprobar_plan, identificador(prep.config))
 
@@ -541,6 +552,7 @@ def resume(
     perfil: Annotated[
         str | None, typer.Option(help="Retomar con este perfil de ~/.harness/config.toml.")
     ] = None,
+    revisor: Annotated[str | None, typer.Option(help=AYUDA_REVISOR)] = None,
     sin_cache: Annotated[
         bool, typer.Option("--sin-cache", help=AYUDA_SIN_CACHE)
     ] = False,
@@ -563,7 +575,7 @@ def resume(
     sesion = _sesion_para_retomar(raiz, ticket)
     prep = _preparar_ejecucion(
         sesion.clave, raiz, guardado=_ticket_guardado(sesion), proveedor=proveedor, modelo=modelo,
-        perfil=perfil,
+        perfil=perfil, revisor=revisor,
     )
     prep.es_con_plan = sesion.es_con_plan
     prep.es_con_cache = not sin_cache
@@ -1204,6 +1216,7 @@ def _preparar_ejecucion(
     proveedor: str | None = None,
     modelo: str | None = None,
     perfil: str | None = None,
+    revisor: str | None = None,
 ) -> _Preparacion:
     """Valida repo, ticket, configuración y harness.yaml antes de gastar pedidos al modelo.
 
@@ -1218,6 +1231,7 @@ def _preparar_ejecucion(
         # Carga el .env y config.toml: después ya se pueden resolver los ${NOMBRE}.
         config = _elegir_config(proveedor, modelo, perfil)
         respaldo = leer_respaldo(config)
+        config_revisor = leer_revisor(revisor, config)
         config_proyecto = cargar_config_proyecto(repo)
         variables = resolver_variables(config_proyecto) if config_proyecto else None
         servidores = cargar_config_mcp(ruta_mcp())
@@ -1236,7 +1250,10 @@ def _preparar_ejecucion(
             "y por eso sin commit ni push. Créalo con 'harness init' o a mano "
             "(docs/harness-yaml.md)."
         )
-    _avisar_secretos_cortos([config, *respaldo], variables, servidor_github, servidor_jira)
+    revisores = [config_revisor] if config_revisor else []
+    _avisar_secretos_cortos(
+        [config, *respaldo, *revisores], variables, servidor_github, servidor_jira
+    )
     contexto = cargar_agents_md(repo)
     memoria = cargar_memoria(repo)
     # Para ejecuciones sin nadie mirando la consola: el aviso de "falta AGENTS.md" no alcanza.
@@ -1248,6 +1265,7 @@ def _preparar_ejecucion(
         variables or VariablesResueltas(), contexto, token_github=leer_token_github(),
         servidor_github=servidor_github, config_jira=config_jira, servidor_jira=servidor_jira,
         respaldo=respaldo, memoria=memoria, secretos_usuario=secretos_de_usuario(),
+        revisor=config_revisor,
     )
 
 
@@ -1430,9 +1448,12 @@ def _revision(
         cambios = comparar(antes, tomar_instantanea(prep.repo))
         return armar_diff(prep.repo, cambios, prep.secretos)
 
+    revisor = prep.revisor
     return Revision(
         crear_herramientas_lectura(prep.repo), obtener_diff, configuracion.max_vueltas,
         configuracion.max_pasos, reporte.revision,
+        proveedor=crear_proveedor(revisor, reporte.reintento) if revisor else None,
+        modelo=identificador(revisor) if revisor else None,
     )
 
 

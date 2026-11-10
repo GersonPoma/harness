@@ -170,9 +170,12 @@ def mostrar_inicio(
     respaldo: list[str] | None = None,
     perfil: str | None = None,
     origen: str | None = None,
+    revisor: str | None = None,
 ) -> None:
     """Muestra con qué datos arranca la ejecución (y de dónde salió el modelo)."""
     texto_respaldo = f"  [dim](respaldo: {escape(', '.join(respaldo))})[/]" if respaldo else ""
+    if revisor:
+        texto_respaldo += f"  [dim](revisa: {escape(revisor)})[/]"
     consola.print(
         f"[bold green]Ticket[/] {escape(ticket)}  [bold green]Repo[/] {escape(repo)}\n"
         f"{_linea_modelo(proveedor, modelo, perfil, origen)}{texto_respaldo}"
@@ -369,13 +372,17 @@ def mostrar_alcance(estado: EstadoAlcance) -> None:
 def mostrar_revision(estado: EstadoRevision) -> None:
     """Cómo terminó una ronda de revisión: aprobada, con problemas, o sin informe."""
     if estado.es_fallida:
-        mostrar_aviso("El modelo no informó la revisión: se sigue sin revisión.")
+        if not estado.modelo:
+            mostrar_aviso("El modelo no informó la revisión: se sigue sin revisión.")
         return
+    quien = f" ({escape(estado.modelo)})" if estado.modelo else ""
     if estado.es_aprobada:
-        consola.print(f"[bold green]✓ Revisión {estado.vueltas}: sin problemas[/]")
+        consola.print(f"[bold green]✓ Revisión {estado.vueltas}{quien}: sin problemas[/]")
         return
     cantidad = len(estado.problemas)
-    consola.print(f"[bold yellow]✗ Revisión {estado.vueltas}: {_problemas(cantidad)}[/]")
+    consola.print(
+        f"[bold yellow]✗ Revisión {estado.vueltas}{quien}: {_problemas(cantidad)}[/]"
+    )
     for problema in estado.problemas:
         archivo, regla = escape(problema["archivo"]), escape(problema["regla_o_criterio"])
         consola.print(

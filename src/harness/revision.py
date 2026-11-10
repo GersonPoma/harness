@@ -69,8 +69,10 @@ class EstadoRevision:
     # Los de la última revisión: si no está aprobada, quedan sin resolver.
     problemas: list[dict[str, str]] = field(default_factory=list)
     es_aprobada: bool = False
-    # El modelo no llamó a informar_revision: se siguió sin revisión.
+    # El modelo no llamó a informar_revision (o el revisor se cayó): se siguió sin revisión.
     es_fallida: bool = False
+    # Quién revisó, si no fue el mismo modelo que implementó ("openrouter/<modelo>").
+    modelo: str | None = None
 
 
 @dataclass
@@ -82,6 +84,10 @@ class Revision:
     max_vueltas: int
     max_pasos: int
     al_revisar: Callable[[EstadoRevision], None] | None = None
+    # Otro modelo para revisar (el que implementó tiende a aprobar su propio trabajo); None:
+    # revisa el mismo. Recibe la misma conversación, como el respaldo.
+    proveedor: ProveedorLLM | None = None
+    modelo: str | None = None
 
 
 @dataclass

@@ -13,7 +13,7 @@ from harness.prompts import (
     crear_mensaje_revision_con_problemas,
     crear_mensaje_validacion_fallida,
 )
-from harness.proveedores.base import ProveedorLLM
+from harness.proveedores.base import ErrorProveedor, ProveedorLLM
 from harness.resumen_tests import resumir_tests, seccion_tests
 from harness.revision import EstadoRevision, Revision, revisar
 from harness.tipos import Herramienta, Mensaje, Rol
@@ -235,9 +235,19 @@ def _hay_que_corregir_por_revision(
     estado = resultado.revision
     if revision is None or estado.vueltas >= revision.max_vueltas or estado.es_fallida:
         return False
-    ronda = revisar(
-        proveedor, mensajes, revision, resultado.pasos + 1, al_paso, al_aviso, al_respuesta
-    )
+    try:
+        ronda = revisar(
+            revision.proveedor or proveedor, mensajes, revision, resultado.pasos + 1, al_paso,
+            al_aviso, al_respuesta,
+        )
+    except ErrorProveedor as error:
+        # Si se cae el modelo principal, se corta como siempre; si se cae el revisor, los
+        # tests ya pasaron: se sigue sin revisión.
+        if revision.proveedor is None:
+            raise
+        _revisor_caido(estado, revision, str(error), al_aviso)
+        return False
+    estado.modelo = revision.modelo
     _acumular(resultado, ronda.pasos, ronda.tokens_entrada, ronda.tokens_salida)
     # La revisión tiene su propio presupuesto: no le quita pasos a la implementación.
     resultado.pasos_extra += ronda.pasos
@@ -260,6 +270,22 @@ def _hay_que_corregir_por_revision(
     if revision.al_revisar:
         revision.al_revisar(estado)
     return es_corregir
+
+
+def _revisor_caido(
+    estado: EstadoRevision,
+    revision: Revision,
+    error: str,
+    al_aviso: Callable[[str], None] | None,
+) -> None:
+    estado.vueltas += 1
+    estado.es_fallida = True
+    estado.problemas = []
+    estado.modelo = revision.modelo
+    if al_aviso:
+        al_aviso(f"El revisor {revision.modelo} falló: {error} Se sigue sin revisión.")
+    if revision.al_revisar:
+        revision.al_revisar(estado)
 
 
 def _acumular(resultado: ResultadoEjecucion, pasos: int, entrada: int, salida: int) -> None:

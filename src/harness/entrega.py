@@ -403,9 +403,18 @@ def _alcance_en_markdown(estado: EstadoAlcance) -> str:
 def _revision_en_markdown(estado: EstadoRevision) -> str | None:
     """Qué dijo la revisión del modelo; None si no hubo (desactivada en harness.yaml)."""
     if estado.es_fallida:
+        if estado.modelo:
+            return f"_Sin revisión: el revisor `{estado.modelo}` falló._"
         return "_Sin revisión: el modelo no la informó._"
     if estado.vueltas == 0:
         return None
+    texto = _revision_sin_revisor(estado)
+    if estado.modelo:
+        texto = f"Revisó `{estado.modelo}`, un modelo distinto del que implementó.\n\n{texto}"
+    return texto
+
+
+def _revision_sin_revisor(estado: EstadoRevision) -> str:
     if estado.es_aprobada:
         vueltas = "1 vuelta" if estado.vueltas == 1 else f"{estado.vueltas} vueltas"
         return (

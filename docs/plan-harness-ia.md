@@ -1678,9 +1678,17 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         Resource Saver y cómo desactivarlo (Settings > Resources > Resource Saver). Queda en
         el log como `aviso`.
 - [ ] **12.** Distribución y pulido
-  - [ ] **Revisar con un modelo distinto** (trabajo futuro de la fase 10). La revisión la hace
+  - [x] **Revisar con un modelo distinto** (trabajo futuro de la fase 10). La revisión la hace
         el mismo modelo que implementó; probar revisar con otro, por ejemplo el primero de
         la lista de respaldo, y comparar cuántos problemas encuentra cada uno.
+        Hecho: `--revisor <perfil|proveedor:modelo>` en `run` y `resume`, o `HARNESS_REVISOR`
+        (entorno o `.env`), o `revisor` de `config.toml`, con ese orden (nunca en
+        `harness.yaml`: el modelo es configuración del usuario). El revisor recibe la misma
+        conversación, como el respaldo; sus tokens se suman al total, y si se cae, la revisión
+        queda como fallida con un aviso y se sigue (los tests ya pasaron). La consola dice
+        "Revisión 1 (openrouter/x): 2 problemas", el evento `revision` guarda `modelo` y el PR
+        "Revisó `openrouter/x`, un modelo distinto del que implementó".
+        _Pendiente de prueba real: comparar cuántos problemas encuentra cada modelo._
   - [x] **El paso de la respuesta final no se ve.** En TAREAS-3 los pasos saltaron de `[8]` a
         `[10]`: el `[9]` fue la respuesta final de la implementación (texto, sin
         herramientas), que cuenta como paso pero no se muestra ni queda en el log como
