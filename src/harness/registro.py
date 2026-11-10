@@ -1,6 +1,8 @@
 """Log de pasos de cada ejecución, en .harness/logs/<ticket>-<fecha>.jsonl del repo objetivo."""
 
 import json
+import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -22,6 +24,7 @@ from harness.init import ResultadoInit
 from harness.jira import ResultadoTransicion
 from harness.plan import Plan, archivos_fuera_del_plan
 from harness.proveedores.respaldo import CambioProveedor
+from harness.resumen_log import resumir_log, tiempos_por_etapa
 from harness.revision import EstadoRevision
 from harness.ticket import Ticket
 from harness.variables import ocultar_secretos
@@ -30,7 +33,18 @@ from harness.variables import ocultar_secretos
 class RegistroPasos:
     """Escribe un evento JSON por línea; oculta los secretos que se le indiquen."""
 
-    def __init__(self, repo: Path, ticket: str, secretos: list[str]) -> None:
+    def __init__(
+        self,
+        repo: Path,
+        ticket: str,
+        secretos: list[str],
+        reloj: Callable[[], float] = time.monotonic,
+    ) -> None:
+        # Cada evento lleva `t`, los segundos desde aquí: así se ven los tiempos por etapa.
+        self._reloj = reloj
+        self._inicio = reloj()
+        # Los eventos ya escritos (sin secretos), para el resumen .md del final.
+        self.eventos: list[dict[str, Any]] = []
         fecha = datetime.now().strftime("%Y%m%d-%H%M%S")
         self.ruta = repo / CARPETA_LOGS / f"{ticket}-{fecha}.jsonl"
         self.ruta.parent.mkdir(parents=True, exist_ok=True)
@@ -84,6 +98,20 @@ class RegistroPasos:
             evento["codigo_salida"], evento["es_tiempo_agotado"] = salida
         self._escribir(evento)
 
+    def registrar_etapa(self, etapa: str) -> None:
+        """Marca dónde empieza una etapa (preparación, plan, implementación, validación...)."""
+        self._escribir({"evento": "etapa", "etapa": etapa})
+
+    def tiempos(self) -> dict[str, float]:
+        """Segundos de cada etapa hasta ahora."""
+        return tiempos_por_etapa(self.eventos, self._reloj() - self._inicio)
+
+    def escribir_resumen(self) -> Path:
+        """El resumen legible de la ejecución, al lado del log (.md)."""
+        ruta = self.ruta.with_suffix(".md")
+        ruta.write_text(resumir_log(self.eventos), encoding="utf-8")
+        return ruta
+
     def registrar_respuesta(self, numero: int, texto: str) -> None:
         """Registra una respuesta del modelo sin herramientas (cuenta como paso)."""
         self._escribir({"evento": "respuesta", "paso": numero, "texto": texto})
@@ -94,6 +122,7 @@ class RegistroPasos:
             "evento": "validacion",
             "intento": validacion.intento,
             "es_valido": validacion.es_valido,
+            "resumen_tests": validacion.resumen_tests,
             "informe": validacion.informe,
         })
 
@@ -119,6 +148,7 @@ class RegistroPasos:
             "fuera_del_plan": (
                 archivos_fuera_del_plan(resultado.plan, cambios) if resultado.plan else []
             ),
+            "tiempos": self.tiempos(),
         })
 
     def registrar_fin_init(self, resultado: ResultadoInit) -> None:
@@ -312,12 +342,14 @@ class RegistroPasos:
         self._escribir({"evento": "error", "mensaje": mensaje})
 
     def _escribir(self, evento: dict[str, Any]) -> None:
-        evento = {"hora": datetime.now().isoformat(timespec="seconds"), **evento}
+        segundos = round(self._reloj() - self._inicio, 1)
+        evento = {"hora": datetime.now().isoformat(timespec="seconds"), "t": segundos, **evento}
         linea = json.dumps(evento, ensure_ascii=False)
         # Se reemplaza sobre el JSON ya armado para cubrir cualquier campo, incluso anidado.
         linea = ocultar_secretos(linea, self._secretos)
         with self.ruta.open("a", encoding="utf-8") as archivo:
             archivo.write(f"{linea}\n")
+        self.eventos.append(json.loads(linea))
 
 
 def _camino_pr(entrega: ResultadoEntrega) -> str | None:

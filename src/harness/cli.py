@@ -126,6 +126,7 @@ from harness.proveedores.base import ErrorProveedor, ProveedorLLM
 from harness.proveedores.fabrica import crear_proveedor, identificador
 from harness.proveedores.respaldo import CambioProveedor
 from harness.registro import RegistroPasos
+from harness.resumen_log import ETAPA_ENTREGA, ETAPA_PREPARACION
 from harness.sesion import (
     CARPETA_SESIONES,
     ESTADO_ENTREGA,
@@ -299,6 +300,9 @@ class _Reporte:
         if self.sesion:
             self.sesion.paso(paso.numero)
 
+    def etapa(self, nombre: str) -> None:
+        self.registro.registrar_etapa(nombre)
+
     def respuesta(self, numero: int, texto: str) -> None:
         """El modelo respondió sin herramientas: el paso cuenta, así que también se ve."""
         self.ultimo_paso = numero
@@ -466,17 +470,28 @@ def run(
     consola.mostrar_memoria(prep.memoria)
     es_herramientas_github = not sin_herramientas_github and leer_herramientas_github_modelo()
     es_con_pr = not sin_push and not sin_pr
-    _verificar_docker_al_empezar(prep, reporte, es_herramientas_github, es_con_pr)
-    # El servidor MCP se abre en el preflight y se cierra al salir del with: también con
-    # error o Ctrl+C.
-    with ExitStack() as pila:
-        conectar = partial(_conectar_mcp, prep, pila, reporte, es_herramientas_github)
-        config_entrega = _preparar_rama(prep, not sin_push, not sin_pr, reporte, conectar)
-        _iniciar_sesion(prep, config_entrega, reporte)
-        resultado, es_entrega_ok = _ejecutar_y_entregar(prep, config_entrega, max_pasos, reporte)
+    try:
+        _verificar_docker_al_empezar(prep, reporte, es_herramientas_github, es_con_pr)
+        # El servidor MCP se abre en el preflight y se cierra al salir del with: también con
+        # error o Ctrl+C.
+        with ExitStack() as pila:
+            conectar = partial(_conectar_mcp, prep, pila, reporte, es_herramientas_github)
+            config_entrega = _preparar_rama(prep, not sin_push, not sin_pr, reporte, conectar)
+            _iniciar_sesion(prep, config_entrega, reporte)
+            resultado, es_entrega_ok = _ejecutar_y_entregar(
+                prep, config_entrega, max_pasos, reporte
+            )
+    finally:
+        _cerrar_registro(reporte)
     _sugerir_resume(prep)
     if resultado.es_limite_alcanzado or resultado.es_validado is False or not es_entrega_ok:
         raise typer.Exit(1)
+
+
+def _cerrar_registro(reporte: _Reporte) -> None:
+    """Al terminar (bien, con error o con Ctrl+C): los tiempos por etapa y el resumen .md."""
+    ruta = reporte.registro.escribir_resumen()
+    consola.mostrar_tiempos(reporte.registro.tiempos(), str(ruta))
 
 
 def _empezar_registro(prep: _Preparacion, es_aprobar_plan: bool = False) -> _Reporte:
@@ -490,6 +505,8 @@ def _empezar_registro(prep: _Preparacion, es_aprobar_plan: bool = False) -> _Rep
         origen=config.origen, revisor=revisor,
     )
     registro.registrar_ticket(prep.datos_ticket)
+    # Docker, la rama y la instalación, hasta que empieza el plan o la implementación.
+    registro.registrar_etapa(ETAPA_PREPARACION)
     consola.mostrar_inicio(
         prep.ticket, str(prep.repo), config.proveedor, config.modelo, respaldo, config.perfil,
         config.origen, revisor,
@@ -596,20 +613,23 @@ def resume(
     consola.mostrar_memoria(prep.memoria)
     es_herramientas_github = not sin_herramientas_github and leer_herramientas_github_modelo()
     es_con_pr = bool(sesion.rama and sesion.rama.get("es_con_pr", True))
-    _verificar_docker_al_empezar(prep, reporte, es_herramientas_github, es_con_pr)
-    with ExitStack() as pila:
-        conectar = partial(_conectar_mcp, prep, pila, reporte, es_herramientas_github)
-        config_entrega = _preparar_rama_para_retomar(prep, sesion, reporte, conectar)
-        _retomar_sesion(prep, sesion, reporte)
-        if sesion.estado == ESTADO_ENTREGA:
-            resultado, es_entrega_ok = _retomar_entrega(prep, sesion, config_entrega, reporte)
-        else:
-            # Los pasos siguen contando desde el corte; el presupuesto es para esta parte.
-            continuacion = prep.reanudacion.continuacion if prep.reanudacion else None
-            hechos = continuacion.pasos_con_presupuesto if continuacion else 0
-            resultado, es_entrega_ok = _ejecutar_y_entregar(
-                prep, config_entrega, hechos + presupuesto, reporte
-            )
+    try:
+        _verificar_docker_al_empezar(prep, reporte, es_herramientas_github, es_con_pr)
+        with ExitStack() as pila:
+            conectar = partial(_conectar_mcp, prep, pila, reporte, es_herramientas_github)
+            config_entrega = _preparar_rama_para_retomar(prep, sesion, reporte, conectar)
+            _retomar_sesion(prep, sesion, reporte)
+            if sesion.estado == ESTADO_ENTREGA:
+                resultado, es_entrega_ok = _retomar_entrega(prep, sesion, config_entrega, reporte)
+            else:
+                # Los pasos siguen contando desde el corte; el presupuesto es para esta parte.
+                continuacion = prep.reanudacion.continuacion if prep.reanudacion else None
+                hechos = continuacion.pasos_con_presupuesto if continuacion else 0
+                resultado, es_entrega_ok = _ejecutar_y_entregar(
+                    prep, config_entrega, hechos + presupuesto, reporte
+                )
+    finally:
+        _cerrar_registro(reporte)
     _sugerir_resume(prep)
     if resultado.es_limite_alcanzado or resultado.es_validado is False or not es_entrega_ok:
         raise typer.Exit(1)
@@ -1045,6 +1065,7 @@ def _entregar(
 
     Con `pendiente` (harness resume, el commit ya está) se hacen solo las etapas que faltan.
     """
+    reporte.etapa(ETAPA_ENTREGA)
     head_antes = cabeza(prep.repo)
     try:
         entrega = _hacer_entrega(prep, config, resultado, cambios, reporte, pendiente)
@@ -1383,6 +1404,7 @@ def _ejecutar(
             continuacion=_continuacion(prep),
             revisar_paso=DetectorBucles(prep.repo).revisar,
             al_respuesta=reporte.respuesta,
+            al_etapa=reporte.etapa,
         )
         return resultado, comparar(antes, tomar_instantanea(prep.repo))
     # El with garantiza que los contenedores se borran aunque algo falle o haya Ctrl+C.
@@ -1453,6 +1475,7 @@ def _ejecutar_con_validacion(
         continuacion=_continuacion(prep),
         revisar_paso=DetectorBucles(prep.repo).revisar,
         al_respuesta=reporte.respuesta,
+        al_etapa=reporte.etapa,
         revision=_revision(prep, config_proyecto, antes, reporte),
         alcance=Alcance(
             prep.repo, antes, crear_herramientas_lectura(prep.repo), entorno.marcar_cambio,

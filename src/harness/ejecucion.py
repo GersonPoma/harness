@@ -14,6 +14,13 @@ from harness.prompts import (
     crear_mensaje_validacion_fallida,
 )
 from harness.proveedores.base import ErrorProveedor, ProveedorLLM
+from harness.resumen_log import (
+    ETAPA_FUERA_DEL_PLAN,
+    ETAPA_IMPLEMENTACION,
+    ETAPA_PLAN,
+    ETAPA_REVISION,
+    ETAPA_VALIDACION,
+)
 from harness.resumen_tests import resumir_tests, seccion_tests
 from harness.revision import EstadoRevision, Revision, revisar
 from harness.tipos import Herramienta, Mensaje, Rol
@@ -92,6 +99,7 @@ def ejecutar_ticket(
     revision: Revision | None = None,
     alcance: Alcance | None = None,
     al_respuesta: Callable[[int, str], None] | None = None,
+    al_etapa: Callable[[str], None] | None = None,
 ) -> ResultadoEjecucion:
     """Planifica (si se pide), implementa y valida; si la validación falla, el modelo corrige.
 
@@ -105,14 +113,20 @@ def ejecutar_ticket(
     vuelve a implementar (hasta revision.max_vueltas revisiones).
     `alcance`: antes de validar, el modelo justifica o revierte lo que cambió fuera del plan.
     `al_respuesta`: cada respuesta del modelo sin herramientas (en todas las rondas).
+    `al_etapa`: dónde empieza cada etapa (plan, implementación, validación...), para los
+    tiempos del log.
     """
+    etapa = al_etapa or (lambda _: None)
     resultado = continuacion or ResultadoEjecucion(None, 0, 0, 0, False, None, 0)
+    if continuacion is None and planificacion:
+        etapa(ETAPA_PLAN)
     if continuacion is None and planificacion and not _planificar(
         resultado, proveedor, mensajes, planificacion, al_paso, al_aviso, al_respuesta
     ):
         return resultado
     informe_anterior = None
     while True:
+        etapa(ETAPA_IMPLEMENTACION)
         bucle = ejecutar_bucle(
             proveedor, mensajes, herramientas, max_pasos - resultado.pasos_con_presupuesto,
             al_paso, primer_paso=resultado.pasos + 1, al_aviso=al_aviso,
@@ -126,10 +140,12 @@ def ejecutar_ticket(
         if validar is None:
             return resultado
         if alcance and resultado.plan:
+            etapa(ETAPA_FUERA_DEL_PLAN)
             _resolver_alcance(
                 resultado, proveedor, mensajes, alcance, al_paso, al_aviso, al_respuesta
             )
 
+        etapa(ETAPA_VALIDACION)
         es_valido, informe = validar()
         resultado.validaciones += 1
         resultado.es_validado = es_valido
@@ -139,6 +155,8 @@ def ejecutar_ticket(
         if al_validar:
             al_validar(Validacion(resultado.validaciones, es_valido, informe, resumen))
         if es_valido:
+            if revision is not None:
+                etapa(ETAPA_REVISION)
             if not _hay_que_corregir_por_revision(
                 resultado, proveedor, mensajes, revision, max_pasos, al_paso, al_aviso,
                 al_respuesta,

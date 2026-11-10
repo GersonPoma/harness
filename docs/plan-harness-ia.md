@@ -1770,7 +1770,16 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         usan las opciones; `borrar` pregunta `[s/N]` (o `--si`) y saca el perfil del
         respaldo y del revisor; `probar` hace un pedido con una herramienta y `tool_choice`, y
         dice si la key funciona y si el modelo llamó a la herramienta.
-  - [ ] **Logs más legibles** (resumen por ejecución, tiempos por etapa).
+  - [x] **Logs más legibles** (resumen por ejecución, tiempos por etapa).
+        Hecho: cada evento del log lleva `t` (segundos desde el inicio) y los eventos `etapa`
+        marcan dónde empieza cada etapa (preparación, plan, implementación, fuera del plan,
+        validación, revisión, entrega); el evento `fin` trae `tiempos` por etapa. Al terminar
+        (también con un corte o Ctrl+C), `resumen_log.py` escribe al lado del log un `.md`
+        con el resultado, los modelos, pasos, tokens y duración, la tabla de tiempos, las
+        validaciones (con cuántos tests pasaron), la revisión, lo de fuera del plan, la
+        entrega, los avisos y los errores, sin secretos (sale de los eventos ya ocultados). La
+        consola cierra con "Tiempos: preparación 14 s · plan 38 s · ..." y la ruta del
+        resumen.
   - [x] **Repetir el aviso de "falta AGENTS.md" en el resumen final**: hoy aparece una vez
         al inicio y se pierde detrás de "Instalando dependencias...".
         Hecho: si falta (o está vacío), el final de `run` y de `resume` repite "Aviso: El repo

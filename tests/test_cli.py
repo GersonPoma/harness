@@ -68,7 +68,7 @@ def test_tres_respuestas_vacias_terminan_con_codigo_1(
     assert codigo == 1
     assert "respondió vacío (sin texto ni herramientas) 3 veces seguidas" in salida
     eventos = [e["evento"] for e in _eventos_del_log(repo_sin_yaml)]
-    assert eventos == ["inicio", "ticket", "aviso", "aviso", "error"]
+    assert eventos == ["inicio", "ticket", "etapa", "etapa", "aviso", "aviso", "error"]
 
 
 def test_al_final_lista_los_archivos_cambiados(
@@ -279,7 +279,8 @@ def test_run_reporta_la_cache_y_el_tiempo_de_instalacion(
         assert eventos["cache"] == {**eventos["cache"], "es_usada": False, "motivo": "--sin-cache"}
     assert "Dependencias instaladas en 8 s." in plana
     assert eventos["instalacion"] == {
-        "hora": eventos["instalacion"]["hora"], "evento": "instalacion", "segundos": 8.2,
+        "hora": eventos["instalacion"]["hora"], "t": eventos["instalacion"]["t"],
+        "evento": "instalacion", "segundos": 8.2,
         "es_reinstalacion": False, "archivo_cambiado": None, "es_ok": True,
     }
 
@@ -1031,3 +1032,27 @@ def test_con_harness_yaml_la_respuesta_final_tambien_se_ve(
     assert codigo == 1
     assert "[1] Respuesta: Hecho: agregué el filtro." in salida
     assert any(e["evento"] == "respuesta" for e in _eventos_del_log(repo_sin_yaml))
+
+
+def test_al_terminar_muestra_los_tiempos_y_deja_el_resumen(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    codigo, salida = _correr(monkeypatch, repo_sin_yaml, [terminar("Listo")], "--sin-plan")
+    assert codigo == 0
+    plana = " ".join(salida.split())
+    # Los tiempos se muestran solo si alguna etapa duró medio segundo o más.
+    assert "Resumen:" in plana
+    (resumen,) = (repo_sin_yaml / ".harness" / "logs").glob("T-1-*.md")
+    texto = resumen.read_text(encoding="utf-8")
+    assert texto.startswith("# T-1: algo") and "**Resultado:** terminó" in texto
+    fin = _eventos_del_log(repo_sin_yaml)[-1]
+    assert fin["evento"] == "fin" and "tiempos" in fin
+
+
+def test_un_corte_tambien_deja_el_resumen(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    codigo, _ = _correr(monkeypatch, repo_sin_yaml, [vacia(), vacia(), vacia()], "--sin-plan")
+    assert codigo == 1
+    (resumen,) = (repo_sin_yaml / ".harness" / "logs").glob("T-1-*.md")
+    assert "**Resultado:** se cortó: El modelo respondió vacío" in resumen.read_text("utf-8")

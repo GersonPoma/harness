@@ -90,4 +90,5 @@ def test_registra_la_respuesta_sin_herramientas_como_paso(repo: Path) -> None:
     registro.registrar_respuesta(9, "Listo, sin usar sk-secreta")
     (evento,) = [json.loads(linea) for linea in registro.ruta.read_text("utf-8").splitlines()]
     evento.pop("hora")
+    evento.pop("t")
     assert evento == {"evento": "respuesta", "paso": 9, "texto": "Listo, sin usar ****"}

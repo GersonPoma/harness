@@ -63,6 +63,7 @@ harness/
     ├── tipos.py            # Mensaje, Herramienta, LlamadaHerramienta, RespuestaModelo
     ├── consola.py          # salida con rich (sin la última columna; HARNESS_CONSOLA_CRUDA)
     ├── registro.py         # log JSONL de cada ejecución
+    ├── resumen_log.py      # tiempos por etapa y resumen .md al lado del log
     ├── sesion.py           # .harness/sessions/<TICKET>.json para harness resume
     ├── memoria.py          # .harness/memory.md y la herramienta guardar_memoria
     ├── compactacion.py     # acorta resultados viejos cuando la conversación crece

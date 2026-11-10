@@ -26,6 +26,7 @@ from harness.entrega import ConfigEntrega, ResultadoEntrega
 from harness.alcance import EstadoAlcance
 from harness.github import PullRequest
 from harness.jira import MOVIDO, SIN_TRANSICION, YA_ESTABA_EN_ESTADO, ResultadoTransicion
+from harness.resumen_log import formatear_duracion, formatear_tiempos
 from harness.revision import EstadoRevision
 from harness.init import ResultadoInit
 from harness.limpieza import IMAGEN as TIPO_IMAGEN
@@ -823,15 +824,6 @@ def mostrar_conservados(conservados: Conservados) -> None:
     )
 
 
-def formatear_duracion(segundos: float) -> str:
-    """'8 s', '1 min 52 s' o 'menos de 1 s'."""
-    total = round(segundos)
-    if total < 1:
-        return "menos de 1 s"
-    minutos, resto = divmod(total, SEGUNDOS_POR_MINUTO)
-    return f"{minutos} min {resto} s" if minutos else f"{resto} s"
-
-
 def mostrar_aviso(mensaje: str) -> None:
     """Muestra un aviso que no corta la ejecución (por ejemplo, un reintento).
 
@@ -1051,3 +1043,10 @@ def mostrar_credenciales(
             )
     if url_jira or email_jira:
         consola.print(f"[bold]Jira[/] {escape(url_jira or '-')}  {escape(email_jira or '-')}")
+
+
+def mostrar_tiempos(tiempos: dict[str, float], ruta_resumen: str) -> None:
+    """Cuánto tardó cada etapa y dónde quedó el resumen de la ejecución."""
+    if tiempos:
+        consola.print(f"[dim]Tiempos: {escape(formatear_tiempos(tiempos))}[/]")
+    consola.print(f"[dim]Resumen: {escape(ruta_resumen)}[/]")
