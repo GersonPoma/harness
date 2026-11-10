@@ -1634,11 +1634,17 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         herramientas (la final, o un texto en la ronda de plan o de revisión) se ve como
         `[9] Respuesta: <primera línea>` y queda en el log como evento `respuesta` con el
         texto. Los `[N]` de la pantalla coinciden con los pasos del log.
-  - [ ] **Notas de memoria que describen el ticket actual.** En TAREAS-3 el modelo guardó "El
+  - [x] **Notas de memoria que describen el ticket actual.** En TAREAS-3 el modelo guardó "El
         repositorio soporta filtrado opcional en listar y método completar tarea", que es lo
         que acababa de hacer, aunque la herramienta pide guardar solo lo útil para tickets
         futuros. Reforzar la descripción con ejemplos de lo que sí y lo que no, o rechazar
         notas que repiten el título o los criterios del ticket.
+        Hecho con las dos cosas: la descripción de `guardar_memoria` trae ejemplos de lo que
+        sí y lo que no, y `guardar_nota` rechaza (con un error que vuelve al modelo) la nota
+        que tiene al menos 2/3 de las palabras significativas del título del ticket (2 como
+        mínimo; palabras de 4 letras o más, sin tildes, comparadas por sus primeras 5 letras,
+        así "filtrarlas" y "filtrado" cuentan igual). Solo el título, no los criterios, para
+        no rechazar notas útiles. La nota real de TAREAS-3 se rechaza; la de TAREAS-2 no.
   - [ ] **`ProveedorAnthropic`** (preset `anthropic`), para quien elija Claude. Define su
         propio `adaptar_esquema`: los esquemas de las herramientas (los de MCP, por ejemplo) se
         adaptan a lo que acepta la API de Anthropic.

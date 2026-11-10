@@ -20,6 +20,7 @@ from harness.memoria import (
     esta_ignorada,
     guardar_nota,
     notas_nuevas,
+    repite_el_titulo,
 )
 from harness.prompts import crear_mensajes_iniciales
 from tests.git_prueba import git, iniciar_repo, requiere_git
@@ -179,3 +180,51 @@ def test_init_agrega_solo_lo_que_falta_sin_tocar_el_resto(tmp_path: Path) -> Non
     assert texto.startswith(".venv/\n.harness/logs\n\n# Datos locales del harness")
     assert texto.endswith(".harness/sessions/\n")
     assert asegurar_gitignore(tmp_path) == []
+
+
+# --- Notas que repiten el ticket ---------------------------------------------------------
+
+
+def test_rechaza_la_nota_que_describe_el_ticket_actual(tmp_path: Path) -> None:
+    # La nota real que guardó el modelo en TAREAS-3.
+    titulo = "Completar tareas y filtrarlas"
+    nota = "El repositorio soporta filtrado opcional en listar y método completar tarea"
+    with pytest.raises(ErrorMemoria, match="parece describir lo que hace este ticket"):
+        guardar_nota(tmp_path, nota, "TAREAS-3", [], HOY, titulo=titulo)
+    assert not (tmp_path / RUTA_MEMORIA).exists()
+
+
+def test_acepta_notas_utiles_aunque_compartan_alguna_palabra(tmp_path: Path) -> None:
+    # La nota real de TAREAS-2: útil para tickets futuros.
+    nota = ("Pydantic Field con min_length y max_length valida correctamente los límites de "
+            "longitud de strings en modelos de entrada FastAPI.")
+    guardar_nota(tmp_path, nota, "TAREAS-2", [], HOY, titulo="Crear tareas")
+    guardar_nota(
+        tmp_path, "Los tests de tareas necesitan TAREAS_DB_URL en variables_entorno.",
+        "TAREAS-3", [], HOY, titulo="Completar tareas y filtrarlas",
+    )
+    assert cargar_memoria(tmp_path).notas == 2
+
+
+@pytest.mark.parametrize(
+    ("nota", "titulo", "esperado"),
+    [
+        ("Ahora se pueden completar las tareas y filtrarlas por estado", "Completar tareas y "
+         "filtrarlas", True),
+        ("Crear tareas valida el título", "Crear tareas", True),
+        ("Las tareas usan un repositorio en memoria", "Crear tareas", False),
+        ("Algo sobre tareas", "Tareas", False),
+        ("Cualquier cosa", "", False),
+    ],
+)
+def test_repite_el_titulo(nota: str, titulo: str, esperado: bool) -> None:
+    assert repite_el_titulo(nota, titulo) is esperado
+
+
+def test_la_herramienta_usa_el_titulo_del_ticket(tmp_path: Path) -> None:
+    herramienta = crear_herramienta_memoria(
+        tmp_path, "TAREAS-3", [], lambda _: None, "Completar tareas y filtrarlas"
+    )
+    with pytest.raises(ErrorMemoria):
+        herramienta.funcion(nota="Se agregó completar tareas y el filtrado")
+    assert "No: lo que hizo este ticket" in herramienta.descripcion

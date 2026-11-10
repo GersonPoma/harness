@@ -6,7 +6,9 @@ nueva pasa por la revisión humana del PR: el siguiente ticket, que sale de la r
 recién cuando se mergea. Al cargarla en el prompt va como notas (datos), no como instrucciones.
 """
 
+import math
 import re
+import unicodedata
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -42,9 +44,23 @@ DESCRIPCION_HERRAMIENTA = (
     "Guarda una nota en la memoria del proyecto (.harness/memory.md) para los próximos "
     "tickets: algo que descubriste del proyecto y que no está en AGENTS.md (un comando, una "
     "variable que necesitan los tests, una trampa del código). Una línea, como máximo "
-    f"{MAX_CARACTERES_NOTA} caracteres. Nada específico de este ticket y nunca secretos "
-    "(tokens, contraseñas, API keys)."
+    f"{MAX_CARACTERES_NOTA} caracteres. Nunca secretos (tokens, contraseñas, API keys). "
+    "Sí: 'Los tests necesitan TAREAS_DB_URL en variables_entorno', 'mvn -q oculta los "
+    "errores de compilación: correr con -e para verlos'. No: lo que hizo este ticket ('El "
+    "repositorio soporta filtrado opcional en listar'), porque ya queda en el código y en el "
+    "PR; una nota así se rechaza."
 )
+# Una nota que repite el título del ticket describe lo que se acaba de hacer, no algo útil
+# para el próximo (TAREAS-3). Se comparan las palabras significativas por su comienzo, así
+# "filtrarlas" y "filtrado" cuentan como la misma.
+MIN_LETRAS_PALABRA = 4
+LETRAS_RAIZ = 5
+MIN_PALABRAS_REPETIDAS = 2
+PROPORCION_TITULO_REPETIDA = 2 / 3
+PALABRAS_COMUNES = frozenset({
+    "para", "como", "esta", "este", "estos", "estas", "desde", "entre", "sobre", "cada",
+    "todo", "todos", "todas", "with", "from", "that", "this", "cuando", "donde",
+})
 
 
 class ErrorMemoria(Exception):
@@ -81,9 +97,17 @@ def cargar_memoria(repo: Path) -> Memoria:
 
 
 def guardar_nota(
-    repo: Path, nota: str, ticket: str, secretos: Sequence[str], hoy: date | None = None
+    repo: Path,
+    nota: str,
+    ticket: str,
+    secretos: Sequence[str],
+    hoy: date | None = None,
+    titulo: str = "",
 ) -> str:
-    """Agrega la nota al final de memory.md (lo crea si falta) y devuelve la línea agregada."""
+    """Agrega la nota al final de memory.md (lo crea si falta) y devuelve la línea agregada.
+
+    Con `titulo` (el del ticket) rechaza la nota que lo repite: describe este ticket.
+    """
     nota = " ".join(nota.split())
     if not nota:
         raise ErrorMemoria("la nota está vacía.")
@@ -94,6 +118,12 @@ def guardar_nota(
     if _tiene_secreto(nota, secretos):
         raise ErrorMemoria("la nota parece tener un secreto (un token o una contraseña); no se "
                            "guardó. La memoria se sube a Git: nunca guardes secretos.")
+    if repite_el_titulo(nota, titulo):
+        raise ErrorMemoria(
+            f"la nota parece describir lo que hace este ticket ('{titulo}'); no se guardó. "
+            "Guarda solo lo que le sirve a un ticket futuro (un comando, una variable, una "
+            "trampa del código): lo hecho en este ticket ya queda en el código y en el PR."
+        )
     ruta = repo / RUTA_MEMORIA
     actual = ruta.read_text(encoding="utf-8-sig") if ruta.is_file() else ENCABEZADO
     linea = f"{PREFIJO_NOTA}{nota} ({ticket}, {(hoy or date.today()).isoformat()})"
@@ -109,13 +139,20 @@ def guardar_nota(
 
 
 def crear_herramienta_memoria(
-    repo: Path, ticket: str, secretos: Sequence[str], al_guardar: Callable[[str], None]
+    repo: Path,
+    ticket: str,
+    secretos: Sequence[str],
+    al_guardar: Callable[[str], None],
+    titulo: str = "",
 ) -> Herramienta:
-    """La herramienta guardar_memoria del modelo; escribe desde el host, no desde el contenedor."""
+    """La herramienta guardar_memoria del modelo; escribe desde el host, no desde el contenedor.
+
+    `titulo` es el del ticket: una nota que lo repite se rechaza.
+    """
 
     def guardar_memoria(nota: str) -> str:
         # Un error se lanza: el bucle se lo devuelve al modelo marcado como error.
-        linea = guardar_nota(repo, nota, ticket, secretos)
+        linea = guardar_nota(repo, nota, ticket, secretos, titulo=titulo)
         al_guardar(linea)
         return (
             f"Nota guardada en {RUTA_MEMORIA}. Vale para los próximos tickets cuando se "
@@ -147,6 +184,32 @@ def notas_nuevas(repo: Path, base: str) -> list[str]:
         return []
     agregadas = f"+{PREFIJO_NOTA}"
     return [linea[1:] for linea in diferencia.splitlines() if linea.startswith(agregadas)]
+
+
+def repite_el_titulo(nota: str, titulo: str) -> bool:
+    """True si la nota tiene al menos 2/3 de las palabras significativas del título (y no
+    menos de MIN_PALABRAS_REPETIDAS)."""
+    del_titulo = _raices(titulo)
+    if len(del_titulo) < MIN_PALABRAS_REPETIDAS:
+        return False
+    repetidas = len(del_titulo & _raices(nota))
+    necesarias = max(
+        MIN_PALABRAS_REPETIDAS, math.ceil(len(del_titulo) * PROPORCION_TITULO_REPETIDA)
+    )
+    return repetidas >= necesarias
+
+
+def _raices(texto: str) -> set[str]:
+    """El comienzo de cada palabra significativa, en minúsculas y sin tildes."""
+    sin_tildes = "".join(
+        letra for letra in unicodedata.normalize("NFD", texto.lower())
+        if unicodedata.category(letra) != "Mn"
+    )
+    palabras = re.findall(r"[a-z]+", sin_tildes)
+    return {
+        palabra[:LETRAS_RAIZ] for palabra in palabras
+        if len(palabra) >= MIN_LETRAS_PALABRA and palabra not in PALABRAS_COMUNES
+    }
 
 
 def _tiene_secreto(nota: str, secretos: Sequence[str]) -> bool:

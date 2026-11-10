@@ -1418,7 +1418,8 @@ def _mensajes_iniciales(prep: _Preparacion, hay_validacion: bool) -> list[Mensaj
 def _herramientas_extra(prep: _Preparacion, reporte: _Reporte) -> list[Herramienta]:
     """Las de GitHub por MCP y guardar_memoria (solo en la implementación, no en el plan)."""
     memoria = crear_herramienta_memoria(
-        prep.repo, prep.ticket, prep.secretos, partial(reporte.nota_guardada, prep.repo)
+        prep.repo, prep.ticket, prep.secretos, partial(reporte.nota_guardada, prep.repo),
+        prep.titulo,
     )
     return [*prep.herramientas_github, memoria]
 
