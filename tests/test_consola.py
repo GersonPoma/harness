@@ -12,6 +12,7 @@ from rich.console import Console
 from harness import cli, consola
 from harness.bucle import Paso
 from harness.cache_dependencias import EstadoCache
+from harness.ejecucion import ResultadoEjecucion
 from harness.entorno_docker import Instalacion
 from harness.plan import ArchivoPlan, Plan
 from harness.tipos import LlamadaHerramienta
@@ -442,3 +443,16 @@ def test_mostrar_instalacion(monkeypatch: pytest.MonkeyPatch) -> None:
         "Dependencias instaladas en 1 min 52 s.",
         "Dependencias reinstaladas en 8 s (cambió pom.xml).",
     ]
+
+
+@pytest.mark.parametrize(
+    ("pasos", "extra", "texto"),
+    [
+        (12, 4, "Se alcanzó el límite de 8 pasos de implementación (12 en total, contando el "
+                "plan) sin terminar."),
+        (8, 0, "Se alcanzó el límite de 8 pasos de implementación sin terminar."),
+    ],
+)
+def test_el_limite_dice_los_pasos_de_implementacion(pasos: int, extra: int, texto: str) -> None:
+    resultado = ResultadoEjecucion(None, pasos, 0, 0, True, None, 0, pasos_extra=extra)
+    assert consola.texto_limite_pasos(resultado) == texto

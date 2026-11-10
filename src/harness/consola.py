@@ -396,6 +396,21 @@ def _problemas(cantidad: int) -> str:
     return "1 problema" if cantidad == 1 else f"{cantidad} problemas"
 
 
+def texto_limite_pasos(resultado: ResultadoEjecucion) -> str:
+    """El aviso del límite con el de implementación (max_pasos), no el total de pasos.
+
+    El plan y la revisión tienen su propio presupuesto: el total de pasos no es el límite que
+    pidió el usuario con --max-pasos.
+    """
+    implementacion = resultado.pasos_con_presupuesto
+    if resultado.pasos_extra:
+        return (
+            f"Se alcanzó el límite de {implementacion} pasos de implementación "
+            f"({resultado.pasos} en total, contando el plan) sin terminar."
+        )
+    return f"Se alcanzó el límite de {implementacion} pasos de implementación sin terminar."
+
+
 def mostrar_fin(
     resultado: ResultadoEjecucion,
     cambios: CambiosRepo,
@@ -410,9 +425,7 @@ def mostrar_fin(
     if resultado.es_plan_rechazado:
         mostrar_aviso("Plan rechazado: no se implementó nada.")
     elif resultado.es_limite_alcanzado:
-        consola.print(
-            f"[bold red]Se alcanzó el límite de {resultado.pasos} pasos sin terminar.[/]"
-        )
+        consola.print(f"[bold red]{texto_limite_pasos(resultado)}[/]")
     else:
         consola.print(Panel(escape(resultado.texto_final or "(sin texto)"), title="Resultado"))
     if resultado.es_validado is False:
