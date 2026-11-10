@@ -217,21 +217,37 @@ def test_entorno_hijo_minimo_mas_docker_mas_env() -> None:
         assert {"SYSTEMROOT", "PATHEXT", "USERPROFILE", "APPDATA", "TEMP"} <= set(hijo)
 
 
+ETIQUETAS_MCP = [
+    "--label", "harness=1", "--label", "harness.pid=7", "--label", "harness.host=pc",
+    "--label", "harness.tipo=mcp", "--label", "harness.ticket=T-1",
+]
+
+
 @pytest.mark.parametrize(
     ("comando", "args", "esperado", "es_agregado"),
     [
-        ("docker", ["run", "-i", "img"], ["run", "--name", "n", "-i", "img"], True),
-        ("C:/Docker/docker.EXE", ["run", "img"], ["run", "--name", "n", "img"], True),
-        ("docker", ["run", "--name", "mio", "img"], ["run", "--name", "mio", "img"], False),
-        ("docker", ["run", "--name=mio", "img"], ["run", "--name=mio", "img"], False),
+        ("docker", ["run", "-i", "img"], ["run", "--name", "n", *ETIQUETAS_MCP, "-i", "img"], True),
+        ("C:/Docker/docker.EXE", ["run", "img"], ["run", "--name", "n", *ETIQUETAS_MCP, "img"],
+         True),
+        ("docker", ["run", "--name", "mio", "img"],
+         ["run", *ETIQUETAS_MCP, "--name", "mio", "img"], False),
+        ("docker", ["run", "--name=mio", "img"], ["run", *ETIQUETAS_MCP, "--name=mio", "img"],
+         False),
         ("docker", ["compose", "run"], ["compose", "run"], False),
         ("npx", ["run"], ["run"], False),
     ],
 )
 def test_agregar_nombre_docker(
-    comando: str, args: list[str], esperado: list[str], es_agregado: bool
+    monkeypatch: pytest.MonkeyPatch,
+    comando: str,
+    args: list[str],
+    esperado: list[str],
+    es_agregado: bool,
 ) -> None:
-    assert agregar_nombre_docker(comando, args, "n") == (esperado, es_agregado)
+    # Las etiquetas permiten que harness limpiar encuentre el contenedor si queda huérfano.
+    proceso = {"harness": "1", "harness.pid": "7", "harness.host": "pc"}
+    monkeypatch.setattr(cliente_mcp, "etiquetas_del_proceso", lambda: dict(proceso))
+    assert agregar_nombre_docker(comando, args, "n", "T-1") == (esperado, es_agregado)
 
 
 def test_nombre_contenedor_valido_para_docker(monkeypatch: pytest.MonkeyPatch) -> None:

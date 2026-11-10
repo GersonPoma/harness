@@ -1517,11 +1517,16 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
   - [ ] **Etiquetas propias en contenedores y redes** (`harness=1`, `harness.ticket=...`):
         listar con `docker ps -a --filter label=harness=1` y limpiar cualquier resto huérfano
         del harness, no solo los que tienen el mismo nombre.
-  - [ ] **`_limpiar_restos` no debe matar otra ejecución viva.** Hoy borra los contenedores
+  - [x] **`_limpiar_restos` no debe matar otra ejecución viva.** Hoy borra los contenedores
         con el mismo nombre que la ejecución nueva: con dos `init --verificar` simultáneos
         del mismo proyecto (los dos se llaman `harness-<proyecto>-init`), o el mismo ticket
         desde dos clones, la segunda mata los contenedores de la primera. Limpiar solo los
         restos ya detenidos, o agregarle al nombre un sufijo propio de cada ejecución.
+        Hecho con las dos cosas: el nombre lleva un id de la ejecución
+        (`harness-<proyecto>-<ticket>-<id>`), y al empezar se buscan los restos del proyecto
+        por etiqueta y solo se borran los de un proceso que ya terminó (`harness.pid` y
+        `harness.host`; ver `etiquetas.py`). La caché tampoco cuenta como "otra ejecución" a
+        un contenedor huérfano ni a los servicios de la propia ejecución.
   - [x] **Cortar la espera de `listo_cuando` si el servicio ya murió** (`docker inspect`
         muestra `Running=false`), en vez de esperar el timeout completo. Ejemplo: con
         `POSTGRES_PASSWORD` vacío, PostgreSQL se cierra al instante, pero se esperan igual

@@ -1,3 +1,4 @@
+import json
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -19,7 +20,43 @@ from harness.entorno_docker import (
     Instalacion,
     verificar_docker,
 )
+from harness import etiquetas as modulo_etiquetas
 from harness.variables import resolver_variables
+
+# El proceso del harness en los tests: pid 100 en la máquina "pc" (y está vivo).
+PID_VIVO = 100
+HOST = "pc"
+ID = "e1"
+
+
+@pytest.fixture(autouse=True)
+def proceso_fijo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Etiquetas que no dependen de quién corre los tests; solo el pid 100 está vivo."""
+    proceso = {"harness": "1", "harness.pid": str(PID_VIVO), "harness.host": HOST}
+    monkeypatch.setattr(modulo_etiquetas, "host_actual", lambda: HOST)
+    monkeypatch.setattr(modulo_etiquetas, "etiquetas_del_proceso", lambda: dict(proceso))
+    monkeypatch.setattr(modulo_etiquetas, "proceso_vivo", lambda pid: pid == PID_VIVO)
+
+
+def _etiquetas(proyecto: str, ticket: str) -> list[str]:
+    return [
+        "--label", "harness=1", "--label", f"harness.pid={PID_VIVO}",
+        "--label", f"harness.host={HOST}", "--label", f"harness.proyecto={proyecto}",
+        "--label", f"harness.ticket={ticket}", "--label", f"harness.ejecucion={ID}",
+    ]
+
+
+def _inspeccion(*contenedores: dict) -> str:
+    """Lo que devuelve 'docker inspect' de cada contenedor (solo los campos que se leen)."""
+    datos = [
+        {
+            "Id": c["id"], "Name": f"/{c['nombre']}", "Config": {"Labels": c["etiquetas"]},
+            "State": {"Running": c.get("corriendo", True)}, "Mounts": [],
+        }
+        for c in contenedores
+    ]
+    return json.dumps(datos)
+
 
 CONFIG = ConfigProyecto(
     version=1,
@@ -34,7 +71,9 @@ CONFIG = ConfigProyecto(
 
 
 # Sin otra ejecución viva del proyecto, y la imagen corre como root.
-RESPUESTAS_POR_DEFECTO = {"ps": (0, ""), COMANDO_USUARIO: (0, "0:0\n")}
+RESPUESTAS_POR_DEFECTO = {
+    "ps": (0, ""), "network ls": (0, ""), "volume ls": (0, ""), COMANDO_USUARIO: (0, "0:0\n"),
+}
 # Lo que corre antes de instalar cuando se usa la caché (el volumen ya existe).
 PREPARAR_CACHE = ["ps", "volume"]
 PREPARAR_VOLUMEN = [f"exec {COMANDO_USUARIO}", f"exec {comando_preparar('0:0')}"]
@@ -57,6 +96,9 @@ class DockerFalso:
         self.llamadas.append(argumentos)
         self.variables.append(dict(variables or {}))
         clave = argumentos[1] if argumentos[1] != "exec" else argumentos[-1]
+        if clave in ("network", "volume") and argumentos[2] == "ls":
+            # Listar restos por etiqueta: por defecto no hay ninguno.
+            clave = f"{clave} ls"
         cola = self._respuestas.get(clave)
         return cola.pop(0) if cola else RESPUESTAS_POR_DEFECTO.get(clave, (0, "ok"))
 
@@ -65,20 +107,54 @@ class DockerFalso:
 
 
 def _iniciar(repo: Path, docker: DockerFalso, **kwargs) -> EntornoDocker:
-    entorno = EntornoDocker(repo, CONFIG, "TAREAS-1", ejecutar=docker, **kwargs)
+    entorno = EntornoDocker(repo, CONFIG, "TAREAS-1", ejecutar=docker, id_ejecucion=ID, **kwargs)
     entorno.iniciar()
     return entorno
+
+
+NOMBRE = "harness-tareas-api-tareas-1-e1"
 
 
 def test_iniciar_crea_contenedor_e_instala(repo: Path) -> None:
     docker = DockerFalso()
     with _iniciar(repo, docker) as entorno:
-        assert entorno.nombre == "harness-tareas-api-tareas-1"
+        assert entorno.nombre == NOMBRE
         assert docker.subcomandos() == [
-            "version", "rm", "image", *PREPARAR_CACHE, "run", *PREPARAR_VOLUMEN,
+            "version", "ps", "image", *PREPARAR_CACHE, "run", *PREPARAR_VOLUMEN,
             "exec pip install -e .", "exec pip install pytest",
         ]
-    assert docker.llamadas[-1] == ["docker", "rm", "-f", "-v", "harness-tareas-api-tareas-1"]
+    assert docker.llamadas[-1] == ["docker", "rm", "-f", "-v", NOMBRE]
+
+
+def test_cada_ejecucion_tiene_su_propio_nombre(repo: Path) -> None:
+    uno = EntornoDocker(repo, CONFIG, "init", ejecutar=DockerFalso())
+    otro = EntornoDocker(repo, CONFIG, "init", ejecutar=DockerFalso())
+    assert uno.nombre != otro.nombre
+    assert uno.nombre.startswith("harness-tareas-api-init-")
+    assert len(uno.id_ejecucion) == 6
+
+
+def test_al_empezar_borra_solo_los_restos_de_ejecuciones_terminadas(repo: Path) -> None:
+    viva = {"harness": "1", "harness.pid": str(PID_VIVO), "harness.host": HOST}
+    muerta = {"harness": "1", "harness.pid": "99999", "harness.host": HOST}
+    de_otra_maquina = {"harness": "1", "harness.pid": "99999", "harness.host": "otra"}
+    vieja = {"harness": "1", "harness.proyecto": "tareas-api"}  # sin pid: versión anterior
+    inspeccion = _inspeccion(
+        {"id": "id-viva", "nombre": "harness-tareas-api-init-aaaaaa", "etiquetas": viva},
+        {"id": "id-muerta", "nombre": "harness-tareas-api-init-bbbbbb", "etiquetas": muerta},
+        {"id": "id-otra", "nombre": "harness-tareas-api-t-cccccc", "etiquetas": de_otra_maquina},
+        {"id": "id-vieja", "nombre": "harness-tareas-api-init", "etiquetas": vieja},
+    )
+    docker = DockerFalso({
+        "ps": [(0, "id-viva\nid-muerta\nid-otra\nid-vieja\n")],
+        "inspect": [(0, inspeccion)],
+    })
+    _iniciar(repo, docker, usar_cache=False)
+    assert docker.llamadas[1] == [
+        "docker", "ps", "-a", "-q", "--no-trunc", "--filter", "label=harness.proyecto=tareas-api",
+    ]
+    borrados = [a for a in docker.llamadas if a[1] == "rm"]
+    assert borrados == [["docker", "rm", "-f", "-v", "id-muerta", "id-vieja"]]
 
 
 def test_montajes_de_solo_lectura(repo: Path) -> None:
@@ -100,7 +176,7 @@ def test_ejecutar_usa_timeout_dentro_del_contenedor(repo: Path) -> None:
         entorno.ejecutar("pytest -q")
     exec_ = docker.llamadas[-2]
     assert exec_ == [
-        "docker", "exec", "harness-tareas-api-tareas-1",
+        "docker", "exec", NOMBRE,
         "timeout", "-s", "KILL", "120", "sh", "-c", "pytest -q",
     ]
 
@@ -187,13 +263,16 @@ CONFIG_SERVICIOS = ConfigProyecto.model_validate({
     }],
     "variables_entorno": {"DATABASE_URL": "postgresql://postgres:${CLAVE_PG}@db/notas"},
 })
-CONTENEDOR = "harness-notas-api-notas-1"
-SERVICIO = "harness-notas-api-notas-1-db"
+CONTENEDOR = "harness-notas-api-notas-1-e1"
+SERVICIO = "harness-notas-api-notas-1-e1-db"
+ETIQUETAS_NOTAS = _etiquetas("notas-api", "NOTAS-1")
 
 
 def _entorno_servicios(repo: Path, docker: DockerFalso, **kwargs) -> EntornoDocker:
     variables = resolver_variables(CONFIG_SERVICIOS, {"CLAVE_PG": "secreta"})
-    return EntornoDocker(repo, CONFIG_SERVICIOS, "NOTAS-1", variables, ejecutar=docker, **kwargs)
+    return EntornoDocker(
+        repo, CONFIG_SERVICIOS, "NOTAS-1", variables, ejecutar=docker, id_ejecucion=ID, **kwargs
+    )
 
 
 def _sin_dormir(segundos: float) -> None:
@@ -206,14 +285,15 @@ def test_servicios_en_red_privada_antes_que_el_proyecto(repo: Path) -> None:
     with _entorno_servicios(repo, docker) as entorno:
         entorno.iniciar(al_avanzar=avisos.append)
     assert docker.subcomandos() == [
-        "version", "rm", "network", "image", "image", "network", "run",
+        "version", "ps", "network", "image", "image", "network", "run",
         "exec pg_isready -h 127.0.0.1", *PREPARAR_CACHE, "run", *PREPARAR_VOLUMEN,
         "exec pip install -r requirements.txt", "rm", "network",
     ]
-    assert docker.llamadas[1] == ["docker", "rm", "-f", "-v", CONTENEDOR, SERVICIO]
-    assert docker.llamadas[5] == [
-        "docker", "network", "create", "--label", "harness=1", CONTENEDOR,
-    ]
+    # Los restos de antes se buscan por etiqueta, nunca por nombre.
+    filtro = ["--filter", "label=harness.proyecto=notas-api"]
+    assert docker.llamadas[1] == ["docker", "ps", "-a", "-q", "--no-trunc", *filtro]
+    assert docker.llamadas[2] == ["docker", "network", "ls", "-q", "--no-trunc", *filtro]
+    assert docker.llamadas[5] == ["docker", "network", "create", *ETIQUETAS_NOTAS, CONTENEDOR]
     assert docker.llamadas[-2] == ["docker", "rm", "-f", "-v", CONTENEDOR, SERVICIO]
     assert docker.llamadas[-1] == ["docker", "network", "rm", CONTENEDOR]
     assert "Esperando a que el servicio db esté listo..." in avisos
@@ -225,8 +305,7 @@ def test_borra_los_volumenes_anonimos_de_los_contenedores(repo: Path) -> None:
     with _entorno_servicios(repo, docker) as entorno:
         entorno.iniciar()
     borrados = [a for a in docker.llamadas if a[1] == "rm"]
-    assert len(borrados) == 2  # restos al empezar y limpieza al cerrar
-    assert all(a[2:4] == ["-f", "-v"] for a in borrados)
+    assert borrados == [["docker", "rm", "-f", "-v", CONTENEDOR, SERVICIO]]
 
 
 def test_argumentos_del_servicio_y_del_proyecto(repo: Path) -> None:
@@ -234,12 +313,16 @@ def test_argumentos_del_servicio_y_del_proyecto(repo: Path) -> None:
     _entorno_servicios(repo, docker).iniciar()
     servicio, proyecto = [a for a in docker.llamadas if a[1] == "run"]
     assert servicio == [
-        "docker", "run", "-d", "--name", SERVICIO, "--label", "harness=1",
+        "docker", "run", "-d", "--name", SERVICIO, *ETIQUETAS_NOTAS,
         "--network", CONTENEDOR, "--network-alias", "db",
         "-e", "POSTGRES_PASSWORD", "postgres:16",
     ]
-    assert proyecto[7:13] == [
-        "--label", "harness.proyecto=notas-api", "--network", CONTENEDOR, "-e", "DATABASE_URL",
+    fin_etiquetas = 5 + len(ETIQUETAS_NOTAS)
+    assert proyecto[:fin_etiquetas] == [
+        "docker", "run", "-d", "--name", CONTENEDOR, *ETIQUETAS_NOTAS,
+    ]
+    assert proyecto[fin_etiquetas:fin_etiquetas + 4] == [
+        "--network", CONTENEDOR, "-e", "DATABASE_URL",
     ]
 
 
@@ -467,27 +550,49 @@ def test_sin_cache_no_hay_volumen_ni_variables(
         entorno.iniciar()
         assert entorno.cache == EstadoCache(motivo=motivo)
     assert docker.subcomandos()[:5] == [
-        "version", "rm", "image", "run", "exec pip install -e .",
+        "version", "ps", "image", "run", "exec pip install -e .",
     ]
     assert docker.variables[docker.subcomandos().index("run")] == {}
 
 
 def test_otra_ejecucion_del_proyecto_corre_sin_cache(repo: Path) -> None:
-    otra = "harness-tareas-api-tareas-2"
-    docker = DockerFalso({"ps": [(0, f"harness-tareas-api-tareas-1\n{otra}\n")]})
+    otra = "harness-tareas-api-tareas-2-ffffff"
+    viva = {"harness": "1", "harness.pid": str(PID_VIVO), "harness.host": HOST,
+            "harness.ejecucion": "ffffff"}
+    docker = DockerFalso({
+        # El primer ps es el de los restos (ninguno); el segundo, el de la caché.
+        "ps": [(0, ""), (0, "id-otra\n")],
+        "inspect": [(0, _inspeccion({"id": "id-otra", "nombre": otra, "etiquetas": viva}))],
+    })
     entorno = _iniciar(repo, docker)
     assert entorno.cache == EstadoCache(
         motivo=f"otra ejecución de tareas-api la está usando ({otra})"
     )
-    ps = next(a for a in docker.llamadas if a[1] == "ps")
-    assert ps[2:4] == ["--filter", "label=harness.proyecto=tareas-api"]
+    ps = [a for a in docker.llamadas if a[1] == "ps"][1]
+    assert ps[5:] == [
+        "--filter", "label=harness.proyecto=tareas-api", "--filter", "status=running",
+    ]
     assert "volume" not in docker.subcomandos()
 
 
-def test_el_contenedor_lleva_la_etiqueta_del_proyecto(repo: Path) -> None:
+def test_los_contenedores_de_la_misma_ejecucion_no_cuentan_como_otra(repo: Path) -> None:
+    # El servicio de esta misma ejecución ya está corriendo cuando se decide la caché.
+    propia = {"harness": "1", "harness.pid": str(PID_VIVO), "harness.host": HOST,
+              "harness.ejecucion": ID}
+    docker = DockerFalso({
+        "ps": [(0, ""), (0, "id-db\n")],
+        "inspect": [(0, _inspeccion({"id": "id-db", "nombre": f"{NOMBRE}-db",
+                                     "etiquetas": propia}))],
+    })
+    assert _iniciar(repo, docker).cache.es_usada
+
+
+def test_el_contenedor_lleva_las_etiquetas_de_la_ejecucion(repo: Path) -> None:
     docker = DockerFalso()
     _iniciar(repo, docker, usar_cache=False)
-    assert "harness.proyecto=tareas-api" in _run_proyecto(docker)
+    run = _run_proyecto(docker)
+    etiquetas = _etiquetas("tareas-api", "TAREAS-1")
+    assert run[5:5 + len(etiquetas)] == etiquetas
 
 
 def test_con_otro_usuario_le_da_la_cache_y_borra_la_configuracion_de_gradle(repo: Path) -> None:

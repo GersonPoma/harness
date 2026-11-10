@@ -26,6 +26,13 @@ from mcp.client.stdio import get_default_environment, stdio_client
 from mcp.client.streamable_http import streamable_http_client
 
 from harness.config_mcp import ServidorHTTP, ServidorMCP, ServidorStdio, es_docker_run
+from harness.etiquetas import (
+    ETIQUETA_TICKET,
+    ETIQUETA_TIPO,
+    TIPO_MCP,
+    argumentos_etiquetas,
+    etiquetas_del_proceso,
+)
 from harness.variables import ocultar_secretos
 
 # Generoso: la primera vez, 'docker run' descarga la imagen del servidor.
@@ -86,12 +93,21 @@ def nombre_contenedor(servidor: str, ticket: str) -> str:
     return PATRON_NO_PERMITIDO_EN_NOMBRE.sub("-", nombre).lower()
 
 
-def agregar_nombre_docker(comando: str, args: list[str], nombre: str) -> tuple[list[str], bool]:
-    """Agrega --name a 'docker run' si no lo trae; devuelve los args y si lo agregó."""
-    tiene_nombre = any(a == "--name" or a.startswith("--name=") for a in args)
-    if not es_docker_run(comando, args) or tiene_nombre:
+def agregar_nombre_docker(
+    comando: str, args: list[str], nombre: str, ticket: str = ""
+) -> tuple[list[str], bool]:
+    """En 'docker run', agrega las etiquetas del harness y --name si no lo trae.
+
+    Devuelve los args y si agregó el nombre. Las etiquetas permiten que 'harness limpiar'
+    encuentre el contenedor si queda huérfano.
+    """
+    if not es_docker_run(comando, args):
         return args, False
-    return ["run", "--name", nombre, *args[1:]], True
+    etiquetas = {**etiquetas_del_proceso(), ETIQUETA_TIPO: TIPO_MCP, ETIQUETA_TICKET: ticket}
+    con_etiquetas = ["run", *argumentos_etiquetas(etiquetas), *args[1:]]
+    if any(a == "--name" or a.startswith("--name=") for a in args):
+        return con_etiquetas, False
+    return ["run", "--name", nombre, *con_etiquetas[1:]], True
 
 
 class SesionMCP:
@@ -154,6 +170,7 @@ class SesionMCP:
             servidor.comando,
             list(servidor.args),
             nombre_contenedor(servidor.nombre, self._ticket),
+            self._ticket,
         )
         if es_nombrado:
             self._contenedor = args[2]

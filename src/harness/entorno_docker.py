@@ -7,6 +7,7 @@ necesita servicios (base de datos...), cada uno corre en su contenedor, en una r
 
 import os
 import re
+import secrets
 import subprocess
 import tempfile
 import time
@@ -28,6 +29,16 @@ from harness.cache_dependencias import (
     variables_cache,
 )
 from harness.config_proyecto import NOMBRE_ARCHIVO, RUTA_CACHE, ConfigProyecto, ConfigServicio
+from harness.etiquetas import (
+    CONTENEDOR,
+    ETIQUETA_EJECUCION,
+    RED,
+    Recurso,
+    argumentos_etiquetas,
+    es_de_ejecucion_viva,
+    etiquetas_ejecucion,
+    listar,
+)
 from harness.globs import coincide_alguno
 from harness.secretos import buscar_archivos_de_secretos
 from harness.variables import VariablesResueltas, resolver_variables
@@ -54,6 +65,9 @@ MONTAJES_SOLO_LECTURA = (".git", NOMBRE_ARCHIVO, ".harness")
 BORRAR_CONTENEDORES = ["docker", "rm", "-f", "-v"]
 MOTIVO_SIN_CACHE = "--sin-cache"
 MENSAJE_DOCKER_NO_CORRE = "Docker no está corriendo: abre Docker Desktop y vuelve a intentar."
+# Bytes del id de cada ejecución (6 caracteres hex): va en los nombres para que dos
+# ejecuciones del mismo proyecto y ticket nunca compartan nombre.
+BYTES_ID_EJECUCION = 3
 
 
 class EjecutorProceso(Protocol):
@@ -174,6 +188,7 @@ class EntornoDocker:
         usar_cache: bool = True,
         al_cache: Callable[[EstadoCache], None] | None = None,
         al_instalar: Callable[[Instalacion], None] | None = None,
+        id_ejecucion: str | None = None,
     ) -> None:
         self._repo = repo.resolve()
         self._config = config
@@ -187,8 +202,10 @@ class EntornoDocker:
         # Qué pasó con la caché de dependencias; se decide en iniciar().
         self.cache = EstadoCache()
         self._variables_cache: dict[str, str] = {}
+        self.id_ejecucion = id_ejecucion or secrets.token_hex(BYTES_ID_EJECUCION)
         # El contenedor del proyecto y la red comparten nombre (Docker los separa por tipo).
-        self.nombre = f"harness-{config.proyecto}-{_nombre_seguro(ticket)}"
+        self.nombre = f"harness-{config.proyecto}-{_nombre_seguro(ticket)}-{self.id_ejecucion}"
+        self._etiquetas = etiquetas_ejecucion(config.proyecto, ticket, self.id_ejecucion)
         self._contenedores: list[str] = []
         self._red: str | None = None
         # Archivo vacío del host que se monta encima de cada .env del repo.
@@ -278,11 +295,23 @@ class EntornoDocker:
         return f"{self.nombre}-{servicio.nombre}"
 
     def _limpiar_restos(self) -> None:
-        # Si una ejecución anterior se cortó sin limpiar, sus contenedores ocupan los nombres.
-        nombres = [self.nombre, *(self._nombre_servicio(s) for s in self._config.servicios)]
-        self._ejecutar([*BORRAR_CONTENEDORES, *nombres], TIMEOUT_DOCKER_SEGUNDOS)
+        """Borra los restos de ejecuciones del proyecto que ya terminaron sin limpiar.
+
+        Se buscan por etiqueta, y solo se borran los de un proceso que ya no existe: una
+        ejecución viva del mismo proyecto (otro init --verificar, el mismo ticket desde otro
+        clon) nunca se toca.
+        """
+        filtro = [f"label={ETIQUETA_PROYECTO}={self._config.proyecto}"]
+        contenedores = self._huerfanos(listar(self._ejecutar, CONTENEDOR, filtro))
+        if contenedores:
+            ids = [c.id for c in contenedores]
+            self._ejecutar([*BORRAR_CONTENEDORES, *ids], TIMEOUT_DOCKER_SEGUNDOS)
         if self._config.servicios:
-            self._ejecutar(["docker", "network", "rm", self.nombre], TIMEOUT_DOCKER_SEGUNDOS)
+            for red in self._huerfanos(listar(self._ejecutar, RED, filtro)):
+                self._ejecutar(["docker", "network", "rm", red.id], TIMEOUT_DOCKER_SEGUNDOS)
+
+    def _huerfanos(self, recursos: list[Recurso]) -> list[Recurso]:
+        return [r for r in recursos if not es_de_ejecucion_viva(r.etiquetas)]
 
     def _imagenes(self) -> list[str]:
         imagenes = [servicio.imagen for servicio in self._config.servicios]
@@ -306,7 +335,7 @@ class EntornoDocker:
     def _crear_red(self) -> None:
         self._red = self.nombre
         codigo, salida = self._ejecutar(
-            ["docker", "network", "create", "--label", "harness=1", self._red],
+            ["docker", "network", "create", *argumentos_etiquetas(self._etiquetas), self._red],
             TIMEOUT_DOCKER_SEGUNDOS,
         )
         if codigo != 0:
@@ -318,7 +347,7 @@ class EntornoDocker:
         # El nombre del contenedor es global en Docker; el alias es la dirección dentro de
         # la red ('db'), así dos ejecuciones pueden tener cada una su propio 'db'.
         argumentos = [
-            "docker", "run", "-d", "--name", nombre, "--label", "harness=1",
+            "docker", "run", "-d", "--name", nombre, *argumentos_etiquetas(self._etiquetas),
             "--network", self.nombre, "--network-alias", servicio.nombre,
             *_argumentos_variables(variables), servicio.imagen,
         ]
@@ -401,14 +430,15 @@ class EntornoDocker:
 
     def _otra_ejecucion(self) -> str | None:
         """El contenedor de otra ejecución viva del mismo proyecto, si la hay."""
-        codigo, salida = self._ejecutar(
-            ["docker", "ps", "--filter", f"label={ETIQUETA_PROYECTO}={self._config.proyecto}",
-             "--format", "{{.Names}}"],
-            TIMEOUT_DOCKER_SEGUNDOS,
-        )
-        if codigo != 0:
-            return None
-        otros = [nombre for nombre in salida.split() if nombre != self.nombre]
+        filtro = [f"label={ETIQUETA_PROYECTO}={self._config.proyecto}", "status=running"]
+        otros = [
+            contenedor.nombre
+            for contenedor in listar(self._ejecutar, CONTENEDOR, filtro)
+            if contenedor.nombre != self.nombre
+            and es_de_ejecucion_viva(contenedor.etiquetas)
+            # Los servicios también llevan la etiqueta: interesa el contenedor que usa la caché.
+            and contenedor.etiquetas.get(ETIQUETA_EJECUCION) != self.id_ejecucion
+        ]
         return otros[0] if otros else None
 
     def _preparar_volumen(self) -> None:
@@ -432,8 +462,7 @@ class EntornoDocker:
     def _argumentos_proyecto(self) -> list[str]:
         destino = self._config.docker.directorio_trabajo
         argumentos = [
-            "docker", "run", "-d", "--name", self.nombre, "--label", "harness=1",
-            "--label", f"{ETIQUETA_PROYECTO}={self._config.proyecto}",
+            "docker", "run", "-d", "--name", self.nombre, *argumentos_etiquetas(self._etiquetas),
         ]
         if self._red:
             argumentos += ["--network", self._red]

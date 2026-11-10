@@ -12,10 +12,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from harness.config_proyecto import RUTA_CACHE
+from harness.etiquetas import ETIQUETA_PROYECTO  # noqa: F401 - se sigue exportando desde aquí
 
 PREFIJO_VOLUMEN = "harness-cache-"
 ETIQUETA_CACHE = "harness.cache"
-ETIQUETA_PROYECTO = "harness.proyecto"
 SUBCARPETAS = ("pip", "uv", "npm", "maven", "gradle")
 VARIABLES_CACHE = {
     "PIP_CACHE_DIR": f"{RUTA_CACHE}/pip",

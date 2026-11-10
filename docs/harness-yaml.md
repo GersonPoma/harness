@@ -100,7 +100,7 @@ archivos_protegidos:
 | Clave | Tipo | Obligatoria | Por defecto | Descripción |
 |---|---|---|---|---|
 | `version` | entero | sí | | Versión del formato. Hoy solo existe `1`. Permite cambiar el formato en el futuro sin romper proyectos viejos. |
-| `proyecto` | texto | sí | | Nombre del proyecto. Solo minúsculas, números y guiones (`[a-z0-9-]+`). Se usa para nombrar la red y los contenedores: `harness-<proyecto>-<ticket>`. |
+| `proyecto` | texto | sí | | Nombre del proyecto. Solo minúsculas, números y guiones (`[a-z0-9-]+`). Se usa para nombrar la red y los contenedores: `harness-<proyecto>-<ticket>-<id>`, donde `<id>` es propio de cada ejecución (6 caracteres), para que dos ejecuciones del mismo proyecto nunca compartan nombre. |
 | `docker` | objeto | sí | | Contenedor donde corre el proyecto. Ver [`docker`](#docker). |
 | `comandos` | objeto | sí | | Cómo se valida el código. Ver [`comandos`](#comandos). |
 | `comandos_permitidos` | lista de texto | no | `[]` | Ver [`comandos_permitidos`](#comandos_permitidos). |
@@ -180,7 +180,7 @@ red privada de la ejecución y se destruye al terminar.
 
 | Clave | Tipo | Obligatoria | Por defecto | Descripción |
 |---|---|---|---|---|
-| `nombre` | texto | sí | | **Dirección del servicio dentro de la red** (`db` → `postgresql://...@db:5432/...`). Formato `[a-z0-9-]+`, único entre servicios. El contenedor se llama `harness-<proyecto>-<ticket>-<nombre>`: así dos ejecuciones pueden tener cada una su `db`. |
+| `nombre` | texto | sí | | **Dirección del servicio dentro de la red** (`db` → `postgresql://...@db:5432/...`). Formato `[a-z0-9-]+`, único entre servicios. El contenedor se llama `harness-<proyecto>-<ticket>-<id>-<nombre>`: así dos ejecuciones pueden tener cada una su `db`. |
 | `imagen` | texto | sí | | Imagen de Docker Hub (`postgres:16`, `redis:7`...). |
 | `variables` | mapa texto→texto | no | `{}` | Variables de entorno **del servicio** (`POSTGRES_PASSWORD`...). Admiten `${VARIABLE}`. |
 | `listo_cuando` | texto o `null` | no | `null` | Comando que se ejecuta **dentro del servicio** cada segundo hasta que devuelve 0. Si es `null`, no se espera. |
@@ -199,11 +199,16 @@ solo responde cuando la base está lista de verdad.
 
 Cómo se arma, por ejecución:
 
-- Una red `harness-<proyecto>-<ticket>` (solo si hay servicios).
+- Una red `harness-<proyecto>-<ticket>-<id>` (solo si hay servicios).
 - Cada servicio corre en esa red con su `nombre` como alias, sin puertos expuestos al host.
 - El contenedor del proyecto se conecta a la misma red y recibe `variables_entorno`.
 - Al terminar (bien, con error o con Ctrl+C) se borran los contenedores y la red. Si una
-  ejecución anterior se cortó sin limpiar, sus restos se borran al empezar la siguiente.
+  ejecución anterior se cortó sin limpiar, sus restos se borran al empezar la siguiente del
+  mismo proyecto: se buscan por etiqueta (nunca por nombre) y solo se borran los de un proceso
+  del harness que ya terminó. Una ejecución que sigue viva nunca se toca.
+- Todo lo que crea el harness lleva la etiqueta `harness=1`, más `harness.proyecto`,
+  `harness.ticket`, `harness.ejecucion` y el proceso que lo creó (`harness.pid` y
+  `harness.host`): `docker ps -a --filter label=harness=1` lo lista.
 - Las imágenes que falten se descargan antes de empezar (puede tardar la primera vez).
 
 ### `variables_entorno`
