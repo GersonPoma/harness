@@ -43,6 +43,10 @@ class ConfigDocker(_Modelo):
     cache: bool = True
     # Tiempo máximo de cada 'docker pull' (la imagen del proyecto y las de los servicios).
     timeout_descarga_segundos: Entero = 600
+    # Solo en Linux: el contenedor del proyecto corre con el usuario del host (--user), para
+    # que lo que crea en el repo no quede de root. False por defecto: con otro usuario, un
+    # 'pip install' al Python del sistema de la imagen falla por permisos.
+    usuario_host: bool = False
 
     @field_validator("instalar", mode="before")
     @classmethod

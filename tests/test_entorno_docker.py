@@ -850,6 +850,76 @@ def test_imagen_sin_sh_da_un_error_claro(repo: Path) -> None:
     assert docker.subcomandos()[-1] == "rm"
 
 
+CONFIG_USUARIO_HOST = CONFIG.model_copy(
+    update={"docker": CONFIG.docker.model_copy(update={"usuario_host": True})}
+)
+
+
+@pytest.fixture
+def en_linux_como_1000(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Como si el harness corriera en Linux con el usuario 1000:1000."""
+    monkeypatch.setattr(entorno_docker, "usuario_del_host", lambda: "1000:1000")
+
+
+def _con_usuario_host(repo: Path, docker: DockerFalso, config: ConfigProyecto) -> list[str]:
+    EntornoDocker(repo, config, "TAREAS-1", ejecutar=docker, id_ejecucion=ID).iniciar()
+    return _run_proyecto(docker)
+
+
+@pytest.mark.usefixtures("en_linux_como_1000")
+def test_usuario_host_corre_con_el_usuario_y_un_home(repo: Path) -> None:
+    # Dentro del contenedor, 'id' devuelve el usuario del host: la caché se le da a él.
+    docker = DockerFalso({COMANDO_USUARIO: [(0, "1000:1000\n")]})
+    run = _con_usuario_host(repo, docker, CONFIG_USUARIO_HOST)
+    assert run[run.index("--user") + 1] == "1000:1000"
+    assert run[run.index("HOME") - 1] == "-e"
+    assert docker.variables[docker.llamadas.index(run)]["HOME"] == "/tmp/harness-home"
+    preparar = next(a for a in docker.llamadas if a[:4] == ["docker", "exec", "-u", "0"])
+    assert "chown 1000:1000" in preparar[-1]
+
+
+@pytest.mark.usefixtures("en_linux_como_1000")
+def test_usuario_host_no_toca_los_servicios(repo: Path) -> None:
+    config = CONFIG_SERVICIOS.model_copy(update={
+        "docker": CONFIG_SERVICIOS.docker.model_copy(update={"usuario_host": True})
+    })
+    variables = resolver_variables(config, {"CLAVE_PG": "secreta"})
+    docker = DockerFalso()
+    EntornoDocker(repo, config, "NOTAS-1", variables, ejecutar=docker, id_ejecucion=ID).iniciar()
+    servicio, proyecto = [a for a in docker.llamadas if a[1] == "run"]
+    assert "--user" not in servicio and "--user" in proyecto
+
+
+@pytest.mark.usefixtures("en_linux_como_1000")
+def test_usuario_host_respeta_el_home_del_proyecto(repo: Path) -> None:
+    config = CONFIG_USUARIO_HOST.model_copy(update={"variables_entorno": {"HOME": "/home/app"}})
+    docker = DockerFalso()
+    run = _con_usuario_host(repo, docker, config)
+    assert docker.variables[docker.llamadas.index(run)]["HOME"] == "/home/app"
+
+
+@pytest.mark.usefixtures("en_linux_como_1000")
+def test_sin_usuario_host_no_hay_user(repo: Path) -> None:
+    run = _con_usuario_host(repo, DockerFalso(), CONFIG)
+    assert "--user" not in run and "HOME" not in run
+
+
+def test_fuera_de_linux_no_hay_user(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(entorno_docker, "usuario_del_host", lambda: None)
+    run = _con_usuario_host(repo, DockerFalso(), CONFIG_USUARIO_HOST)
+    assert "--user" not in run and "HOME" not in run
+
+
+@pytest.mark.parametrize(("plataforma", "esperado"), [("linux", "1000:1001"), ("win32", None)])
+def test_usuario_del_host(
+    monkeypatch: pytest.MonkeyPatch, plataforma: str, esperado: str | None
+) -> None:
+    monkeypatch.setattr(entorno_docker.sys, "platform", plataforma)
+    monkeypatch.setattr(entorno_docker.os, "getuid", lambda: 1000, raising=False)
+    monkeypatch.setattr(entorno_docker.os, "getgid", lambda: 1001, raising=False)
+    assert entorno_docker.usuario_del_host() == esperado
+
+
 def test_verificar_docker_mide_lo_que_tarda() -> None:
     tiempos = [10.0, 12.5]
     assert verificar_docker(DockerFalso(), reloj=lambda: tiempos.pop(0)) == 2.5

@@ -45,6 +45,7 @@ docker:
     - requirements*.txt
   cache: true                       # caché de dependencias entre ejecuciones (por defecto)
   timeout_descarga_segundos: 600    # tiempo máximo de cada docker pull (por defecto)
+  usuario_host: false               # solo Linux: correr con tu usuario (--user)
 
 comandos:
   tests: pytest -q
@@ -123,6 +124,7 @@ archivos_protegidos:
 | `reinstalar_si_cambia` | lista de globs | no | `[]` | Si el modelo modifica alguno de estos archivos (por ejemplo `requirements.txt`), el harness vuelve a ejecutar `instalar` antes del siguiente comando. |
 | `cache` | booleano | no | `true` | Guarda lo que descargan pip, uv, npm, Maven y Gradle en el volumen de Docker `harness-cache-<proyecto>`, que sobrevive entre ejecuciones. Con `false`, cada ejecución descarga todo de nuevo. Ver [Caché de dependencias](#caché-de-dependencias). |
 | `timeout_descarga_segundos` | entero | no | `600` | Tiempo máximo de cada `docker pull` (la imagen del proyecto y las de los servicios que falten), entero ≥ 1. Mientras descarga, la consola muestra cuántas capas van ("Descargando la imagen gradle:8.14-jdk21: 3 de 7 capas (1 min 05 s)..."). Si se pasa, la ejecución se detiene con un error que dice que se suba esta clave. Las imágenes de Gradle o Maven son grandes: con una red lenta conviene subirla. |
+| `usuario_host` | booleano | no | `false` | **Solo en Linux** (en Windows y macOS, con Docker Desktop, no hace nada). Con `true`, el contenedor del proyecto corre con tu usuario (`--user <uid>:<gid>`) y `HOME=/tmp/harness-home` (salvo que `variables_entorno` defina `HOME`), así lo que crea en el repo (`.pytest_cache/`, `*.egg-info/`, archivos de un comando del modelo) no queda con dueño root. Los servicios no cambian, y la caché de dependencias se le da a ese usuario. **Ojo:** con otro usuario no se puede escribir en el Python del sistema de la imagen, así que `docker.instalar` tiene que usar un entorno virtual (`python -m venv .venv && .venv/bin/pip install ...`) o `pip install --user`. Por eso está en `false` por defecto. |
 
 #### Caché de dependencias
 
@@ -357,6 +359,7 @@ AGENTS.md" pasa desapercibido y el modelo trabajaría sin las convenciones del p
   → error: "no puede coincidir con la caché de dependencias (/harness-cache)".
 - `revision.max_vueltas` o `revision.max_pasos` menores que 1 → error.
 - `docker.timeout_descarga_segundos` menor que 1 o que no sea un entero → error.
+- `docker.usuario_host` que no sea booleano → error.
 - Si no existe `harness.yaml`, el harness avisa y sugiere `harness init`.
 
 ## Implementación

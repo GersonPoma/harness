@@ -10,6 +10,7 @@ import queue
 import re
 import secrets
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -56,6 +57,9 @@ ESTADOS_CAPA_LISTA = ("Pull complete", "Already exists")
 COMANDO_TIMEOUT = "command -v timeout"
 # Lo que responde 'docker exec' cuando la imagen no tiene sh (distroless).
 MARCAS_SIN_SH = ('exec: "sh"', "executable file not found")
+# Con --user, el usuario del host no existe en la imagen y su HOME sería "/": pip --user,
+# Maven o npm necesitan uno donde puedan escribir.
+HOME_USUARIO_HOST = "/tmp/harness-home"
 TIMEOUT_LISTAR_IMAGENES_SEGUNDOS = 15
 MAX_IMAGENES_LISTADAS = 50
 # Margen para que el timeout de dentro del contenedor actúe antes que el del host.
@@ -254,6 +258,16 @@ def _duracion(segundos: float) -> str:
     return f"{minutos} min {resto:02d} s" if minutos else f"{resto} s"
 
 
+def usuario_del_host() -> str | None:
+    """'uid:gid' del usuario que corre el harness en Linux; None en Windows y macOS.
+
+    Con Docker Desktop (Windows, macOS) los archivos del repo montado ya quedan del usuario.
+    """
+    if sys.platform != "linux" or not hasattr(os, "getuid"):
+        return None
+    return f"{os.getuid()}:{os.getgid()}"
+
+
 def verificar_docker(
     ejecutar: EjecutorProceso = ejecutar_proceso, reloj: Callable[[], float] = time.monotonic
 ) -> float:
@@ -389,8 +403,7 @@ class EntornoDocker:
         if self._al_cache:
             self._al_cache(self.cache)
         avisar(f"Creando el contenedor del proyecto ({self._config.docker.imagen})...")
-        variables = {**self._variables.proyecto, **self._variables_cache}
-        self._correr(self.nombre, self._argumentos_proyecto(), variables)
+        self._correr(self.nombre, self._argumentos_proyecto(), self._variables_proyecto())
         self._revisar_timeout()
         if self.cache.es_usada:
             self._preparar_volumen()
@@ -646,7 +659,11 @@ class EntornoDocker:
         ]
         if self._red:
             argumentos += ["--network", self._red]
-        argumentos += _argumentos_variables({**self._variables.proyecto, **self._variables_cache})
+        usuario = self._usuario()
+        if usuario:
+            # Lo que el contenedor crea en el repo montado queda del usuario, no de root.
+            argumentos += ["--user", usuario]
+        argumentos += _argumentos_variables(self._variables_proyecto())
         argumentos += ["--mount", f"type=bind,source={self._repo},target={destino}"]
         if self.cache.volumen:
             volumen = f"type=volume,source={self.cache.volumen},target={RUTA_CACHE}"
@@ -665,6 +682,16 @@ class EntornoDocker:
         argumentos += self._montajes_secretos(destino)
         argumentos += ["-w", destino, self._config.docker.imagen, "sleep", "infinity"]
         return argumentos
+
+    def _usuario(self) -> str | None:
+        """--user del contenedor del proyecto: solo con docker.usuario_host y en Linux."""
+        return usuario_del_host() if self._config.docker.usuario_host else None
+
+    def _variables_proyecto(self) -> dict[str, str]:
+        variables = {**self._variables.proyecto, **self._variables_cache}
+        if self._usuario() and "HOME" not in variables:
+            variables["HOME"] = HOME_USUARIO_HOST
+        return variables
 
     def _montajes_secretos(self, destino: str) -> list[str]:
         """Tapa cada .env con un archivo vacío de solo lectura.

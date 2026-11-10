@@ -1540,7 +1540,7 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         muestra `Running=false`), en vez de esperar el timeout completo. Ejemplo: con
         `POSTGRES_PASSWORD` vacío, PostgreSQL se cierra al instante, pero se esperan igual
         los 60 segundos. (hecho en 10a4e96)
-  - [ ] **`--user <uid>:<gid>` en Linux**, para que los archivos creados dentro del
+  - [x] **`--user <uid>:<gid>` en Linux**, para que los archivos creados dentro del
         contenedor no queden con dueño root (en Windows con Docker Desktop no afecta). El
         contenedor corre como root, así que lo que crea en el repo montado
         (`.pytest_cache/`, `*.egg-info/`, archivos que escribe un comando del modelo) queda
@@ -1548,6 +1548,11 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         necesita entonces un entorno virtual o `--user`, porque no podrá escribir en el
         Python del sistema de la imagen. La caché de dependencias ya hace `chown` de
         `/harness-cache` al usuario de la imagen: con `--user` hay que dársela a ese usuario.
+        Hecho como opción del proyecto, `docker.usuario_host` (`false` por defecto, para no
+        romper los `pip install` al Python del sistema). Con `true` y en Linux, el contenedor
+        del proyecto corre con `--user <uid>:<gid>` y `HOME=/tmp/harness-home`; la caché se
+        le da a ese usuario (el `id` de dentro ya devuelve el del host). Cubierto con tests
+        unitarios del `docker run` generado: no se probó en Linux de verdad.
   - [x] **Imágenes sin el comando `timeout`:** hoy cada comando corre con
         `timeout -s KILL` dentro del contenedor; si la imagen no lo trae, queda solo el
         timeout del lado del host. Las imágenes basadas en Debian o Alpine lo traen; una
