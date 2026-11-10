@@ -43,6 +43,8 @@ class RegistroPasos:
         modelo: str,
         contexto: ContextoProyecto | None = None,
         respaldo: list[str] | None = None,
+        perfil: str | None = None,
+        origen: str | None = None,
     ) -> None:
         """Registra con qué proveedor, modelo y AGENTS.md empezó (nunca la API key)."""
         contexto = contexto or ContextoProyecto()
@@ -50,6 +52,8 @@ class RegistroPasos:
             "evento": "inicio",
             "proveedor": proveedor,
             "modelo": modelo,
+            "perfil": perfil,
+            "origen_modelo": origen,
             "respaldo": respaldo or [],
             "agents_md": contexto.existe,
             "agents_md_caracteres": contexto.caracteres_originales,

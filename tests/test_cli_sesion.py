@@ -45,7 +45,7 @@ def _correr(
 ) -> tuple[int, str, ProveedorFalso]:
     config = ConfigModelo("gemini", "modelo-x", None, CLAVE_API)
     proveedor = ProveedorFalso(respuestas)
-    monkeypatch.setattr(cli, "cargar_config", lambda: config)
+    monkeypatch.setattr(cli, "cargar_config", lambda **_: config)
     monkeypatch.setattr(cli, "crear_proveedor", lambda *_: proveedor)
     argumentos = ["run", str(repo.parent / "T-1.md"), "--repo", str(repo), "--sin-plan",
                   *opciones]

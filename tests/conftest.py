@@ -1,3 +1,5 @@
+import os
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -14,6 +16,18 @@ def repo(tmp_path: Path) -> Path:
     (raiz / ".git" / "config").write_text("[core]\n", encoding="utf-8")
     (tmp_path / "secreto.txt").write_text("fuera del repo", encoding="utf-8")
     return raiz
+
+
+@pytest.fixture(autouse=True)
+def sin_config_del_usuario(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[None]:
+    """Ningún test lee el ~/.harness/ de quien los corre, y el entorno queda como estaba
+    (cargar_env carga el .env y las credenciales de config.toml en os.environ)."""
+    monkeypatch.setattr("harness.config_usuario.CARPETA_USUARIO", tmp_path / "usuario-harness")
+    monkeypatch.setattr("harness.config._origenes", {})
+    antes = dict(os.environ)
+    yield
+    os.environ.clear()
+    os.environ.update(antes)
 
 
 @pytest.fixture(autouse=True)

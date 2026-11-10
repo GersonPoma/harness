@@ -161,7 +161,7 @@ def _init(
 ) -> tuple[int, str, ProveedorFalso]:
     proveedor = ProveedorFalso(respuestas)
     config = ConfigModelo("gemini", "m", None, CLAVE_FALSA)
-    monkeypatch.setattr(cli, "cargar_config", lambda: config)
+    monkeypatch.setattr(cli, "cargar_config", lambda **_: config)
     monkeypatch.setattr(cli, "crear_proveedor", lambda *_: proveedor)
     resultado = CliRunner().invoke(cli.app, ["init", "--repo", str(repo), *opciones])
     return resultado.exit_code, resultado.output, proveedor

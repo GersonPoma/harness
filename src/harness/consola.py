@@ -160,14 +160,30 @@ def forzar_salida_utf8() -> None:
 
 
 def mostrar_inicio(
-    ticket: str, repo: str, proveedor: str, modelo: str, respaldo: list[str] | None = None
+    ticket: str,
+    repo: str,
+    proveedor: str,
+    modelo: str,
+    respaldo: list[str] | None = None,
+    perfil: str | None = None,
+    origen: str | None = None,
 ) -> None:
-    """Muestra con qué datos arranca la ejecución."""
+    """Muestra con qué datos arranca la ejecución (y de dónde salió el modelo)."""
     texto_respaldo = f"  [dim](respaldo: {escape(', '.join(respaldo))})[/]" if respaldo else ""
     consola.print(
         f"[bold green]Ticket[/] {escape(ticket)}  [bold green]Repo[/] {escape(repo)}\n"
-        f"[bold green]Modelo[/] {escape(proveedor)} / {escape(modelo)}{texto_respaldo}"
+        f"{_linea_modelo(proveedor, modelo, perfil, origen)}{texto_respaldo}"
     )
+
+
+def _linea_modelo(proveedor: str, modelo: str, perfil: str | None, origen: str | None) -> str:
+    """'Perfil rapido: gemini / x (predeterminado)' o 'Modelo gemini / x (HARNESS_PROVEEDOR del
+    .env)'."""
+    nombre = f"{escape(proveedor)} / {escape(modelo)}"
+    detalle = f" [dim]({escape(origen)})[/]" if origen else ""
+    if perfil:
+        return f"[bold green]Perfil[/] {escape(perfil)}: {nombre}{detalle}"
+    return f"[bold green]Modelo[/] {nombre}{detalle}"
 
 
 def describir_corte(motivo: str | None) -> str:
@@ -683,11 +699,18 @@ def mostrar_github_verificado(repo: str) -> None:
     )
 
 
-def mostrar_inicio_init(repo: str, proveedor: str, modelo: str, faltantes: list[str]) -> None:
+def mostrar_inicio_init(
+    repo: str,
+    proveedor: str,
+    modelo: str,
+    faltantes: list[str],
+    perfil: str | None = None,
+    origen: str | None = None,
+) -> None:
     """Muestra qué va a generar harness init y con qué modelo."""
     consola.print(
         f"[bold green]Init[/] {escape(repo)}  [bold green]Genera[/] {escape(', '.join(faltantes))}"
-        f"\n[bold green]Modelo[/] {escape(proveedor)} / {escape(modelo)}"
+        f"\n{_linea_modelo(proveedor, modelo, perfil, origen)}"
     )
 
 

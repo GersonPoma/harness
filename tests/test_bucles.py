@@ -121,7 +121,7 @@ def test_un_bucle_corta_la_ejecucion_y_se_puede_retomar(
     (tmp_path / "T-1.md").write_text("# T-1: algo\n", encoding="utf-8")
     escribir = LlamadaHerramienta("e", "escribir_archivo", {"ruta": "a.py", "contenido": "x"})
     config = ConfigModelo("gemini", "modelo-x", None, "clave-falsa-0123456789")
-    monkeypatch.setattr(cli, "cargar_config", lambda: config)
+    monkeypatch.setattr(cli, "cargar_config", lambda **_: config)
     monkeypatch.setattr(cli, "crear_proveedor", lambda *_: ProveedorFalso([pedir(escribir)] * 5))
     argumentos = ["run", str(tmp_path / "T-1.md"), "--repo", str(repo), "--sin-plan"]
     resultado = CliRunner().invoke(cli.app, argumentos)

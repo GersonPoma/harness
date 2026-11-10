@@ -65,7 +65,7 @@ harness/
     ├── sesion.py           # .harness/sessions/<TICKET>.json para harness resume
     ├── memoria.py          # .harness/memory.md y la herramienta guardar_memoria
     ├── compactacion.py     # acorta resultados viejos cuando la conversación crece
-    ├── config.py           # .env: proveedor, modelo, tokens
+    ├── config.py           # modelo y credenciales: opciones, entorno, .env y config.toml
     ├── config_proyecto.py  # harness.yaml del repo objetivo
     ├── entorno_docker.py   # contenedores del proyecto y sus servicios
     ├── cache_dependencias.py  # volumen de caché de dependencias por proyecto

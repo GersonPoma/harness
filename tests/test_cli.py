@@ -47,7 +47,7 @@ def _correr(
 ) -> tuple[int, str]:
     config = ConfigModelo("gemini", "modelo-x", None, "clave-falsa-0123456789")
     proveedor = respuestas if isinstance(respuestas, ProveedorFalso) else ProveedorFalso(respuestas)
-    monkeypatch.setattr(cli, "cargar_config", lambda: config)
+    monkeypatch.setattr(cli, "cargar_config", lambda **_: config)
     monkeypatch.setattr(cli, "crear_proveedor", lambda *_: proveedor)
     ticket = ticket or str(repo.parent / "T-1.md")
     argumentos = ["run", ticket, "--repo", str(repo), *opciones]
@@ -123,7 +123,7 @@ def test_respaldo_sigue_con_el_siguiente_proveedor(
         return ProveedorConRespaldo(list(zip(nombres, [principal, respaldo])), al_cambiar)
 
     config = ConfigModelo("gemini", "modelo-x", None, "clave-falsa-0123456789")
-    monkeypatch.setattr(cli, "cargar_config", lambda: config)
+    monkeypatch.setattr(cli, "cargar_config", lambda **_: config)
     monkeypatch.setattr(cli, "crear_proveedor", crear)
     argumentos = ["run", str(repo_sin_yaml.parent / "T-1.md"), "--repo", str(repo_sin_yaml),
                   "--sin-plan"]
@@ -160,7 +160,7 @@ def test_el_respaldo_no_repite_el_modelo_principal(
         return ProveedorFalso([terminar()])
 
     config = ConfigModelo("gemini", "modelo-x", None, "clave-falsa-0123456789")
-    monkeypatch.setattr(cli, "cargar_config", lambda: config)
+    monkeypatch.setattr(cli, "cargar_config", lambda **_: config)
     monkeypatch.setattr(cli, "crear_proveedor", crear)
     argumentos = ["run", str(repo_sin_yaml.parent / "T-1.md"), "--repo", str(repo_sin_yaml),
                   "--sin-plan"]
@@ -903,3 +903,94 @@ def test_con_agents_md_no_lo_repite_al_final(
     (repo_sin_yaml / "AGENTS.md").write_text("# Reglas\n", encoding="utf-8")
     codigo, salida = _correr(monkeypatch, repo_sin_yaml, [terminar()], "--sin-plan")
     assert codigo == 0 and "trabajó sin las convenciones" not in " ".join(salida.split())
+
+
+# --- Perfiles de config.toml --------------------------------------------------------------
+
+
+def _correr_con_config_real(
+    monkeypatch: pytest.MonkeyPatch, repo: Path, respuestas: list, *opciones: str
+) -> tuple[int, str, list]:
+    """Como _correr, pero el modelo sale de la configuración de verdad (config.toml)."""
+    from harness.config import VAR_PROVEEDOR
+
+    import harness.config as modulo_config
+
+    monkeypatch.delenv(VAR_PROVEEDOR, raising=False)
+    monkeypatch.delenv("HARNESS_MODELO", raising=False)
+    # Sin el .env de desarrollo de quien corre los tests: su HARNESS_PROVEEDOR ganaría.
+    sin_env = repo / "no-hay.env"
+    monkeypatch.setattr(cli, "cargar_env", lambda: modulo_config.cargar_env(sin_env))
+    original = modulo_config.cargar_config
+    monkeypatch.setattr(cli, "cargar_config", lambda **opciones: original(sin_env, **opciones))
+    elegidos: list = []
+    proveedor = ProveedorFalso(respuestas)
+
+    def crear(config, *_):
+        elegidos.append(config)
+        return proveedor
+
+    monkeypatch.setattr(cli, "crear_proveedor", crear)
+    argumentos = ["run", str(repo.parent / "T-1.md"), "--repo", str(repo), "--sin-plan",
+                  *opciones]
+    resultado = CliRunner().invoke(cli.app, argumentos)
+    return resultado.exit_code, resultado.output, elegidos
+
+
+def _perfiles_de_prueba() -> None:
+    from harness.config_usuario import ConfigUsuario, Perfil, guardar_config_usuario
+
+    guardar_config_usuario(ConfigUsuario(
+        perfil="rapido",
+        perfiles={"rapido": Perfil(proveedor="gemini", modelo="flash-lite"),
+                  "fuerte": Perfil(proveedor="groq", modelo="gpt-oss")},
+        credenciales={"GEMINI_API_KEY": "clave-gemini-0123456789",
+                      "GROQ_API_KEY": "clave-groq-0123456789",
+                      "OTRO_TOKEN": "otro-secreto-de-config-0123"},
+    ))
+
+
+def test_run_usa_el_perfil_predeterminado_y_lo_muestra(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    _perfiles_de_prueba()
+    codigo, salida, elegidos = _correr_con_config_real(monkeypatch, repo_sin_yaml, [terminar()])
+    assert codigo == 0, salida
+    assert elegidos[0].modelo == "flash-lite"
+    assert "Perfil rapido: gemini / flash-lite (predeterminado)" in salida
+    inicio = _eventos_del_log(repo_sin_yaml)[0]
+    assert (inicio["perfil"], inicio["origen_modelo"]) == ("rapido", "predeterminado")
+
+
+def test_run_con_perfil_y_con_proveedor(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    _perfiles_de_prueba()
+    _, salida, elegidos = _correr_con_config_real(
+        monkeypatch, repo_sin_yaml, [terminar()], "--perfil", "fuerte"
+    )
+    assert elegidos[0].modelo == "gpt-oss" and "Perfil fuerte: groq / gpt-oss (--perfil)" in salida
+    _, salida, elegidos = _correr_con_config_real(
+        monkeypatch, repo_sin_yaml, [terminar()], "--proveedor", "groq", "--modelo", "llama"
+    )
+    assert elegidos[0].modelo == "llama" and "Modelo groq / llama (--proveedor)" in salida
+
+
+def test_las_credenciales_de_config_no_llegan_al_log(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    _perfiles_de_prueba()
+    (repo_sin_yaml / "datos.txt").write_text("otro-secreto-de-config-0123\n", encoding="utf-8")
+    leer = LlamadaHerramienta("a", "leer_archivo", {"ruta": "datos.txt"})
+    codigo, _, _ = _correr_con_config_real(monkeypatch, repo_sin_yaml, [pedir(leer), terminar()])
+    assert codigo == 0
+    (log,) = (repo_sin_yaml / ".harness" / "logs").glob("*.jsonl")
+    texto = log.read_text(encoding="utf-8")
+    assert "otro-secreto-de-config-0123" not in texto and "****" in texto
+
+
+def test_sin_modelo_configurado_pide_harness_config(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    codigo, salida, _ = _correr_con_config_real(monkeypatch, repo_sin_yaml, [])
+    assert codigo == 1 and "ejecuta 'harness config'" in salida

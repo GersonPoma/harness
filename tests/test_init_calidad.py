@@ -159,7 +159,7 @@ def _init_verificar(
 ) -> tuple[int, str, ProveedorFalso, list[str]]:
     proveedor = ProveedorFalso(respuestas)
     config = ConfigModelo("gemini", "m", None, "clave-falsa-0123456789")
-    monkeypatch.setattr(cli, "cargar_config", lambda: config)
+    monkeypatch.setattr(cli, "cargar_config", lambda **_: config)
     monkeypatch.setattr(cli, "crear_proveedor", lambda *_: proveedor)
     instalados: list[str] = []
 

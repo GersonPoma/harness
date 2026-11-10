@@ -1,4 +1,10 @@
-"""Configuración del modelo, leída del .env del repo del harness (hasta harness config)."""
+"""Configuración del modelo y credenciales: opciones, entorno, .env y ~/.harness/config.toml.
+
+Orden de prioridad del modelo (gana el primero que tenga valor): --proveedor/--modelo,
+--perfil, las variables de entorno o el .env (HARNESS_PROVEEDOR...) y el perfil predeterminado
+de config.toml. Las credenciales salen del entorno real, después del .env y por último de
+config.toml.
+"""
 
 import os
 from dataclasses import dataclass, field, replace
@@ -6,6 +12,12 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from harness.config_usuario import (
+    ConfigUsuario,
+    ErrorConfigUsuario,
+    leer_config_usuario,
+    ruta_config,
+)
 from harness.proveedores.presets import PRESETS, PROVEEDOR_PERSONALIZADO
 
 # El .env vive en la raíz del repo del harness, no en la carpeta desde donde se ejecuta.
@@ -30,6 +42,21 @@ VAR_JIRA_URL = "JIRA_URL"
 VAR_JIRA_EMAIL = "JIRA_EMAIL"
 VAR_JIRA_TOKEN = "JIRA_API_TOKEN"
 VARIABLES_JIRA = (VAR_JIRA_URL, VAR_JIRA_EMAIL, VAR_JIRA_TOKEN)
+# De dónde salió una variable que cargó el harness (para decirlo en los mensajes).
+ORIGEN_ENTORNO = "el entorno"
+ORIGEN_ENV = "el .env"
+ORIGEN_USUARIO = "~/.harness/config.toml"
+# Cómo se eligió el modelo (ConfigModelo.origen).
+ORIGEN_OPCION_PROVEEDOR = "--proveedor"
+ORIGEN_OPCION_PERFIL = "--perfil"
+ORIGEN_PERFIL_PREDETERMINADO = "predeterminado"
+MENSAJE_SIN_MODELO = (
+    "No hay modelo configurado: ejecuta 'harness config' (o define HARNESS_PROVEEDOR y "
+    "HARNESS_MODELO en el entorno)."
+)
+
+# Variable -> de dónde salió, para las que cargó el harness (las demás son del entorno).
+_origenes: dict[str, str] = {}
 
 
 class ErrorConfiguracion(Exception):
@@ -47,6 +74,10 @@ class ConfigModelo:
     api_key: str = field(repr=False)
     # De qué variable salió la key (para avisar si es demasiado corta).
     variable_api_key: str | None = None
+    # El perfil de config.toml, si salió de uno.
+    perfil: str | None = None
+    # Cómo se eligió: --proveedor, --perfil, "predeterminado" o "HARNESS_PROVEEDOR del .env".
+    origen: str | None = None
 
 
 @dataclass(frozen=True)
@@ -60,13 +91,85 @@ class ConfigJira:
 
 
 def cargar_env(ruta_env: Path = RUTA_ENV) -> None:
-    """Carga el .env en el entorno (también lo usan las referencias ${NOMBRE} de harness.yaml)."""
+    """Carga el .env y después las credenciales de config.toml en el entorno, sin pisar nada.
+
+    El entorno real gana sobre el .env (load_dotenv no sobrescribe) y los dos sobre
+    config.toml. Así las referencias ${NOMBRE} de harness.yaml y mcp.json, y Jira, encuentran
+    las credenciales sin saber de dónde vienen. Lanza ErrorConfiguracion si config.toml no es
+    válido.
+    """
+    antes = set(os.environ)
     load_dotenv(ruta_env)
+    for nombre in set(os.environ) - antes:
+        _origenes.setdefault(nombre, ORIGEN_ENV)
+    for nombre, valor in _variables_de_usuario(leer_usuario()).items():
+        if not os.environ.get(nombre, "").strip():
+            os.environ[nombre] = valor
+            _origenes[nombre] = ORIGEN_USUARIO
 
 
-def cargar_config(ruta_env: Path = RUTA_ENV) -> ConfigModelo:
-    """Lee la configuración del .env y valida que esté completa."""
+def leer_usuario() -> ConfigUsuario:
+    """~/.harness/config.toml ya validado (vacío si no existe)."""
+    try:
+        return leer_config_usuario()
+    except ErrorConfigUsuario as error:
+        raise ErrorConfiguracion(str(error)) from error
+
+
+def origen_variable(nombre: str) -> str | None:
+    """De dónde salió la variable: el entorno, el .env o config.toml (None si no está)."""
+    if not os.environ.get(nombre, "").strip():
+        return None
+    return _origenes.get(nombre, ORIGEN_ENTORNO)
+
+
+def secretos_de_usuario() -> list[str]:
+    """Todas las credenciales de config.toml, aunque esta ejecución no las use: se ocultan."""
+    try:
+        return [valor for valor in leer_config_usuario().credenciales.values() if valor]
+    except ErrorConfigUsuario:
+        return []
+
+
+def cargar_config(ruta_env: Path = RUTA_ENV, perfil: str | None = None) -> ConfigModelo:
+    """El modelo según el orden de prioridad, sin --proveedor/--modelo (ver elegir_modelo).
+
+    Con `perfil` (--perfil), ese perfil de config.toml; si no, HARNESS_PROVEEDOR del entorno o
+    del .env; si no, el perfil predeterminado de config.toml.
+    """
     cargar_env(ruta_env)
+    usuario = leer_usuario()
+    if perfil is not None:
+        return _desde_perfil(usuario, perfil, ORIGEN_OPCION_PERFIL)
+    if os.environ.get(VAR_PROVEEDOR, "").strip():
+        origen = f"{VAR_PROVEEDOR} {_de(origen_variable(VAR_PROVEEDOR) or ORIGEN_ENTORNO)}"
+        if usuario.perfil:
+            origen += f"; gana sobre el perfil '{usuario.perfil}' de config.toml"
+        return replace(_desde_variables(), origen=origen)
+    if usuario.perfil:
+        return _desde_perfil(usuario, usuario.perfil, ORIGEN_PERFIL_PREDETERMINADO)
+    raise ErrorConfiguracion(MENSAJE_SIN_MODELO)
+
+
+def _desde_perfil(usuario: ConfigUsuario, nombre: str, origen: str) -> ConfigModelo:
+    perfil = usuario.perfiles.get(nombre)
+    if perfil is None:
+        existentes = ", ".join(usuario.perfiles) or "ninguno"
+        raise ErrorConfiguracion(
+            f"No existe el perfil '{nombre}' en {ruta_config()} (perfiles: {existentes}). "
+            "Créalo con 'harness perfil agregar'."
+        )
+    preset = PRESETS[perfil.proveedor]
+    variable = perfil.api_key_env or preset.variable_api_key
+    api_key = _leer_obligatoria(variable, f"la API key del perfil '{nombre}'")
+    return ConfigModelo(
+        perfil.proveedor, perfil.modelo, perfil.base_url or preset.base_url, api_key, variable,
+        nombre, origen,
+    )
+
+
+def _desde_variables() -> ConfigModelo:
+    """El modelo de HARNESS_PROVEEDOR / HARNESS_MODELO (entorno o .env)."""
     proveedor = _leer_obligatoria(VAR_PROVEEDOR, "el proveedor del modelo").lower()
     if proveedor not in PRESETS:
         disponibles = ", ".join(PRESETS)
@@ -107,17 +210,20 @@ def leer_respaldo(actual: ConfigModelo | None = None) -> list[ConfigModelo]:
 
 
 def elegir_modelo(
-    base: ConfigModelo, proveedor: str | None, modelo: str | None
+    base: ConfigModelo | None, proveedor: str | None, modelo: str | None
 ) -> ConfigModelo:
-    """El modelo de --proveedor / --modelo (harness resume); sin ellos, el del .env.
+    """El modelo de --proveedor / --modelo, que ganan sobre todo; sin ellos, `base`.
 
-    Sin --proveedor, --modelo cambia solo el modelo del proveedor del .env.
+    Sin --proveedor, --modelo cambia solo el modelo de `base` (que entonces no puede faltar).
     """
     if proveedor is None:
+        if base is None:
+            raise ErrorConfiguracion(MENSAJE_SIN_MODELO)
         return replace(base, modelo=modelo) if modelo else base
     if not modelo:
         raise ErrorConfiguracion("Con --proveedor hace falta también --modelo.")
-    return _leer_entrada_respaldo(f"{proveedor}:{modelo}", "--proveedor")
+    config = _leer_entrada_respaldo(f"{proveedor}:{modelo}", ORIGEN_OPCION_PROVEEDOR)
+    return replace(config, origen=ORIGEN_OPCION_PROVEEDOR)
 
 
 def _leer_entrada_respaldo(entrada: str, origen: str = VAR_RESPALDO) -> ConfigModelo:
@@ -164,6 +270,20 @@ def leer_herramientas_github_modelo() -> bool:
     """Si el modelo recibe las herramientas de GitHub por MCP (por defecto, sí)."""
     valor = os.environ.get(VAR_HERRAMIENTAS_GITHUB_MODELO, "").strip().lower()
     return valor not in VALORES_DESACTIVADO
+
+
+def _variables_de_usuario(usuario: ConfigUsuario) -> dict[str, str]:
+    variables = dict(usuario.credenciales)
+    if usuario.jira.url:
+        variables[VAR_JIRA_URL] = usuario.jira.url
+    if usuario.jira.email:
+        variables[VAR_JIRA_EMAIL] = usuario.jira.email
+    return {nombre: valor for nombre, valor in variables.items() if valor}
+
+
+def _de(origen: str) -> str:
+    """'del .env', 'del entorno' o 'de ~/.harness/config.toml'."""
+    return f"del {origen.removeprefix('el ')}" if origen.startswith("el ") else f"de {origen}"
 
 
 def _leer_obligatoria(variable: str, que_es: str) -> str:

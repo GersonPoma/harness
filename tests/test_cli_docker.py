@@ -55,7 +55,7 @@ def _sin_mcp_ni_ejecucion(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 def _invocar(monkeypatch: pytest.MonkeyPatch, argumentos: list[str]) -> tuple[int, str]:
-    monkeypatch.setattr(cli, "cargar_config", lambda: CONFIG)
+    monkeypatch.setattr(cli, "cargar_config", lambda **_: CONFIG)
     monkeypatch.setattr(cli, "crear_proveedor", lambda *_: ProveedorFalso([]))
     resultado = CliRunner().invoke(cli.app, argumentos)
     return resultado.exit_code, " ".join(resultado.output.split())

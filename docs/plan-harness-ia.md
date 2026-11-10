@@ -922,13 +922,13 @@ corresponde. Agregar un proveedor nuevo con formato OpenAI es agregar una fila a
 
 ### Configuración (por usuario, no por proyecto)
 
-Nunca en `harness.yaml`. Hay dos lugares, según el momento:
+Nunca en `harness.yaml` (que se sube a Git). Hay tres archivos:
 
-| Archivo | Cuándo | Dónde está |
+| Archivo | Para qué | Dónde está |
 |---|---|---|
-| `.env` | **Mientras se desarrolla el harness** (hasta `harness config`, fase 12) | Raíz del repo del harness (en `.gitignore`) |
-| `config.toml` | Cuando otros lo instalan con `uv tool install` (no tienen el repo ni el `.env`) | `C:\Users\<usuario>\.harness\config.toml` / `~/.harness/config.toml` |
-| `mcp.json` | Servidores MCP (formato `mcpServers`); en la fase 12, en `~/.harness/` | Raíz del repo del harness (en `.gitignore`; modelo: `mcp.example.json`) |
+| `config.toml` | Perfiles de modelo, respaldo, revisor y credenciales (fase 12). Lo usa quien instala el harness con `uv tool install` (no tiene el repo ni el `.env`) | `C:\Users\<usuario>\.harness\config.toml` / `~/.harness/config.toml` |
+| `.env` | **Mientras se desarrolla el harness**: sigue funcionando igual | Raíz del repo del harness (en `.gitignore`) |
+| `mcp.json` | Servidores MCP (formato `mcpServers`) | `~/.harness/mcp.json`; si no existe, el de desarrollo en la raíz del repo del harness (en `.gitignore`). Plantilla: `src/harness/plantillas/mcp.example.json` |
 
 **`.env` en desarrollo:**
 
@@ -938,39 +938,88 @@ HARNESS_MODELO=<id del modelo, ver en AI Studio>
 GEMINI_API_KEY=tu_key
 ```
 
-**`~/.harness/config.toml`** (lo crea `harness config`, no se escribe a mano):
+**`~/.harness/config.toml`** (lo escriben `harness config` y `harness perfil`; se puede editar
+a mano, pero se regenera entero y los comentarios no se conservan):
 
 ```toml
-[modelo]
+perfil = "rapido"                                  # el predeterminado
+respaldo = ["fuerte", "groq:openai/gpt-oss-120b"]  # perfiles o proveedor:modelo, en orden
+revisor = "fuerte"                                 # opcional: quién hace la revisión
+
+[perfiles.rapido]
 proveedor = "gemini"
-nombre = "<id del modelo, ver en AI Studio>"
+modelo = "gemini-3.5-flash-lite"
 
-# Solo para proveedor = "personalizado":
-# base_url = "https://..."
-# api_key_env = "MI_API_KEY"
+[perfiles.fuerte]
+proveedor = "openrouter"
+modelo = "nvidia/nemotron-3-ultra-550b-a55b:free"
 
-[credenciales]
+[perfiles.mio]                                     # proveedor = "personalizado"
+proveedor = "personalizado"
+modelo = "mi-modelo"
+base_url = "https://..."
+api_key_env = "MI_API_KEY"
+
+[credenciales]                                     # una vez por proveedor: las comparten
 GEMINI_API_KEY = "..."
+OPENROUTER_API_KEY = "..."
 GITHUB_TOKEN = "..."
-JIRA_TOKEN = "..."
+JIRA_API_TOKEN = "..."
+
+[jira]                                             # no son secretos (como hoy en el .env)
+url = "https://tu-sitio.atlassian.net"
+email = "tu@correo"
 ```
 
-- `harness config` pregunta el proveedor (de la lista de presets), el modelo y las keys, y
-  escribe el archivo. Se lee con `tomllib` (viene con Python, no hay que instalar nada).
-- El archivo está en la carpeta del usuario, fuera de todo repo: nunca llega a Git.
+- Se lee con `tomllib` (viene con Python) y se valida como `harness.yaml`: una clave
+  desconocida, un proveedor que no es un preset, un perfil `personalizado` sin `base_url` o
+  `api_key_env`, un nombre de perfil fuera de `[a-z0-9_-]+`, o un `perfil`, `respaldo` o
+  `revisor` que nombra un perfil que no existe, dan un error con la ruta (`perfiles.mio:
+  ...`) antes de empezar.
+- `[credenciales]` acepta cualquier nombre de variable (`MI_API_KEY`, `JIRA_MCP_TOKEN`).
+  `cargar_env` las carga en el entorno del proceso **sin pisar nada**, igual que `[jira]`
+  (`JIRA_URL` y `JIRA_EMAIL`): así las referencias `${GITHUB_TOKEN}` de `mcp.json`, las
+  `${NOMBRE}` de `harness.yaml` y Jira las encuentran sin cambios. `[jira]` va aparte para
+  que la URL del sitio no se oculte como `****` en el link del ticket.
 
-**Orden de prioridad** (el primero que tenga el valor gana):
+**Orden de prioridad del modelo** (el primero que tenga valor gana):
 
-1. Opciones del comando: `--proveedor`, `--modelo`.
-2. Variables de entorno / `.env`.
-3. `~/.harness/config.toml`.
-4. Si no hay nada: error con el mensaje "ejecuta `harness config`".
+1. `--proveedor` y `--modelo` (`run`, `resume`, `init`). Solo `--modelo` cambia el modelo del
+   proveedor que se resolvería abajo.
+2. `--perfil <nombre>`.
+3. Variables de entorno o `.env` (`HARNESS_PROVEEDOR`, `HARNESS_MODELO`...). El `.env` nunca
+   pisa una variable real del entorno.
+4. El `perfil` predeterminado de `config.toml`.
+5. Si no hay nada: "No hay modelo configurado: ejecuta 'harness config'".
+
+La API key sale de la variable del preset con el mismo orden: el entorno, el `.env` y por
+último `[credenciales]`. El respaldo y el revisor también: la opción, después
+`HARNESS_RESPALDO` / `HARNESS_REVISOR` y por último la clave de `config.toml`. La consola dice
+de dónde salió el modelo ("Perfil rapido: gemini / ... (predeterminado)", "Modelo gemini / x
+(HARNESS_PROVEEDOR del .env; gana sobre el perfil 'rapido' de config.toml)") y el evento
+`inicio` del log lo guarda (`perfil`, `origen_modelo`).
 
 Para probar otro proveedor o modelo en una ejecución, sin tocar la configuración:
 
 ```powershell
 harness run TAREAS-1 --proveedor groq --modelo openai/gpt-oss-120b
+harness run TAREAS-1 --perfil fuerte
 ```
+
+**Seguridad:**
+
+- `config.toml` y `mcp.json` están en la carpeta del usuario, fuera de todo repo: nunca
+  llegan a Git, y `harness.yaml` sigue sin aceptar credenciales.
+- En Linux y macOS la carpeta se crea con `0700` y el archivo con `0600`, escrito de una vez
+  (un temporal creado con `0600` y `os.replace`); si al arrancar otros usuarios lo pueden
+  leer, se avisa con el `chmod` a correr. En Windows hereda los permisos de la carpeta del
+  usuario (solo él y los administradores).
+- Nunca se muestra un secreto completo: `harness config` las pide con la entrada oculta y las
+  muestra como `****` más los últimos 4 caracteres (solo si tienen 12 o más). Ninguna opción
+  recibe el valor de un secreto por argumento (quedaría en el historial).
+- **Todas** las credenciales de `config.toml`, aunque la ejecución no las use, entran en los
+  secretos que se ocultan en el log, en lo que ve el modelo, en el cuerpo del PR y en la
+  memoria.
 
 ### Respaldo entre proveedores
 

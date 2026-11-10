@@ -32,7 +32,9 @@ from harness.config import (
     leer_herramientas_github_modelo,
     leer_respaldo,
     leer_token_github,
+    secretos_de_usuario,
 )
+from harness.config_usuario import aviso_permisos
 from harness.config_mcp import (
     ErrorConfigMCP,
     ServidorMCP,
@@ -173,6 +175,9 @@ AYUDA_SIN_REVISION = (
 AYUDA_SIN_CACHE = (
     "No usar la caché de dependencias: se descarga todo de nuevo (el volumen no se toca)."
 )
+AYUDA_PERFIL = "Perfil de ~/.harness/config.toml para esta ejecución (ver harness perfiles)."
+AYUDA_PROVEEDOR = "Proveedor para esta ejecución (con --modelo); gana sobre el perfil y el .env."
+AYUDA_MODELO = "Modelo para esta ejecución (sin --proveedor, del proveedor que se usaría)."
 AYUDA_CONSERVAR = (
     "No borrar los contenedores ni la red al terminar, para entrar a depurar (se borran "
     "después con 'harness limpiar')."
@@ -217,6 +222,8 @@ class _Preparacion:
     config_jira: ConfigJira | None = None
     servidor_jira: ServidorMCP | None = None
     comentarios_jira: ComentariosJiraMCP | None = None
+    # Las credenciales de ~/.harness/config.toml: se ocultan aunque no se usen.
+    secretos_usuario: list[str] = field(default_factory=list)
 
     @property
     def ticket(self) -> str:
@@ -241,7 +248,10 @@ class _Preparacion:
         mcp = [s for servidor in (self.servidor_github, self.servidor_jira) if servidor
                for s in servidor.secretos]
         respaldo = [config.api_key for config in self.respaldo]
-        return [self.config.api_key, *respaldo, *self.variables.secretos, *tokens, *mcp]
+        return [
+            self.config.api_key, *respaldo, *self.variables.secretos, *tokens, *mcp,
+            *self.secretos_usuario,
+        ]
 
 
 class _Reporte:
@@ -396,6 +406,9 @@ def run(
     conservar: Annotated[
         bool, typer.Option("--conservar", help=AYUDA_CONSERVAR)
     ] = False,
+    perfil: Annotated[str | None, typer.Option(help=AYUDA_PERFIL)] = None,
+    proveedor: Annotated[str | None, typer.Option(help=AYUDA_PROVEEDOR)] = None,
+    modelo: Annotated[str | None, typer.Option(help=AYUDA_MODELO)] = None,
     desde_cero: Annotated[
         bool,
         typer.Option(
@@ -415,7 +428,9 @@ def run(
             "--aprobar-plan necesita una terminal interactiva para responder la pregunta."
         )
         raise typer.Exit(1)
-    prep = _preparar_ejecucion(ticket, (repo or Path.cwd()).resolve())
+    prep = _preparar_ejecucion(
+        ticket, (repo or Path.cwd()).resolve(), proveedor=proveedor, modelo=modelo, perfil=perfil
+    )
     _revisar_sesion_pendiente(prep, desde_cero)
     prep.es_con_plan = not sin_plan
     prep.es_con_cache = not sin_cache
@@ -448,12 +463,15 @@ def _empezar_registro(prep: _Preparacion, es_aprobar_plan: bool = False) -> _Rep
     """El log de la ejecución, con su inicio y el ticket, y la cabecera de la consola."""
     registro = RegistroPasos(prep.repo, prep.ticket, secretos=prep.secretos)
     respaldo = [identificador(config) for config in prep.respaldo]
+    config = prep.config
     registro.registrar_inicio(
-        prep.config.proveedor, prep.config.modelo, prep.contexto, respaldo=respaldo
+        config.proveedor, config.modelo, prep.contexto, respaldo=respaldo, perfil=config.perfil,
+        origen=config.origen,
     )
     registro.registrar_ticket(prep.datos_ticket)
     consola.mostrar_inicio(
-        prep.ticket, str(prep.repo), prep.config.proveedor, prep.config.modelo, respaldo
+        prep.ticket, str(prep.repo), config.proveedor, config.modelo, respaldo, config.perfil,
+        config.origen,
     )
     return _Reporte(registro, es_aprobar_plan, identificador(prep.config))
 
@@ -517,6 +535,9 @@ def resume(
         typer.Option(help="Retomar con otro proveedor (con --modelo); después, el respaldo."),
     ] = None,
     modelo: Annotated[str | None, typer.Option(help="Retomar con otro modelo.")] = None,
+    perfil: Annotated[
+        str | None, typer.Option(help="Retomar con este perfil de ~/.harness/config.toml.")
+    ] = None,
     sin_cache: Annotated[
         bool, typer.Option("--sin-cache", help=AYUDA_SIN_CACHE)
     ] = False,
@@ -538,7 +559,8 @@ def resume(
     raiz = (repo or Path.cwd()).resolve()
     sesion = _sesion_para_retomar(raiz, ticket)
     prep = _preparar_ejecucion(
-        sesion.clave, raiz, guardado=_ticket_guardado(sesion), proveedor=proveedor, modelo=modelo
+        sesion.clave, raiz, guardado=_ticket_guardado(sesion), proveedor=proveedor, modelo=modelo,
+        perfil=perfil,
     )
     prep.es_con_plan = sesion.es_con_plan
     prep.es_con_cache = not sin_cache
@@ -1178,6 +1200,7 @@ def _preparar_ejecucion(
     guardado: Ticket | None = None,
     proveedor: str | None = None,
     modelo: str | None = None,
+    perfil: str | None = None,
 ) -> _Preparacion:
     """Valida repo, ticket, configuración y harness.yaml antes de gastar pedidos al modelo.
 
@@ -1189,8 +1212,8 @@ def _preparar_ejecucion(
         consola.mostrar_error(f"No existe la carpeta del repo: {repo}")
         raise typer.Exit(1)
     try:
-        # cargar_config carga el .env: después ya se pueden resolver los ${NOMBRE}.
-        config = elegir_modelo(cargar_config(), proveedor, modelo)
+        # Carga el .env y config.toml: después ya se pueden resolver los ${NOMBRE}.
+        config = _elegir_config(proveedor, modelo, perfil)
         respaldo = leer_respaldo(config)
         config_proyecto = cargar_config_proyecto(repo)
         variables = resolver_variables(config_proyecto) if config_proyecto else None
@@ -1221,8 +1244,19 @@ def _preparar_ejecucion(
         repo, datos_ticket, config, config_proyecto,
         variables or VariablesResueltas(), contexto, token_github=leer_token_github(),
         servidor_github=servidor_github, config_jira=config_jira, servidor_jira=servidor_jira,
-        respaldo=respaldo, memoria=memoria,
+        respaldo=respaldo, memoria=memoria, secretos_usuario=secretos_de_usuario(),
     )
+
+
+def _elegir_config(
+    proveedor: str | None, modelo: str | None, perfil: str | None
+) -> ConfigModelo:
+    """El modelo con el orden de prioridad: --proveedor/--modelo, --perfil, el entorno o el
+    .env, y el perfil predeterminado de config.toml. Lanza ErrorConfiguracion."""
+    if proveedor is not None:
+        cargar_env()
+        return elegir_modelo(None, proveedor, modelo)
+    return elegir_modelo(cargar_config(perfil=perfil), None, modelo)
 
 
 def _ticket_y_jira(
@@ -1472,6 +1506,9 @@ def init(
     conservar: Annotated[
         bool, typer.Option("--conservar", help=f"Con --verificar. {AYUDA_CONSERVAR}")
     ] = False,
+    perfil: Annotated[str | None, typer.Option(help=AYUDA_PERFIL)] = None,
+    proveedor: Annotated[str | None, typer.Option(help=AYUDA_PROVEEDOR)] = None,
+    modelo: Annotated[str | None, typer.Option(help=AYUDA_MODELO)] = None,
 ) -> None:
     """Genera AGENTS.md y harness.yaml si faltan (el modelo analiza el repo)."""
     raiz = (repo or Path.cwd()).resolve()
@@ -1490,7 +1527,7 @@ def init(
     faltantes = archivos_faltantes(raiz)
     generacion = None
     if faltantes:
-        generacion = _generar_archivos_init(raiz, faltantes)
+        generacion = _generar_archivos_init(raiz, faltantes, proveedor, modelo, perfil)
     else:
         consola.mostrar_aviso("El repo ya tiene AGENTS.md y harness.yaml: no hay nada que generar.")
     agregadas = asegurar_gitignore(raiz)
@@ -1520,15 +1557,26 @@ class _GeneracionInit:
     pasos: int
 
 
-def _generar_archivos_init(repo: Path, faltantes: list[str]) -> _GeneracionInit:
+def _generar_archivos_init(
+    repo: Path,
+    faltantes: list[str],
+    proveedor: str | None = None,
+    modelo: str | None = None,
+    perfil: str | None = None,
+) -> _GeneracionInit:
     try:
-        config = cargar_config()
+        config = _elegir_config(proveedor, modelo, perfil)
     except ErrorConfiguracion as error:
         consola.mostrar_error(str(error))
         raise typer.Exit(1) from error
-    registro = RegistroPasos(repo, NOMBRE_LOG_INIT, secretos=[config.api_key])
-    registro.registrar_inicio(config.proveedor, config.modelo)
-    consola.mostrar_inicio_init(str(repo), config.proveedor, config.modelo, faltantes)
+    secretos = [config.api_key, *secretos_de_usuario()]
+    registro = RegistroPasos(repo, NOMBRE_LOG_INIT, secretos=secretos)
+    registro.registrar_inicio(
+        config.proveedor, config.modelo, perfil=config.perfil, origen=config.origen
+    )
+    consola.mostrar_inicio_init(
+        str(repo), config.proveedor, config.modelo, faltantes, config.perfil, config.origen
+    )
     reporte = _Reporte(registro)
     try:
         proveedor = crear_proveedor(config, reporte.reintento)
@@ -1746,7 +1794,14 @@ def version() -> None:
 def main() -> None:
     consola.forzar_salida_utf8()
     # El .env se carga antes de lo habitual solo para que HARNESS_CONSOLA_CRUDA pueda estar ahí.
-    cargar_env()
+    try:
+        cargar_env()
+    except ErrorConfiguracion as error:
+        consola.mostrar_error(str(error))
+        raise SystemExit(1) from error
+    aviso = aviso_permisos()
+    if aviso:
+        consola.mostrar_aviso(aviso)
     ruta_cruda = os.environ.get(VAR_CONSOLA_CRUDA, "").strip()
     if ruta_cruda:
         consola.grabar_salida_cruda(Path(ruta_cruda))

@@ -54,7 +54,7 @@ def _invocar(
         configs.append(config)
         return proveedor
 
-    monkeypatch.setattr(cli, "cargar_config", lambda: CONFIG)
+    monkeypatch.setattr(cli, "cargar_config", lambda **_: CONFIG)
     monkeypatch.setattr(cli, "crear_proveedor", crear)
     resultado = CliRunner().invoke(cli.app, argumentos)
     return resultado.exit_code, " ".join(resultado.output.split()), configs
@@ -92,7 +92,7 @@ def test_el_aviso_del_respaldo_cuenta_los_pasos_de_antes_del_corte(
         nombres = ["openrouter/gemma", "openrouter/nemotron"]
         return ProveedorConRespaldo(list(zip(nombres, [principal, respaldo])), al_cambiar)
 
-    monkeypatch.setattr(cli, "cargar_config", lambda: CONFIG)
+    monkeypatch.setattr(cli, "cargar_config", lambda **_: CONFIG)
     monkeypatch.setattr(cli, "crear_proveedor", crear)
     resultado = CliRunner().invoke(cli.app, ["resume", "T-1", "--repo", str(repo)])
     assert resultado.exit_code == 0, resultado.output
