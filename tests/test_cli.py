@@ -756,6 +756,21 @@ def test_aprobar_plan_con_una_correccion_planifica_de_nuevo(
     assert correccion["correccion"] == "Que también valide el título vacío"
 
 
+def test_la_espera_del_usuario_no_cuenta_como_plan(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path, con_terminal: None
+) -> None:
+    respuestas = [proponer(), proponer(id_llamada="p2"), _escribir("nuevo.py"), terminar()]
+    codigo, _ = _correr(
+        monkeypatch, repo_sin_yaml, respuestas, "--aprobar-plan", entrada="Otro cambio\ns\n"
+    )
+    assert codigo == 0
+    etapas = [e["etapa"] for e in _eventos_del_log(repo_sin_yaml) if e["evento"] == "etapa"]
+    assert etapas[:7] == [
+        "preparación", "plan", "esperando al usuario", "plan", "esperando al usuario", "plan",
+        "implementación",
+    ]
+
+
 def test_aprobar_plan_sin_terminal_se_detiene_antes_de_empezar(
     monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
 ) -> None:

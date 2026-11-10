@@ -111,3 +111,14 @@ def test_el_registro_mide_el_tiempo_y_escribe_el_resumen_sin_secretos(repo: Path
     assert ruta == registro.ruta.with_suffix(".md")
     resumen = ruta.read_text(encoding="utf-8")
     assert "sk-secreta-123" not in resumen and "- 1: pasó (3 passed)" in resumen
+
+
+def test_la_espera_del_usuario_es_una_etapa_aparte() -> None:
+    eventos = [{"evento": "etapa", "t": 0.0, "etapa": "plan"},
+               {"evento": "etapa", "t": 30.0, "etapa": "esperando al usuario"},
+               {"evento": "etapa", "t": 330.0, "etapa": "plan"},
+               {"evento": "etapa", "t": 340.0, "etapa": "implementación"},
+               {"evento": "fin", "t": 400.0}]
+    assert tiempos_por_etapa(eventos) == {
+        "plan": 40.0, "esperando al usuario": 300.0, "implementación": 60.0,
+    }

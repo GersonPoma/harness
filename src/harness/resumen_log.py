@@ -16,6 +16,8 @@ ETAPA_FUERA_DEL_PLAN = "fuera del plan"
 ETAPA_VALIDACION = "validación"
 ETAPA_REVISION = "revisión"
 ETAPA_ENTREGA = "entrega"
+# Lo que el usuario tarda en responder las preguntas del plan (--aprobar-plan): no es del plan.
+ETAPA_ESPERA_USUARIO = "esperando al usuario"
 SEGUNDOS_POR_MINUTO = 60
 # Una etapa que no llegó a hacer nada (por ejemplo, ningún archivo fuera del plan) no se lista.
 MIN_SEGUNDOS_ETAPA = 0.5

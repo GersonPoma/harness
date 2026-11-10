@@ -127,7 +127,12 @@ from harness.proveedores.base import ErrorProveedor, ProveedorLLM
 from harness.proveedores.fabrica import crear_proveedor, identificador
 from harness.proveedores.respaldo import CambioProveedor
 from harness.registro import RegistroPasos
-from harness.resumen_log import ETAPA_ENTREGA, ETAPA_PREPARACION
+from harness.resumen_log import (
+    ETAPA_ENTREGA,
+    ETAPA_ESPERA_USUARIO,
+    ETAPA_PLAN,
+    ETAPA_PREPARACION,
+)
 from harness.sesion import (
     CARPETA_SESIONES,
     ESTADO_ENTREGA,
@@ -333,13 +338,22 @@ class _Reporte:
     def plan(self, plan: Plan, tokens: tuple[int, int]) -> bool | str:
         """Muestra el plan y, con --aprobar-plan, pregunta si se aprueba o qué cambiar."""
         consola.mostrar_plan(plan)
-        respuesta = consola.preguntar_plan(*tokens) if self._es_aprobar_plan else True
+        respuesta = self._preguntar_plan(tokens) if self._es_aprobar_plan else True
         self.registro.registrar_plan(plan, respuesta is True)
         if isinstance(respuesta, str):
             self.registro.registrar_correccion_plan(respuesta)
         if respuesta is True and self.sesion:
             self.sesion.plan_aprobado(plan.model_dump())
         return respuesta
+
+    def _preguntar_plan(self, tokens: tuple[int, int]) -> bool | str:
+        # La espera va en su propia etapa: si no, el tiempo del plan incluye lo que tardó el
+        # usuario en leerlo y responder. Después se vuelve al plan (una corrección sigue ahí).
+        self.etapa(ETAPA_ESPERA_USUARIO)
+        try:
+            return consola.preguntar_plan(*tokens)
+        finally:
+            self.etapa(ETAPA_PLAN)
 
     def fuera_del_plan(self, estado: EstadoAlcance) -> None:
         consola.mostrar_alcance(estado)
