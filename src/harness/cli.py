@@ -1302,6 +1302,7 @@ def _ejecutar(
         al_cache=reporte.cache,
         al_instalar=reporte.instalacion,
         conservar=prep.es_conservar,
+        al_aviso=reporte.aviso,
     )
     try:
         with entorno_docker as entorno:
@@ -1598,6 +1599,7 @@ def _verificar_una_vez(repo: Path, usar_cache: bool, conservar: bool = False) ->
                 al_cache=consola.mostrar_cache,
                 al_instalar=consola.mostrar_instalacion,
                 al_conservar=consola.mostrar_conservados if conservar else None,
+                al_aviso=consola.mostrar_aviso,
             )
     except (ErrorConfigProyecto, ErrorVariables) as error:
         consola.mostrar_error(str(error))

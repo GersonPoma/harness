@@ -15,6 +15,7 @@ from harness.config_proyecto import ConfigComandos, ConfigDocker, ConfigProyecto
 from harness.entorno_docker import (
     CODIGO_MATADO,
     CODIGO_TIEMPO_AGOTADO,
+    COMANDO_TIMEOUT,
     MENSAJE_DOCKER_NO_CORRE,
     Conservados,
     EntornoDocker,
@@ -81,6 +82,8 @@ RESPUESTAS_POR_DEFECTO = {
 # Lo que corre antes de instalar cuando se usa la caché (el volumen ya existe).
 PREPARAR_CACHE = ["ps", "volume"]
 PREPARAR_VOLUMEN = [f"exec {COMANDO_USUARIO}", f"exec {comando_preparar('0:0')}"]
+# Después de crear el contenedor del proyecto: ¿tiene sh y timeout?
+REVISAR_TIMEOUT = f"exec {COMANDO_TIMEOUT}"
 
 
 class DockerFalso:
@@ -124,7 +127,8 @@ def test_iniciar_crea_contenedor_e_instala(repo: Path) -> None:
     with _iniciar(repo, docker) as entorno:
         assert entorno.nombre == NOMBRE
         assert docker.subcomandos() == [
-            "version", "ps", "image", *PREPARAR_CACHE, "run", *PREPARAR_VOLUMEN,
+            "version", "ps", "image", *PREPARAR_CACHE, "run", REVISAR_TIMEOUT,
+            *PREPARAR_VOLUMEN,
             "exec pip install -e .", "exec pip install pytest",
         ]
     assert docker.llamadas[-1] == ["docker", "rm", "-f", "-v", NOMBRE]
@@ -237,7 +241,7 @@ def test_reinstala_si_cambia_un_archivo_de_dependencias(repo: Path) -> None:
     entorno.marcar_cambio("pyproject.toml")
     entorno.ejecutar("pytest")
     entorno.ejecutar("pytest")
-    assert docker.subcomandos()[10:] == [
+    assert docker.subcomandos()[11:] == [
         "exec pytest",
         "exec pip install -e .", "exec pip install pytest", "exec pytest",
         "exec pytest",
@@ -290,7 +294,8 @@ def test_servicios_en_red_privada_antes_que_el_proyecto(repo: Path) -> None:
         entorno.iniciar(al_avanzar=avisos.append)
     assert docker.subcomandos() == [
         "version", "ps", "network", "image", "image", "network", "run",
-        "exec pg_isready -h 127.0.0.1", *PREPARAR_CACHE, "run", *PREPARAR_VOLUMEN,
+        "exec pg_isready -h 127.0.0.1", *PREPARAR_CACHE, "run", REVISAR_TIMEOUT,
+        *PREPARAR_VOLUMEN,
         "exec pip install -r requirements.txt", "rm", "network",
     ]
     # Los restos de antes se buscan por etiqueta, nunca por nombre.
@@ -553,8 +558,8 @@ def test_sin_cache_no_hay_volumen_ni_variables(
     with EntornoDocker(repo, config, "TAREAS-1", ejecutar=docker, **kwargs) as entorno:
         entorno.iniciar()
         assert entorno.cache == EstadoCache(motivo=motivo)
-    assert docker.subcomandos()[:5] == [
-        "version", "ps", "image", "run", "exec pip install -e .",
+    assert docker.subcomandos()[:6] == [
+        "version", "ps", "image", "run", REVISAR_TIMEOUT, "exec pip install -e .",
     ]
     assert docker.variables[docker.subcomandos().index("run")] == {}
 
@@ -806,6 +811,43 @@ def test_ejecutar_proceso_con_lineas_corta_por_timeout(monkeypatch: pytest.Monke
     assert codigo == CODIGO_TIEMPO_AGOTADO
     # Sin líneas, igual se avisa que el tiempo corre.
     assert ticks and all(t is None for t in ticks)
+
+
+def test_imagen_sin_timeout_corre_sin_el_y_reinicia_si_se_pasa(repo: Path) -> None:
+    avisos: list[str] = []
+    docker = DockerFalso({
+        COMANDO_TIMEOUT: [(1, "")],
+        "pytest -q": [(CODIGO_TIEMPO_AGOTADO, "")],
+    })
+    entorno = _iniciar(repo, docker, al_aviso=avisos.append)
+    assert avisos == [
+        "La imagen 'python:3.12-slim' no trae el comando 'timeout': si un comando se pasa del "
+        "tiempo, se reinicia el contenedor para cortarlo."
+    ]
+    instalar = next(a for a in docker.llamadas if a[-1] == "pip install -e .")
+    assert instalar == ["docker", "exec", NOMBRE, "sh", "-c", "pip install -e ."]
+    resultado = entorno.ejecutar("pytest -q")
+    assert resultado.es_tiempo_agotado
+    assert docker.llamadas[-1] == ["docker", "restart", "-t", "0", NOMBRE]
+
+
+def test_imagen_sin_timeout_que_termina_a_tiempo_no_reinicia(repo: Path) -> None:
+    docker = DockerFalso({COMANDO_TIMEOUT: [(1, "")]})
+    entorno = _iniciar(repo, docker)
+    assert entorno.ejecutar("pytest -q").codigo == 0
+    assert "restart" not in docker.subcomandos()
+
+
+def test_imagen_sin_sh_da_un_error_claro(repo: Path) -> None:
+    salida = (
+        'OCI runtime exec failed: exec failed: unable to start container process: exec: "sh": '
+        "executable file not found in $PATH: unknown"
+    )
+    docker = DockerFalso({COMANDO_TIMEOUT: [(126, salida)]})
+    with pytest.raises(ErrorDocker, match="no tiene 'sh'"):
+        with EntornoDocker(repo, CONFIG, "T", ejecutar=docker) as entorno:
+            entorno.iniciar()
+    assert docker.subcomandos()[-1] == "rm"
 
 
 def test_verificar_docker_mide_lo_que_tarda() -> None:

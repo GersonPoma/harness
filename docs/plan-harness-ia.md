@@ -1548,10 +1548,14 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         necesita entonces un entorno virtual o `--user`, porque no podrá escribir en el
         Python del sistema de la imagen. La caché de dependencias ya hace `chown` de
         `/harness-cache` al usuario de la imagen: con `--user` hay que dársela a ese usuario.
-  - [ ] **Imágenes sin el comando `timeout`:** hoy cada comando corre con
+  - [x] **Imágenes sin el comando `timeout`:** hoy cada comando corre con
         `timeout -s KILL` dentro del contenedor; si la imagen no lo trae, queda solo el
         timeout del lado del host. Las imágenes basadas en Debian o Alpine lo traen; una
         imagen mínima (distroless) no, y sus comandos fallarían con "timeout: not found".
+        Hecho: al crear el contenedor del proyecto se corre `command -v timeout` una vez.
+        Sin `timeout`, se avisa, los comandos corren sin él y, si vence el timeout del host,
+        `docker restart -t 0` mata lo que seguía corriendo (lo instalado queda). Sin `sh`,
+        la ejecución se detiene con un error claro.
   - [x] **Comando `harness limpiar`:** borra los contenedores, redes y volúmenes
         huérfanos del harness; con `--cache`, los volúmenes de caché de dependencias (los
         de la etiqueta `harness.cache`, nunca por patrón de nombre; todos o el de un

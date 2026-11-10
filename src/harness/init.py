@@ -299,6 +299,7 @@ def verificar_config(
     al_cache: Callable[[EstadoCache], None] | None = None,
     al_instalar: Callable[[Instalacion], None] | None = None,
     al_conservar: Callable[[Conservados], None] | None = None,
+    al_aviso: Callable[[str], None] | None = None,
 ) -> ResultadoComando:
     """Levanta el entorno con el harness.yaml (servicios, instalación) y corre los tests.
 
@@ -314,6 +315,7 @@ def verificar_config(
         al_cache=al_cache,
         al_instalar=al_instalar,
         conservar=al_conservar is not None,
+        al_aviso=al_aviso,
     )
     try:
         with entorno_docker as entorno:

@@ -53,6 +53,9 @@ INTERVALO_PROGRESO_SEGUNDOS = 1.0
 # Una línea de 'docker pull' por capa: "a2abf6c4d29d: Pull complete".
 PATRON_CAPA = re.compile(r"^([0-9a-f]{12,64}): (.+)$")
 ESTADOS_CAPA_LISTA = ("Pull complete", "Already exists")
+COMANDO_TIMEOUT = "command -v timeout"
+# Lo que responde 'docker exec' cuando la imagen no tiene sh (distroless).
+MARCAS_SIN_SH = ('exec: "sh"', "executable file not found")
 TIMEOUT_LISTAR_IMAGENES_SEGUNDOS = 15
 MAX_IMAGENES_LISTADAS = 50
 # Margen para que el timeout de dentro del contenedor actúe antes que el del host.
@@ -312,8 +315,12 @@ class EntornoDocker:
         id_ejecucion: str | None = None,
         conservar: bool = False,
         descargar: LectorLineas | None = None,
+        al_aviso: Callable[[str], None] | None = None,
     ) -> None:
         self._repo = repo.resolve()
+        self._al_aviso = al_aviso
+        # Si la imagen trae 'timeout' (se comprueba al crear el contenedor del proyecto).
+        self._tiene_timeout = True
         # docker pull con progreso. Con un `ejecutar` propio (los tests) y sin `descargar`,
         # el pull también pasa por `ejecutar`, sin progreso.
         if descargar is None:
@@ -384,6 +391,7 @@ class EntornoDocker:
         avisar(f"Creando el contenedor del proyecto ({self._config.docker.imagen})...")
         variables = {**self._variables.proyecto, **self._variables_cache}
         self._correr(self.nombre, self._argumentos_proyecto(), variables)
+        self._revisar_timeout()
         if self.cache.es_usada:
             self._preparar_volumen()
         avisar("Instalando dependencias...")
@@ -699,17 +707,50 @@ class EntornoDocker:
     def _exec(self, comando: str, timeout: int) -> ResultadoComando:
         # timeout -s KILL corta el proceso dentro del contenedor; el timeout del host solo
         # cortaría el cliente 'docker exec' y dejaría el proceso corriendo.
-        argumentos = [
-            "docker", "exec", self.nombre,
-            "timeout", "-s", "KILL", str(timeout), "sh", "-c", comando,
-        ]
+        if self._tiene_timeout:
+            argumentos = [
+                "docker", "exec", self.nombre,
+                "timeout", "-s", "KILL", str(timeout), "sh", "-c", comando,
+            ]
+            timeout_host = timeout + MARGEN_TIMEOUT_HOST_SEGUNDOS
+        else:
+            argumentos = ["docker", "exec", self.nombre, "sh", "-c", comando]
+            timeout_host = timeout
         inicio = self._reloj()
-        codigo, salida = self._ejecutar(argumentos, timeout + MARGEN_TIMEOUT_HOST_SEGUNDOS)
+        codigo, salida = self._ejecutar(argumentos, timeout_host)
         transcurrido = self._reloj() - inicio
+        if codigo == CODIGO_TIEMPO_AGOTADO and not self._tiene_timeout:
+            # Sin timeout en la imagen, el proceso sigue vivo dentro del contenedor: reiniciarlo
+            # lo mata (lo instalado queda, porque restart conserva el sistema de archivos).
+            self._ejecutar(["docker", "restart", "-t", "0", self.nombre], TIMEOUT_DOCKER_SEGUNDOS)
         es_tiempo_agotado = codigo == CODIGO_TIEMPO_AGOTADO or (
             codigo == CODIGO_MATADO and transcurrido >= timeout
         )
         return ResultadoComando(codigo, salida, es_tiempo_agotado, transcurrido)
+
+    def _revisar_timeout(self) -> None:
+        """Comprueba que la imagen tiene sh y si trae el comando timeout.
+
+        Las imágenes de Debian y Alpine lo traen; una mínima (distroless) puede no traerlo, y
+        sin sh no corre nada de lo que hace el harness.
+        """
+        codigo, salida = self._ejecutar(
+            ["docker", "exec", self.nombre, "sh", "-c", COMANDO_TIMEOUT], TIMEOUT_DOCKER_SEGUNDOS
+        )
+        if codigo == 0:
+            return
+        if any(marca in salida for marca in MARCAS_SIN_SH):
+            raise ErrorDocker(
+                f"La imagen '{self._config.docker.imagen}' no tiene 'sh': el harness corre la "
+                "instalación, los tests y los comandos con 'sh -c'. Usa una imagen con shell "
+                "(por ejemplo, una variante -slim o -alpine)."
+            )
+        self._tiene_timeout = False
+        if self._al_aviso:
+            self._al_aviso(
+                f"La imagen '{self._config.docker.imagen}' no trae el comando 'timeout': si un "
+                "comando se pasa del tiempo, se reinicia el contenedor para cortarlo."
+            )
 
 
 def _argumentos_variables(variables: Mapping[str, str]) -> list[str]:
