@@ -1672,8 +1672,11 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
   - [ ] **Mover el ticket de Jira a "En revisión" al abrir el PR** (una transición de
         Jira), opcional por proyecto porque cada flujo de trabajo nombra distinto sus
         estados.
-  - [ ] **`.gitattributes` con `* text=auto eol=lf`**, para unificar los finales de línea y
+  - [x] **`.gitattributes` con `* text=auto eol=lf`**, para unificar los finales de línea y
         que deje de aparecer el aviso de LF/CRLF en Windows.
+        Hecho: el índice ya estaba todo en LF, así que `git add --renormalize .` no cambió
+        ningún archivo y `git status` quedó limpio. Los archivos del disco que estaban en CRLF
+        (por `core.autocrlf=true`) pasan a LF en el próximo checkout.
 
 > Con 1 y 2 ya hay algo funcional y demostrable; lo demás se suma encima. Marcar con `[x]`
 > cada ítem al terminarlo, y la fase cuando estén todos.
