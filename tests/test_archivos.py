@@ -4,6 +4,7 @@ import pytest
 
 from harness.herramientas import archivos
 from harness.herramientas.archivos import (
+    AVISO_REESCRIBIR,
     ErrorHerramienta,
     editar_archivo,
     escribir_archivo,
@@ -186,3 +187,14 @@ def test_editar_respeta_los_protegidos_de_harness_yaml(repo: Path) -> None:
     (repo / "migrations" / "v1.sql").write_text("CREATE TABLE t;\n", encoding="utf-8")
     with pytest.raises(ErrorRuta, match="protegido"):
         editar_archivo(repo, "migrations/v1.sql", "t", "u", protegidos=["migrations/**"])
+
+
+def test_reescribir_un_archivo_existente_sugiere_editar(repo: Path) -> None:
+    (repo / "a.py").write_text("x = 1\n", encoding="utf-8")
+    resultado = escribir_archivo(repo, "a.py", "x = 2\n")
+    assert resultado == f"Archivo 'a.py' escrito (6 caracteres). {AVISO_REESCRIBIR}"
+    assert "editar_archivo" in AVISO_REESCRIBIR
+
+
+def test_crear_un_archivo_nuevo_no_avisa(repo: Path) -> None:
+    assert escribir_archivo(repo, "b.py", "y\n") == "Archivo 'b.py' escrito (2 caracteres)."

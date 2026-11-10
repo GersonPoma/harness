@@ -12,6 +12,12 @@ MAX_ENTRADAS_LISTADO = 200
 PREFIJO_ARCHIVO = "Archivo: "
 # Cuántas líneas de coincidencia se le muestran al modelo si el fragmento se repite.
 MAX_LINEAS_COINCIDENCIAS = 10
+# El modelo a veces reescribe un archivo entero para cambiar unas líneas (TAREAS-4): gasta
+# tokens y puede perder lo que no copió. Se le sugiere editar_archivo para la próxima vez.
+AVISO_REESCRIBIR = (
+    "Aviso: el archivo ya existía y lo reemplazaste entero. Para los próximos cambios en "
+    "archivos existentes usa editar_archivo, que cambia solo el fragmento."
+)
 
 
 class ErrorHerramienta(Exception):
@@ -59,12 +65,14 @@ def escribir_archivo(
     validar_escritura(repo, archivo, protegidos)
     if archivo.is_dir():
         raise ErrorHerramienta(f"'{ruta}' es una carpeta, no un archivo.")
+    es_existente = archivo.is_file()
     archivo.parent.mkdir(parents=True, exist_ok=True)
     # newline="" para escribir los saltos de línea tal cual vienen, también en Windows.
     archivo.write_text(contenido, encoding="utf-8", newline="")
     if al_escribir:
         al_escribir(archivo.relative_to(repo.resolve()).as_posix())
-    return f"Archivo '{ruta}' escrito ({len(contenido)} caracteres)."
+    resultado = f"Archivo '{ruta}' escrito ({len(contenido)} caracteres)."
+    return f"{resultado} {AVISO_REESCRIBIR}" if es_existente else resultado
 
 
 def editar_archivo(
