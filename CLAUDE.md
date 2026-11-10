@@ -25,6 +25,7 @@ harness init              # generar AGENTS.md / harness.yaml en un repo objetivo
 harness limpiar           # borrar lo que dejó el harness en Docker (--cache, --imagenes)
 harness config            # modelo y credenciales en ~/.harness/config.toml (--mostrar,
                           # --credencial NOMBRE, --importar-env)
+harness perfiles          # perfiles de modelo; harness perfil usar|agregar|editar|borrar|probar
 harness version
 ```
 
@@ -75,7 +76,8 @@ harness/
     ├── git.py              # git del host
     ├── github.py           # PR por la API REST
     ├── config_usuario.py   # ~/.harness/config.toml: perfiles, respaldo, revisor, credenciales
-    ├── comandos_config.py  # harness config (y harness perfiles / harness perfil)
+    ├── comandos_config.py  # harness config, harness perfiles y harness perfil
+    ├── menu.py             # menú con flechas (harness perfil usar sin nombre)
     ├── config_mcp.py       # mcp.json (mcpServers), en ~/.harness/ o junto al .env
     ├── plantillas/         # mcp.example.json (lo copia harness config a ~/.harness/)
     ├── cliente_mcp.py      # SesionMCP: stdio o HTTP, síncrona sobre anyio

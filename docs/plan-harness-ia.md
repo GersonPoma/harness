@@ -1720,7 +1720,7 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         4 caracteres, con su origen). `mcp.json` se busca en `~/.harness/` y después junto al
         `.env`; la plantilla viaja en el paquete (`plantillas/mcp.example.json`). Los mensajes
         de credenciales que faltan dicen de dónde sale cada valor (`donde_configurar`).
-  - [ ] **Perfiles de modelo** en `~/.harness/config.toml`: cada perfil tiene un nombre, un
+  - [x] **Perfiles de modelo** en `~/.harness/config.toml`: cada perfil tiene un nombre, un
         proveedor (preset) y un modelo, y uno es el predeterminado. Las API keys se guardan
         una sola vez por proveedor, en `[credenciales]`, y las comparten los perfiles.
         - Comandos, al estilo de `/model` de Claude Code:
@@ -1738,6 +1738,16 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
           entrada sin `:`; hoy es un error que lo anuncia), y `config.toml` suma la clave
           `respaldo = ["fuerte", "groq"]`, con el mismo formato. El `.env` gana sobre
           `config.toml`, con el mismo orden de prioridad que el resto.
+        Hecho: `run`, `resume` e `init` aceptan `--perfil` (y `run` e `init`, también
+        `--proveedor`/`--modelo`); la consola y el evento `inicio` dicen de dónde salió el
+        modelo. `harness perfiles` lista los perfiles (`*` el predeterminado, si la key de cada
+        uno está, el respaldo, el revisor y el modelo en uso) y `harness perfil
+        usar|agregar|editar|borrar|probar` los maneja; `usar` sin nombre abre un menú con las
+        flechas (`menu.py`: `msvcrt` en Windows, `termios` en Linux y macOS, o el número), y
+        sin terminal pide el nombre. `agregar` y `editar` preguntan con terminal y sin ella
+        usan las opciones; `borrar` pregunta `[s/N]` (o `--si`) y saca el perfil del
+        respaldo y del revisor; `probar` hace un pedido con una herramienta y `tool_choice`, y
+        dice si la key funciona y si el modelo llamó a la herramienta.
   - [ ] **Logs más legibles** (resumen por ejecución, tiempos por etapa).
   - [x] **Repetir el aviso de "falta AGENTS.md" en el resumen final**: hoy aparece una vez
         al inicio y se pierde detrás de "Instalando dependencias...".

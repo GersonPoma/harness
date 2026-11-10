@@ -1,4 +1,5 @@
-"""Comandos de la configuración por usuario (~/.harness/config.toml): harness config.
+"""Comandos de la configuración por usuario (~/.harness/config.toml): harness config,
+harness perfiles y harness perfil.
 
 Nunca se muestra un secreto completo ni se recibe por argumento: las credenciales se piden con
 la entrada oculta (o se leen de stdin, sin terminal) y se muestran enmascaradas.
@@ -6,6 +7,7 @@ la entrada oculta (o se leen de stdin, sin terminal) y se muestran enmascaradas.
 
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Annotated
 
@@ -13,7 +15,7 @@ import typer
 from dotenv import dotenv_values
 
 from harness import config as configuracion
-from harness import consola
+from harness import consola, menu
 from harness.config import (
     PREFIJO_VARIABLES_HARNESS,
     VAR_API_KEY_ENV,
@@ -43,7 +45,10 @@ from harness.config_usuario import (
     ruta_config,
     ruta_mcp_usuario,
 )
+from harness.proveedores.base import ErrorProveedor
+from harness.proveedores.fabrica import crear_proveedor
 from harness.proveedores.presets import PRESETS, PROVEEDOR_PERSONALIZADO
+from harness.tipos import Herramienta, Mensaje, Rol
 
 PROVEEDOR_POR_DEFECTO = "gemini"
 # Otras credenciales que se reconocen al importar el .env y al mostrar la configuración.
@@ -383,3 +388,268 @@ def _guardar(usuario: ConfigUsuario) -> Path:
     except (ErrorConfigUsuario, ValueError) as error:
         consola.mostrar_error(f"No se guardó: {error}")
         raise typer.Exit(1) from error
+
+
+# --- harness perfiles y harness perfil ------------------------------------------------------
+
+perfil_app = typer.Typer(
+    help="Perfiles de modelo de ~/.harness/config.toml (la lista: harness perfiles).",
+    no_args_is_help=True,
+)
+NOMBRE_HERRAMIENTA_PRUEBA = "responder_prueba"
+MENSAJES_PRUEBA = (
+    "Eres una prueba de conexión del harness: responde solo llamando a la herramienta.",
+    f"Llama a la herramienta {NOMBRE_HERRAMIENTA_PRUEBA} con el texto 'ok'.",
+)
+AYUDA_PROVEEDOR_PERFIL = f"Proveedor ({', '.join(PRESETS)})."
+AYUDA_BASE_URL = "Solo para personalizado: la URL base de la API."
+AYUDA_API_KEY_ENV = "Solo para personalizado: la variable con la API key."
+SIN_PERFILES = "No hay perfiles: créalos con 'harness config' o 'harness perfil agregar <nombre>'."
+
+
+def perfiles() -> None:
+    """Lista los perfiles de ~/.harness/config.toml y marca el predeterminado."""
+    mostrar_perfiles(_leer())
+
+
+@perfil_app.command("usar")
+def usar(
+    nombre: Annotated[str | None, typer.Argument(help="El perfil; sin él, un menú.")] = None,
+) -> None:
+    """Cambia el perfil predeterminado (queda guardado)."""
+    usuario = _leer()
+    if not usuario.perfiles:
+        consola.mostrar_error(SIN_PERFILES)
+        raise typer.Exit(1)
+    if nombre is None:
+        nombre = _elegir_con_menu(usuario)
+    _existente(usuario, nombre)
+    usuario.perfil = nombre
+    _guardar(usuario)
+    perfil = usuario.perfiles[nombre]
+    consola.mostrar_ok(
+        f"Perfil predeterminado: {nombre} ({perfil.proveedor} / {perfil.modelo})."
+    )
+    _avisar_si_el_env_gana()
+
+
+@perfil_app.command("agregar")
+def agregar(
+    nombre: Annotated[str, typer.Argument(help="Nombre del perfil ([a-z0-9_-]).")],
+    proveedor: Annotated[str | None, typer.Option(help=AYUDA_PROVEEDOR_PERFIL)] = None,
+    modelo: Annotated[str | None, typer.Option(help="Id del modelo.")] = None,
+    base_url: Annotated[str | None, typer.Option(help=AYUDA_BASE_URL)] = None,
+    api_key_env: Annotated[str | None, typer.Option(help=AYUDA_API_KEY_ENV)] = None,
+) -> None:
+    """Agrega un perfil; con terminal pregunta lo que falte (y la key si no está en ningún lado)."""
+    usuario = _leer()
+    nombre = _validar_nombre(nombre)
+    if nombre in usuario.perfiles:
+        consola.mostrar_error(f"El perfil '{nombre}' ya existe: cámbialo con 'harness perfil "
+                              f"editar {nombre}'.")
+        raise typer.Exit(1)
+    perfil = _armar_perfil(None, proveedor, modelo, base_url, api_key_env)
+    usuario.perfiles[nombre] = perfil
+    usuario.perfil = usuario.perfil or nombre
+    _pedir_key_si_falta(usuario, perfil)
+    _guardar(usuario)
+    es_predeterminado = usuario.perfil == nombre
+    consola.mostrar_ok(
+        f"Perfil {nombre} agregado ({perfil.proveedor} / {perfil.modelo})"
+        + (", y es el predeterminado." if es_predeterminado else ".")
+    )
+
+
+@perfil_app.command("editar")
+def editar(
+    nombre: Annotated[str, typer.Argument(help="El perfil a cambiar.")],
+    proveedor: Annotated[str | None, typer.Option(help=AYUDA_PROVEEDOR_PERFIL)] = None,
+    modelo: Annotated[str | None, typer.Option(help="Id del modelo.")] = None,
+    base_url: Annotated[str | None, typer.Option(help=AYUDA_BASE_URL)] = None,
+    api_key_env: Annotated[str | None, typer.Option(help=AYUDA_API_KEY_ENV)] = None,
+) -> None:
+    """Cambia un perfil; con terminal pregunta, con los valores actuales por defecto."""
+    usuario = _leer()
+    actual = _existente(usuario, nombre)
+    opciones = (proveedor, modelo, base_url, api_key_env)
+    if not consola.es_terminal_interactiva() and not any(opciones):
+        consola.mostrar_error(
+            "Sin terminal, di qué cambiar: --proveedor, --modelo, --base-url o --api-key-env."
+        )
+        raise typer.Exit(1)
+    perfil = _armar_perfil(actual, *opciones)
+    usuario.perfiles[nombre] = perfil
+    _pedir_key_si_falta(usuario, perfil)
+    _guardar(usuario)
+    consola.mostrar_ok(f"Perfil {nombre}: {perfil.proveedor} / {perfil.modelo}.")
+
+
+@perfil_app.command("borrar")
+def borrar(
+    nombre: Annotated[str, typer.Argument(help="El perfil a borrar.")],
+    si: Annotated[bool, typer.Option("--si", help="No preguntar (para scripts).")] = False,
+) -> None:
+    """Borra un perfil (las credenciales quedan: las pueden usar otros)."""
+    usuario = _leer()
+    _existente(usuario, nombre)
+    if not si:
+        if not consola.es_terminal_interactiva():
+            consola.mostrar_error(
+                f"Sin terminal no se borra: para confirmar, 'harness perfil borrar {nombre} --si'."
+            )
+            raise typer.Exit(1)
+        if not consola.preguntar_si_no(f"¿Borrar el perfil {nombre}?"):
+            consola.mostrar_aviso("No se borró nada.")
+            return
+    del usuario.perfiles[nombre]
+    avisos = []
+    if usuario.perfil == nombre:
+        usuario.perfil = None
+        avisos.append(
+            "Ya no hay perfil predeterminado: elige uno con 'harness perfil usar'."
+        )
+    if nombre in usuario.respaldo:
+        usuario.respaldo = [e for e in usuario.respaldo if e != nombre]
+        avisos.append(f"Se sacó {nombre} del respaldo.")
+    if usuario.revisor == nombre:
+        usuario.revisor = None
+        avisos.append(f"{nombre} era el revisor: ahora revisa el mismo modelo que implementa.")
+    _guardar(usuario)
+    consola.mostrar_ok(f"Perfil {nombre} borrado.")
+    for aviso in avisos:
+        consola.mostrar_aviso(aviso)
+
+
+@perfil_app.command("probar")
+def probar(
+    nombre: Annotated[
+        str | None, typer.Argument(help="El perfil; sin él, el predeterminado.")
+    ] = None,
+) -> None:
+    """Hace un pedido de prueba: comprueba la key y que el modelo llame herramientas."""
+    usuario = _leer()
+    nombre = nombre or usuario.perfil
+    if nombre is None:
+        consola.mostrar_error(
+            "No hay perfil predeterminado: di cuál, 'harness perfil probar <nombre>'."
+        )
+        raise typer.Exit(1)
+    try:
+        elegido = configuracion.cargar_config(perfil=nombre)
+        proveedor = crear_proveedor(elegido, consola.mostrar_aviso)
+        inicio = time.monotonic()
+        with consola.estado(f"Probando {nombre} ({elegido.proveedor} / {elegido.modelo})..."):
+            respuesta = proveedor.responder(
+                _mensajes_prueba(), [_herramienta_prueba()], NOMBRE_HERRAMIENTA_PRUEBA
+            )
+        segundos = time.monotonic() - inicio
+    except (ErrorConfiguracion, ErrorProveedor) as error:
+        consola.mostrar_error(f"{nombre}: {error}")
+        raise typer.Exit(1) from error
+    tokens = respuesta.tokens_entrada + respuesta.tokens_salida
+    if any(llamada.nombre == NOMBRE_HERRAMIENTA_PRUEBA for llamada in respuesta.llamadas):
+        consola.mostrar_ok(
+            f"{nombre}: la key funciona y el modelo llamó a la herramienta "
+            f"({consola.formatear_duracion(segundos)}, {tokens} tokens)."
+        )
+        return
+    consola.mostrar_error(
+        f"{nombre}: la key funciona, pero el modelo respondió sin llamar a la herramienta: "
+        "puede no soportar tool calling (el harness lo necesita)."
+    )
+    raise typer.Exit(1)
+
+
+def _mensajes_prueba() -> list[Mensaje]:
+    sistema, pedido = MENSAJES_PRUEBA
+    return [Mensaje(Rol.SISTEMA, sistema), Mensaje(Rol.USUARIO, pedido)]
+
+
+def _herramienta_prueba() -> Herramienta:
+    parametros = {
+        "type": "object",
+        "properties": {"texto": {"type": "string", "description": "El texto pedido."}},
+        "required": ["texto"],
+    }
+    return Herramienta(
+        NOMBRE_HERRAMIENTA_PRUEBA, "Responde a la prueba de conexión.", parametros,
+        lambda texto: texto,
+    )
+
+
+def _elegir_con_menu(usuario: ConfigUsuario) -> str:
+    if not consola.es_terminal_interactiva():
+        consola.mostrar_error("Sin terminal no hay menú: di cuál, 'harness perfil usar <nombre>'.")
+        raise typer.Exit(1)
+    nombres = list(usuario.perfiles)
+    opciones = [
+        f"{n}  ({usuario.perfiles[n].proveedor} / {usuario.perfiles[n].modelo})"
+        + ("  [predeterminado]" if n == usuario.perfil else "")
+        for n in nombres
+    ]
+    inicial = nombres.index(usuario.perfil) if usuario.perfil in nombres else 0
+    indice = menu.elegir(opciones, consola.consola, inicial)
+    if indice is None:
+        consola.mostrar_aviso("Cancelado: el predeterminado no cambió.")
+        raise typer.Exit(0)
+    return nombres[indice]
+
+
+def _armar_perfil(
+    actual: Perfil | None,
+    proveedor: str | None,
+    modelo: str | None,
+    base_url: str | None,
+    api_key_env: str | None,
+) -> Perfil:
+    """El perfil con las opciones; con terminal y sin opciones, se pregunta."""
+    opciones = (proveedor, modelo, base_url, api_key_env)
+    if not any(opciones) and consola.es_terminal_interactiva():
+        return _preguntar_perfil(actual)
+    base = actual.model_dump() if actual else {}
+    cambios = {"proveedor": proveedor, "modelo": modelo, "base_url": base_url,
+               "api_key_env": api_key_env}
+    datos = {**base, **{k: v for k, v in cambios.items() if v is not None}}
+    if proveedor and proveedor.lower() != PROVEEDOR_PERSONALIZADO:
+        datos.pop("base_url", None)
+        datos.pop("api_key_env", None)
+    faltan = [f"--{clave}" for clave in ("proveedor", "modelo") if not datos.get(clave)]
+    if faltan:
+        consola.mostrar_error(f"Falta {' y '.join(faltan)}.")
+        raise typer.Exit(1)
+    try:
+        return Perfil.model_validate(datos)
+    except ValueError as error:
+        consola.mostrar_error(f"Perfil no válido: {error}")
+        raise typer.Exit(1) from error
+
+
+def _pedir_key_si_falta(usuario: ConfigUsuario, perfil: Perfil) -> None:
+    variable = perfil.api_key_env or PRESETS[perfil.proveedor].variable_api_key
+    if variable is None or variable in usuario.credenciales:
+        return
+    _cargar_entorno()
+    if origen_variable(variable) is not None:
+        return
+    if consola.es_terminal_interactiva():
+        _preguntar_credencial(usuario, variable)
+    if variable not in usuario.credenciales:
+        consola.mostrar_aviso(f"Falta {variable}: guárdala con 'harness config --credencial "
+                              f"{variable}'.")
+
+
+def _validar_nombre(nombre: str) -> str:
+    nombre = nombre.lower()
+    if not PATRON_PERFIL.fullmatch(nombre):
+        consola.mostrar_error("El nombre del perfil solo admite minúsculas, números, '-' y '_'.")
+        raise typer.Exit(1)
+    return nombre
+
+
+def _existente(usuario: ConfigUsuario, nombre: str) -> Perfil:
+    perfil = usuario.perfiles.get(nombre)
+    if perfil is None:
+        existentes = ", ".join(usuario.perfiles) or "ninguno"
+        consola.mostrar_error(f"No existe el perfil '{nombre}' (perfiles: {existentes}).")
+        raise typer.Exit(1)
+    return perfil

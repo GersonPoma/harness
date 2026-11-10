@@ -185,6 +185,8 @@ AYUDA_CONSERVAR = (
 
 app = typer.Typer(help="Harness de IA para generación de código")
 app.command(name="config")(comandos_config.config)
+app.command(name="perfiles")(comandos_config.perfiles)
+app.add_typer(comandos_config.perfil_app, name="perfil")
 
 
 @dataclass

@@ -193,3 +193,215 @@ def test_un_config_toml_roto_se_informa(monkeypatch: pytest.MonkeyPatch) -> None
 def test_el_entorno_no_cambia_al_terminar() -> None:
     # El conftest restaura os.environ: las credenciales cargadas por un test no pasan al otro.
     assert "GITHUB_TOKEN" not in os.environ or os.environ["GITHUB_TOKEN"] != TOKEN
+
+
+# --- harness perfiles y harness perfil ------------------------------------------------------
+
+from harness.proveedores.base import ErrorProveedor  # noqa: E402
+from harness.tipos import LlamadaHerramienta, RespuestaModelo  # noqa: E402
+from tests.falsos import ProveedorFalso  # noqa: E402
+
+
+def _tres_perfiles(**extra: object) -> None:
+    guardar_config_usuario(ConfigUsuario(
+        perfil="rapido",
+        respaldo=["fuerte", "groq:llama"],
+        revisor="fuerte",
+        perfiles={
+            "rapido": Perfil(proveedor="gemini", modelo="flash"),
+            "fuerte": Perfil(proveedor="openrouter", modelo="nemotron:free"),
+            "gpt": Perfil(proveedor="openai", modelo="gpt-5"),
+        },
+        credenciales={"GEMINI_API_KEY": CLAVE, "OPENROUTER_API_KEY": "clave-or-0123456789"},
+        **extra,
+    ))
+
+
+def test_perfiles_lista_y_marca_el_predeterminado(monkeypatch: pytest.MonkeyPatch) -> None:
+    _tres_perfiles()
+    codigo, salida = _invocar(monkeypatch, ["perfiles"], terminal=False)
+    assert codigo == 0, salida
+    assert "* rapido gemini / flash GEMINI_API_KEY ✓" in salida
+    assert "fuerte openrouter / nemotron:free OPENROUTER_API_KEY ✓" in salida
+    assert "gpt openai / gpt-5 OPENAI_API_KEY ✗ falta" in salida
+    assert "Respaldo: fuerte, groq:llama (config.toml)" in salida
+    assert "Revisor: fuerte (config.toml)" in salida
+    assert "En uso ahora: gemini / flash (perfil rapido, predeterminado)" in salida
+    assert CLAVE not in salida
+
+
+def test_perfiles_sin_perfiles(monkeypatch: pytest.MonkeyPatch) -> None:
+    codigo, salida = _invocar(monkeypatch, ["perfiles"], terminal=False)
+    assert codigo == 0 and "No hay perfiles" in salida
+
+
+def test_usar_con_nombre_funciona_sin_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    _tres_perfiles()
+    codigo, salida = _invocar(monkeypatch, ["perfil", "usar", "fuerte"], terminal=False)
+    assert codigo == 0 and "Perfil predeterminado: fuerte (openrouter / nemotron:free)" in salida
+    assert leer_config_usuario().perfil == "fuerte"
+
+
+def test_usar_sin_nombre_y_sin_terminal_pide_el_nombre(monkeypatch: pytest.MonkeyPatch) -> None:
+    _tres_perfiles()
+    codigo, salida = _invocar(monkeypatch, ["perfil", "usar"], terminal=False)
+    assert codigo == 1 and "harness perfil usar <nombre>" in salida
+
+
+def test_usar_sin_nombre_abre_el_menu(monkeypatch: pytest.MonkeyPatch) -> None:
+    _tres_perfiles()
+    vistas: list[tuple[list[str], int]] = []
+
+    def elegir_falso(opciones, _consola, inicial=0):
+        vistas.append((opciones, inicial))
+        return 2
+
+    monkeypatch.setattr(comandos_config.menu, "elegir", elegir_falso)
+    codigo, salida = _invocar(monkeypatch, ["perfil", "usar"])
+    assert codigo == 0, salida
+    opciones, inicial = vistas[0]
+    assert inicial == 0 and opciones[0].endswith("[predeterminado]")
+    assert leer_config_usuario().perfil == "gpt"
+
+
+def test_usar_con_menu_cancelado_no_cambia(monkeypatch: pytest.MonkeyPatch) -> None:
+    _tres_perfiles()
+    monkeypatch.setattr(comandos_config.menu, "elegir", lambda *_a, **_k: None)
+    codigo, salida = _invocar(monkeypatch, ["perfil", "usar"])
+    assert codigo == 0 and "Cancelado" in salida and leer_config_usuario().perfil == "rapido"
+
+
+def test_usar_un_perfil_que_no_existe(monkeypatch: pytest.MonkeyPatch) -> None:
+    _tres_perfiles()
+    codigo, salida = _invocar(monkeypatch, ["perfil", "usar", "nadie"], terminal=False)
+    assert codigo == 1 and "No existe el perfil 'nadie' (perfiles: rapido, fuerte, gpt)" in salida
+
+
+def test_agregar_sin_terminal_con_opciones(monkeypatch: pytest.MonkeyPatch) -> None:
+    codigo, salida = _invocar(
+        monkeypatch, ["perfil", "agregar", "Mio", "--proveedor", "groq", "--modelo", "llama"],
+        terminal=False,
+    )
+    assert codigo == 0, salida
+    usuario = leer_config_usuario()
+    # El primero queda como predeterminado; el nombre, en minúsculas.
+    assert usuario.perfil == "mio" and usuario.perfiles["mio"].modelo == "llama"
+    assert "Falta GROQ_API_KEY: guárdala con 'harness config --credencial GROQ_API_KEY'" in salida
+
+
+def test_agregar_sin_terminal_y_sin_opciones_falla(monkeypatch: pytest.MonkeyPatch) -> None:
+    codigo, salida = _invocar(monkeypatch, ["perfil", "agregar", "mio"], terminal=False)
+    assert codigo == 1 and "Falta --proveedor y --modelo" in salida
+    assert not ruta_config().exists()
+
+
+def test_agregar_con_terminal_pregunta_y_pide_la_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    _tres_perfiles()
+    codigo, salida = _invocar(monkeypatch, ["perfil", "agregar", "local"],
+                              "personalizado\nm\nhttps://mi.api/v1\nMI_KEY\n",
+                              ["clave-propia-0123456789"])
+    assert codigo == 0, salida
+    usuario = leer_config_usuario()
+    assert usuario.perfiles["local"].base_url == "https://mi.api/v1"
+    assert usuario.credenciales["MI_KEY"] == "clave-propia-0123456789"
+    assert usuario.perfil == "rapido"
+
+
+def test_agregar_uno_que_ya_existe(monkeypatch: pytest.MonkeyPatch) -> None:
+    _tres_perfiles()
+    codigo, salida = _invocar(monkeypatch, ["perfil", "agregar", "gpt", "--proveedor", "groq",
+                                            "--modelo", "x"], terminal=False)
+    assert codigo == 1 and "ya existe" in salida
+
+
+def test_editar_sin_terminal_aplica_las_opciones(monkeypatch: pytest.MonkeyPatch) -> None:
+    _tres_perfiles()
+    codigo, salida = _invocar(monkeypatch, ["perfil", "editar", "rapido", "--modelo", "pro"],
+                              terminal=False)
+    assert codigo == 0, salida
+    assert leer_config_usuario().perfiles["rapido"] == Perfil(proveedor="gemini", modelo="pro")
+    codigo, salida = _invocar(monkeypatch, ["perfil", "editar", "rapido"], terminal=False)
+    assert codigo == 1 and "di qué cambiar" in salida
+
+
+def test_editar_con_terminal_usa_los_valores_actuales(monkeypatch: pytest.MonkeyPatch) -> None:
+    _tres_perfiles()
+    codigo, salida = _invocar(monkeypatch, ["perfil", "editar", "fuerte"], "\notro:free\n")
+    assert codigo == 0, salida
+    assert leer_config_usuario().perfiles["fuerte"] == Perfil(proveedor="openrouter",
+                                                              modelo="otro:free")
+
+
+def test_borrar_saca_el_perfil_del_respaldo_y_del_revisor(monkeypatch: pytest.MonkeyPatch) -> None:
+    _tres_perfiles()
+    codigo, salida = _invocar(monkeypatch, ["perfil", "borrar", "fuerte"], "s\n")
+    assert codigo == 0, salida
+    usuario = leer_config_usuario()
+    assert "fuerte" not in usuario.perfiles
+    assert usuario.respaldo == ["groq:llama"] and usuario.revisor is None
+    assert "Se sacó fuerte del respaldo" in salida and "era el revisor" in salida
+    # Las credenciales quedan.
+    assert "OPENROUTER_API_KEY" in usuario.credenciales
+
+
+def test_borrar_el_predeterminado_avisa(monkeypatch: pytest.MonkeyPatch) -> None:
+    _tres_perfiles()
+    codigo, salida = _invocar(monkeypatch, ["perfil", "borrar", "rapido", "--si"],
+                              terminal=False)
+    assert codigo == 0 and leer_config_usuario().perfil is None
+    assert "Ya no hay perfil predeterminado" in salida
+
+
+def test_borrar_sin_terminal_necesita_si(monkeypatch: pytest.MonkeyPatch) -> None:
+    _tres_perfiles()
+    codigo, salida = _invocar(monkeypatch, ["perfil", "borrar", "gpt"], terminal=False)
+    assert codigo == 1 and "--si" in salida and "gpt" in leer_config_usuario().perfiles
+
+
+def test_borrar_y_responder_que_no(monkeypatch: pytest.MonkeyPatch) -> None:
+    _tres_perfiles()
+    codigo, salida = _invocar(monkeypatch, ["perfil", "borrar", "gpt"], "n\n")
+    assert codigo == 0 and "No se borró nada" in salida
+    assert "gpt" in leer_config_usuario().perfiles
+
+
+def _probar(monkeypatch: pytest.MonkeyPatch, respuesta, *argumentos: str) -> tuple[int, str, list]:
+    _tres_perfiles()
+    pedidos: list = []
+    proveedor = ProveedorFalso([respuesta])
+
+    def crear(config, *_):
+        pedidos.append(config)
+        return proveedor
+
+    monkeypatch.setattr(comandos_config, "crear_proveedor", crear)
+    codigo, salida = _invocar(monkeypatch, ["perfil", "probar", *argumentos], terminal=False)
+    return codigo, salida, pedidos + [proveedor]
+
+
+def test_probar_bien(monkeypatch: pytest.MonkeyPatch) -> None:
+    llamada = LlamadaHerramienta("p", "responder_prueba", {"texto": "ok"})
+    codigo, salida, (config, proveedor) = _probar(
+        monkeypatch, RespuestaModelo(None, [llamada], 60, 32)
+    )
+    assert codigo == 0, salida
+    assert config.perfil == "rapido"
+    assert "rapido: la key funciona y el modelo llamó a la herramienta" in salida
+    assert "92 tokens" in salida
+    assert proveedor.obligatorias == ["responder_prueba"]
+
+
+def test_probar_sin_tool_calling(monkeypatch: pytest.MonkeyPatch) -> None:
+    codigo, salida, _ = _probar(monkeypatch, RespuestaModelo("ok", [], 10, 5), "fuerte")
+    assert codigo == 1 and "puede no soportar tool calling" in salida
+
+
+def test_probar_con_la_key_rechazada(monkeypatch: pytest.MonkeyPatch) -> None:
+    error = ErrorProveedor("El proveedor 'gemini' rechazó la API key: revisa GEMINI_API_KEY.")
+    codigo, salida, _ = _probar(monkeypatch, error)
+    assert codigo == 1 and "rapido: El proveedor 'gemini' rechazó la API key" in salida
+
+
+def test_probar_un_perfil_sin_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    codigo, salida, _ = _probar(monkeypatch, RespuestaModelo("ok", [], 1, 1), "gpt")
+    assert codigo == 1 and "Falta OPENAI_API_KEY" in salida
