@@ -8,7 +8,12 @@ from typer.testing import CliRunner
 
 from harness import cli
 from harness.config import ConfigModelo
-from harness.entorno_docker import MENSAJE_DOCKER_NO_CORRE, ErrorDocker
+from harness.entorno_docker import (
+    MENSAJE_DOCKER_NO_CORRE,
+    Conservados,
+    ErrorDocker,
+    ResultadoComando,
+)
 from harness.sesion import ESTADO_IMPLEMENTACION, MOTIVO_LIMITE_PASOS, Sesion, guardar_sesion
 from tests.falsos import ProveedorFalso
 from tests.git_prueba import git, iniciar_repo, requiere_git
@@ -157,6 +162,78 @@ def test_init_verificar_con_docker_cerrado_no_llama_al_modelo(
     assert codigo == 1
     assert MENSAJE_DOCKER_NO_CORRE in salida
     assert generados == []
+
+
+@requiere_git
+def test_run_con_conservar_muestra_como_entrar_y_como_borrar(
+    monkeypatch: pytest.MonkeyPatch, repo: Path
+) -> None:
+    (repo / "harness.yaml").write_text(YAML, encoding="utf-8")
+    iniciar_repo(repo)
+    recibido: dict = {}
+
+    class EntornoFalso:
+        def __init__(self, *_args: object, **opciones: object) -> None:
+            recibido.update(opciones)
+            self.conservados = None
+
+        def __enter__(self) -> "EntornoFalso":
+            return self
+
+        def iniciar(self, **_: object) -> None:
+            raise ErrorDocker("Falló la instalación 'pip install': sin red")
+
+        def __exit__(self, *_: object) -> None:
+            self.conservados = Conservados(
+                "harness-demo-t-1-abc123", (("harness-demo-t-1-abc123-db", "db"),),
+                "harness-demo-t-1-abc123",
+            )
+
+    monkeypatch.setattr(cli, "EntornoDocker", EntornoFalso)
+    argumentos = ["run", str(repo.parent / "T-1.md"), "--repo", str(repo), "--sin-push",
+                  "--conservar"]
+    codigo, salida = _invocar(monkeypatch, argumentos)
+
+    assert codigo == 1 and recibido["conservar"] is True
+    assert "docker exec -it harness-demo-t-1-abc123 sh" in salida
+    assert "Servicio db: docker exec -it harness-demo-t-1-abc123-db sh" in salida
+    assert "harness limpiar" in salida
+    assert ("docker rm -f -v harness-demo-t-1-abc123-db harness-demo-t-1-abc123; "
+            "docker network rm harness-demo-t-1-abc123") in salida
+
+
+def test_init_verificar_con_conservar(monkeypatch: pytest.MonkeyPatch, repo: Path) -> None:
+    (repo / "AGENTS.md").write_text("# x", encoding="utf-8")
+    (repo / "harness.yaml").write_text(YAML, encoding="utf-8")
+    recibido: dict = {}
+
+    def verificar_falso(*_args: object, **opciones: object) -> ResultadoComando:
+        recibido.update(opciones)
+        opciones["al_conservar"](Conservados("harness-demo-init-abc123"))
+        return ResultadoComando(0, "ok")
+
+    monkeypatch.setattr(cli, "verificar_config", verificar_falso)
+    codigo, salida = _invocar(
+        monkeypatch, ["init", "--repo", str(repo), "--verificar", "--conservar"]
+    )
+    assert codigo == 0
+    assert "docker exec -it harness-demo-init-abc123 sh" in salida
+
+
+def test_init_verificar_sin_conservar_no_conserva(
+    monkeypatch: pytest.MonkeyPatch, repo: Path
+) -> None:
+    (repo / "AGENTS.md").write_text("# x", encoding="utf-8")
+    (repo / "harness.yaml").write_text(YAML, encoding="utf-8")
+    recibido: dict = {}
+
+    def verificar_falso(*_args: object, **opciones: object) -> ResultadoComando:
+        recibido.update(opciones)
+        return ResultadoComando(0, "ok")
+
+    monkeypatch.setattr(cli, "verificar_config", verificar_falso)
+    _invocar(monkeypatch, ["init", "--repo", str(repo), "--verificar"])
+    assert recibido["al_conservar"] is None
 
 
 def test_init_sin_verificar_no_exige_docker(monkeypatch: pytest.MonkeyPatch, repo: Path) -> None:

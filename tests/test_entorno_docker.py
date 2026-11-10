@@ -15,6 +15,7 @@ from harness.entorno_docker import (
     CODIGO_MATADO,
     CODIGO_TIEMPO_AGOTADO,
     MENSAJE_DOCKER_NO_CORRE,
+    Conservados,
     EntornoDocker,
     ErrorDocker,
     Instalacion,
@@ -671,6 +672,63 @@ def test_sin_comandos_de_instalacion_no_hay_nada_que_medir(repo: Path) -> None:
     ) as entorno:
         entorno.iniciar()
     assert instalaciones == []
+
+
+def test_conservar_no_borra_nada_y_dice_que_quedo(repo: Path) -> None:
+    (repo / ".env").write_text("CLAVE=real\n", encoding="utf-8")
+    docker = DockerFalso()
+    with _entorno_servicios(repo, docker, conservar=True) as entorno:
+        entorno.iniciar()
+    assert "rm" not in docker.subcomandos()
+    assert ["docker", "network", "rm", CONTENEDOR] not in docker.llamadas
+    assert entorno.conservados == Conservados(CONTENEDOR, ((SERVICIO, "db"),), CONTENEDOR)
+    assert entorno.conservados.contenedores == [SERVICIO, CONTENEDOR]
+    # Todo lo conservado lleva la etiqueta, para que harness limpiar lo encuentre después.
+    for argumentos in [a for a in docker.llamadas if a[1] == "run" or a[2:3] == ["create"]]:
+        assert "harness.conservar=1" in argumentos
+    # El archivo vacío que tapa el .env sigue montado: no se borra.
+    tapa = next(m for m in _montajes_de(_run_proyecto(docker)) if m.endswith("/app/.env,readonly"))
+    assert Path(tapa.split(",")[1].removeprefix("source=")).exists()
+
+
+def test_conservar_aunque_falle_la_instalacion(repo: Path) -> None:
+    # Es justo cuando más sirve entrar a mirar el contenedor.
+    docker = DockerFalso({"pip install -e .": [(1, "error")]})
+    entorno = EntornoDocker(
+        repo, CONFIG, "TAREAS-1", ejecutar=docker, id_ejecucion=ID, conservar=True
+    )
+    with pytest.raises(ErrorDocker):
+        with entorno:
+            entorno.iniciar()
+    assert "rm" not in docker.subcomandos()
+    assert entorno.conservados == Conservados(NOMBRE)
+
+
+def test_conservar_sin_nada_creado(repo: Path) -> None:
+    docker = DockerFalso({"version": [(1, "")]})
+    entorno = EntornoDocker(repo, CONFIG, "T", ejecutar=docker, conservar=True)
+    with pytest.raises(ErrorDocker):
+        with entorno:
+            entorno.iniciar()
+    assert entorno.conservados is not None and not entorno.conservados.hay_algo
+
+
+def test_sin_conservar_no_hay_conservados(repo: Path) -> None:
+    with _iniciar(repo, DockerFalso()) as entorno:
+        pass
+    assert entorno.conservados is None
+
+
+def test_los_restos_conservados_no_se_borran_al_empezar(repo: Path) -> None:
+    conservado = {"harness": "1", "harness.pid": "99999", "harness.host": HOST,
+                  "harness.conservar": "1"}
+    docker = DockerFalso({
+        "ps": [(0, "id-conservado\n")],
+        "inspect": [(0, _inspeccion({"id": "id-conservado", "nombre": "harness-x",
+                                     "etiquetas": conservado}))],
+    })
+    _iniciar(repo, docker, usar_cache=False).cerrar()
+    assert [a for a in docker.llamadas if a[1] == "rm"] == [["docker", "rm", "-f", "-v", NOMBRE]]
 
 
 def test_verificar_docker_mide_lo_que_tarda() -> None:

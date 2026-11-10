@@ -241,7 +241,9 @@ Variables que se pasan al **contenedor del proyecto** (no a los servicios).
   en la rama.
 - El commit es de una línea: `<TICKET>: <título del ticket>` (la primera línea del ticket).
 - `harness run --sin-push` hace solo el commit local; `--sin-pr`, commit y push sin PR.
-  `--sin-cache` no usa la caché de dependencias (ver [`docker`](#docker)).
+  `--sin-cache` no usa la caché de dependencias (ver [`docker`](#docker)). `--conservar` (también
+  en `harness resume` e `init --verificar`) no borra los contenedores ni la red al terminar,
+  para entrar a depurar; se borran después con `harness limpiar`.
 - Sin `harness.yaml` no hay validación, y por eso tampoco rama, commit ni push.
 
 ### `limites`

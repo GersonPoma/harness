@@ -170,6 +170,10 @@ AYUDA_SIN_REVISION = (
 AYUDA_SIN_CACHE = (
     "No usar la caché de dependencias: se descarga todo de nuevo (el volumen no se toca)."
 )
+AYUDA_CONSERVAR = (
+    "No borrar los contenedores ni la red al terminar, para entrar a depurar (se borran "
+    "después con 'harness limpiar')."
+)
 
 app = typer.Typer(help="Harness de IA para generación de código")
 
@@ -187,6 +191,8 @@ class _Preparacion:
     es_con_plan: bool = True
     es_con_cache: bool = True
     es_con_revision: bool = True
+    # --conservar: los contenedores quedan al terminar, para depurar.
+    es_conservar: bool = False
     # HARNESS_RESPALDO: si el proveedor principal se cae, se sigue con estos, en orden.
     respaldo: list[ConfigModelo] = field(default_factory=list)
     # .harness/sessions/<TICKET>.json, para harness resume (se crea después de la rama).
@@ -376,6 +382,9 @@ def run(
     sin_revision: Annotated[
         bool, typer.Option("--sin-revision", help=AYUDA_SIN_REVISION)
     ] = False,
+    conservar: Annotated[
+        bool, typer.Option("--conservar", help=AYUDA_CONSERVAR)
+    ] = False,
     desde_cero: Annotated[
         bool,
         typer.Option(
@@ -400,6 +409,7 @@ def run(
     prep.es_con_plan = not sin_plan
     prep.es_con_cache = not sin_cache
     prep.es_con_revision = not sin_revision
+    prep.es_conservar = conservar
     limites = prep.config_proyecto.limites if prep.config_proyecto else None
     max_pasos = max_pasos or (limites.max_pasos if limites else MAX_PASOS_POR_DEFECTO)
     reporte = _empezar_registro(prep, aprobar_plan)
@@ -509,6 +519,9 @@ def resume(
             help="No darle al modelo las herramientas de GitHub por MCP (ahorra tokens).",
         ),
     ] = False,
+    conservar: Annotated[
+        bool, typer.Option("--conservar", help=AYUDA_CONSERVAR)
+    ] = False,
 ) -> None:
     """Continúa una ejecución que se cortó, desde donde quedó (sin empezar de cero)."""
     raiz = (repo or Path.cwd()).resolve()
@@ -519,6 +532,7 @@ def resume(
     prep.es_con_plan = sesion.es_con_plan
     prep.es_con_cache = not sin_cache
     prep.es_con_revision = not sin_revision
+    prep.es_conservar = conservar
     prep.texto_guardado = sesion.ticket.get("texto")
     limites = prep.config_proyecto.limites if prep.config_proyecto else None
     presupuesto = max_pasos or (limites.max_pasos if limites else MAX_PASOS_POR_DEFECTO)
@@ -1285,13 +1299,19 @@ def _ejecutar(
         usar_cache=prep.es_con_cache,
         al_cache=reporte.cache,
         al_instalar=reporte.instalacion,
+        conservar=prep.es_conservar,
     )
-    with entorno_docker as entorno:
-        with consola.estado("Preparando Docker...") as estado:
-            entorno.iniciar(al_avanzar=partial(consola.actualizar_estado, estado))
-        return _ejecutar_con_validacion(
-            prep, prep.config_proyecto, entorno, proveedor, max_pasos, reporte
-        )
+    try:
+        with entorno_docker as entorno:
+            with consola.estado("Preparando Docker...") as estado:
+                entorno.iniciar(al_avanzar=partial(consola.actualizar_estado, estado))
+            return _ejecutar_con_validacion(
+                prep, prep.config_proyecto, entorno, proveedor, max_pasos, reporte
+            )
+    finally:
+        # También si falló o se cortó: es justo cuando más sirve entrar a mirar.
+        if entorno_docker.conservados:
+            consola.mostrar_conservados(entorno_docker.conservados)
 
 
 def _ejecutar_con_validacion(
@@ -1432,6 +1452,9 @@ def init(
         bool,
         typer.Option("--sin-cache", help=f"Con --verificar. {AYUDA_SIN_CACHE}"),
     ] = False,
+    conservar: Annotated[
+        bool, typer.Option("--conservar", help=f"Con --verificar. {AYUDA_CONSERVAR}")
+    ] = False,
 ) -> None:
     """Genera AGENTS.md y harness.yaml si faltan (el modelo analiza el repo)."""
     raiz = (repo or Path.cwd()).resolve()
@@ -1464,7 +1487,7 @@ def init(
         # Solo se corrige un harness.yaml que init generó ahora: uno que ya existía es del
         # usuario y solo se informa.
         es_generado = generacion is not None and NOMBRE_HARNESS_YAML in generacion.creados
-        _verificar_init(raiz, not sin_cache, generacion if es_generado else None)
+        _verificar_init(raiz, not sin_cache, generacion if es_generado else None, conservar)
 
 
 @dataclass
@@ -1509,12 +1532,15 @@ def _generar_archivos_init(repo: Path, faltantes: list[str]) -> _GeneracionInit:
 
 
 def _verificar_init(
-    repo: Path, usar_cache: bool, generacion: _GeneracionInit | None = None
+    repo: Path,
+    usar_cache: bool,
+    generacion: _GeneracionInit | None = None,
+    conservar: bool = False,
 ) -> None:
     """Verifica el harness.yaml; si lo generó init y falla, el modelo lo corrige (hasta
     MAX_CORRECCIONES_INIT veces) y se verifica de nuevo."""
     for correccion in range(MAX_CORRECCIONES_INIT + 1):
-        error = _verificar_una_vez(repo, usar_cache)
+        error = _verificar_una_vez(repo, usar_cache, conservar)
         if error is None:
             return
         if generacion is None or correccion == MAX_CORRECCIONES_INIT:
@@ -1550,7 +1576,7 @@ def _corregir_harness_yaml(repo: Path, generacion: _GeneracionInit, error: str) 
     return False
 
 
-def _verificar_una_vez(repo: Path, usar_cache: bool) -> str | None:
+def _verificar_una_vez(repo: Path, usar_cache: bool, conservar: bool = False) -> str | None:
     """Una verificación: None si pasa, o el error (sin secretos) para devolvérselo al modelo."""
     try:
         # Las referencias ${NOMBRE} de harness.yaml se resuelven con el .env.
@@ -1569,6 +1595,7 @@ def _verificar_una_vez(repo: Path, usar_cache: bool) -> str | None:
                 usar_cache=usar_cache,
                 al_cache=consola.mostrar_cache,
                 al_instalar=consola.mostrar_instalacion,
+                al_conservar=consola.mostrar_conservados if conservar else None,
             )
     except (ErrorConfigProyecto, ErrorVariables) as error:
         consola.mostrar_error(str(error))

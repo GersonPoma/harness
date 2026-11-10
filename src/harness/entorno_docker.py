@@ -109,6 +109,26 @@ class Instalacion:
         return self.archivo_cambiado is not None
 
 
+@dataclass(frozen=True)
+class Conservados:
+    """Lo que quedó en Docker con --conservar, para depurar: contenedores y red."""
+
+    proyecto: str | None
+    # (contenedor, nombre del servicio en harness.yaml)
+    servicios: tuple[tuple[str, str], ...] = ()
+    red: str | None = None
+
+    @property
+    def contenedores(self) -> list[str]:
+        """Todos los contenedores conservados: primero los servicios, como se crearon."""
+        nombres = [contenedor for contenedor, _ in self.servicios]
+        return [*nombres, self.proyecto] if self.proyecto else nombres
+
+    @property
+    def hay_algo(self) -> bool:
+        return bool(self.contenedores or self.red)
+
+
 def ejecutar_proceso(
     argumentos: list[str], timeout: float, variables: Mapping[str, str] | None = None
 ) -> tuple[int, str]:
@@ -189,8 +209,12 @@ class EntornoDocker:
         al_cache: Callable[[EstadoCache], None] | None = None,
         al_instalar: Callable[[Instalacion], None] | None = None,
         id_ejecucion: str | None = None,
+        conservar: bool = False,
     ) -> None:
         self._repo = repo.resolve()
+        # --conservar: al cerrar no se borra nada, para poder entrar a depurar.
+        self._conservar = conservar
+        self.conservados: Conservados | None = None
         self._config = config
         self._variables = variables or resolver_variables(config)
         self._ejecutar = ejecutar
@@ -205,7 +229,9 @@ class EntornoDocker:
         self.id_ejecucion = id_ejecucion or secrets.token_hex(BYTES_ID_EJECUCION)
         # El contenedor del proyecto y la red comparten nombre (Docker los separa por tipo).
         self.nombre = f"harness-{config.proyecto}-{_nombre_seguro(ticket)}-{self.id_ejecucion}"
-        self._etiquetas = etiquetas_ejecucion(config.proyecto, ticket, self.id_ejecucion)
+        self._etiquetas = etiquetas_ejecucion(
+            config.proyecto, ticket, self.id_ejecucion, es_conservar=conservar
+        )
         self._contenedores: list[str] = []
         self._red: str | None = None
         # Archivo vacío del host que se monta encima de cada .env del repo.
@@ -269,7 +295,15 @@ class EntornoDocker:
             self._cambio_dependencias = ruta
 
     def cerrar(self) -> None:
-        """Borra los contenedores y la red creados; nunca lanza excepciones."""
+        """Borra los contenedores y la red creados; nunca lanza excepciones.
+
+        Con --conservar no borra nada (tampoco el archivo vacío que tapa los .env, que sigue
+        montado): deja en `conservados` qué quedó, para mostrar cómo entrar y cómo borrarlo.
+        """
+        if self._conservar:
+            if self.conservados is None:
+                self.conservados = self._armar_conservados()
+            return
         try:
             if self._contenedores:
                 self._ejecutar(
@@ -294,6 +328,15 @@ class EntornoDocker:
     def _nombre_servicio(self, servicio: ConfigServicio) -> str:
         return f"{self.nombre}-{servicio.nombre}"
 
+    def _armar_conservados(self) -> Conservados:
+        servicios = tuple(
+            (self._nombre_servicio(s), s.nombre)
+            for s in self._config.servicios
+            if self._nombre_servicio(s) in self._contenedores
+        )
+        proyecto = self.nombre if self.nombre in self._contenedores else None
+        return Conservados(proyecto, servicios, self._red)
+
     def _limpiar_restos(self) -> None:
         """Borra los restos de ejecuciones del proyecto que ya terminaron sin limpiar.
 
@@ -311,7 +354,10 @@ class EntornoDocker:
                 self._ejecutar(["docker", "network", "rm", red.id], TIMEOUT_DOCKER_SEGUNDOS)
 
     def _huerfanos(self, recursos: list[Recurso]) -> list[Recurso]:
-        return [r for r in recursos if not es_de_ejecucion_viva(r.etiquetas)]
+        # Lo conservado con --conservar es para depurar: solo lo borra harness limpiar.
+        return [
+            r for r in recursos if not es_de_ejecucion_viva(r.etiquetas) and not r.es_conservado
+        ]
 
     def _imagenes(self) -> list[str]:
         imagenes = [servicio.imagen for servicio in self._config.servicios]

@@ -19,7 +19,7 @@ from harness.compactacion import MODO_RESUMEN, Compactacion
 from harness.contexto import MAX_CARACTERES_AGENTS, ContextoProyecto
 from harness.ejecucion import ResultadoEjecucion, Validacion
 from harness.cache_dependencias import MOTIVO_DESACTIVADA, EstadoCache
-from harness.entorno_docker import MOTIVO_SIN_CACHE, Instalacion, ResultadoComando
+from harness.entorno_docker import MOTIVO_SIN_CACHE, Conservados, Instalacion, ResultadoComando
 from harness.entrega import ConfigEntrega, ResultadoEntrega
 from harness.alcance import EstadoAlcance
 from harness.github import PullRequest
@@ -661,6 +661,26 @@ def mostrar_instalacion(instalacion: Instalacion) -> None:
     else:
         texto = f"Dependencias instaladas en {duracion}."
     consola.print(f"[dim]{escape(texto)}[/]")
+
+
+def mostrar_conservados(conservados: Conservados) -> None:
+    """Con --conservar: cómo entrar a cada contenedor y cómo borrarlos después."""
+    if not conservados.hay_algo:
+        return
+    _fijar_indicador()
+    consola.print("[bold]Contenedores conservados (--conservar):[/]")
+    if conservados.proyecto:
+        consola.print(f"  Proyecto:      docker exec -it {escape(conservados.proyecto)} sh")
+    for contenedor, servicio in conservados.servicios:
+        consola.print(f"  Servicio {escape(servicio)}: docker exec -it {escape(contenedor)} sh")
+    borrar = []
+    if conservados.contenedores:
+        borrar.append(f"docker rm -f -v {' '.join(conservados.contenedores)}")
+    if conservados.red:
+        borrar.append(f"docker network rm {conservados.red}")
+    consola.print(
+        f"Para borrarlos: [bold]harness limpiar[/] (o {escape('; '.join(borrar))})."
+    )
 
 
 def formatear_duracion(segundos: float) -> str:

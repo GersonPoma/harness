@@ -22,7 +22,7 @@ from harness.config_proyecto import (
 )
 from harness.contexto import NOMBRE_AGENTS
 from harness.cache_dependencias import EstadoCache
-from harness.entorno_docker import EntornoDocker, Instalacion, ResultadoComando
+from harness.entorno_docker import Conservados, EntornoDocker, Instalacion, ResultadoComando
 from harness.herramientas import crear_herramientas_lectura
 from harness.herramientas.archivos import ErrorHerramienta
 from harness.prompts import (
@@ -298,11 +298,12 @@ def verificar_config(
     usar_cache: bool = True,
     al_cache: Callable[[EstadoCache], None] | None = None,
     al_instalar: Callable[[Instalacion], None] | None = None,
+    al_conservar: Callable[[Conservados], None] | None = None,
 ) -> ResultadoComando:
     """Levanta el entorno con el harness.yaml (servicios, instalación) y corre los tests.
 
     Solo informa; si el harness.yaml lo generó init, la CLI le devuelve el error al modelo
-    (corregir_harness_yaml).
+    (corregir_harness_yaml). Con `al_conservar` (--conservar) los contenedores quedan.
     """
     entorno_docker = EntornoDocker(
         repo,
@@ -312,12 +313,17 @@ def verificar_config(
         usar_cache=usar_cache,
         al_cache=al_cache,
         al_instalar=al_instalar,
+        conservar=al_conservar is not None,
     )
-    with entorno_docker as entorno:
-        entorno.iniciar(al_avanzar)
-        if al_avanzar:
-            al_avanzar(f"Corriendo los tests ({config.comandos.tests})...")
-        return entorno.ejecutar(config.comandos.tests)
+    try:
+        with entorno_docker as entorno:
+            entorno.iniciar(al_avanzar)
+            if al_avanzar:
+                al_avanzar(f"Corriendo los tests ({config.comandos.tests})...")
+            return entorno.ejecutar(config.comandos.tests)
+    finally:
+        if al_conservar and entorno_docker.conservados:
+            al_conservar(entorno_docker.conservados)
 
 
 def _falta(ruta: Path) -> bool:

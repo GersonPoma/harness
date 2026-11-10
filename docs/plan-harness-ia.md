@@ -1512,8 +1512,13 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         código 1 sin rama ni MCP. Si un servidor MCP no conecta, el error muestra las
         excepciones de adentro del grupo de anyio y las últimas líneas que el servidor
         escribió en stderr en esa sesión (sin secretos).
-  - [ ] **Opción `--conservar`:** no borrar los contenedores al terminar, para poder
+  - [x] **Opción `--conservar`:** no borrar los contenedores al terminar, para poder
         conectarse a la base y depurar. Mostrar cómo conectarse y cómo borrarlos después.
+        Hecho en `run`, `resume` e `init --verificar`: los contenedores y la red quedan
+        (también si falla), con la etiqueta `harness.conservar=1`; la consola muestra un
+        `docker exec -it <contenedor> sh` por contenedor y cómo borrarlos (`harness limpiar` o
+        los `docker rm` / `docker network rm` exactos). Al empezar otra ejecución no se
+        borran solos: solo `harness limpiar`.
   - [ ] **Etiquetas propias en contenedores y redes** (`harness=1`, `harness.ticket=...`):
         listar con `docker ps -a --filter label=harness=1` y limpiar cualquier resto huérfano
         del harness, no solo los que tienen el mismo nombre.
