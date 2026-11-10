@@ -1379,14 +1379,14 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         local), `resume` por límite, por Ctrl+C, con otro proveedor y de OpenRouter a
         Gemini, y la memoria de MEM-1. Los arreglos que salieron de ella están en la
         sección de [Memoria](#memoria).
-- [ ] **10.** Calidad de la ejecución
-  - [ ] **Paso de revisión con el modelo.** Después de que los tests pasan, mostrarle al
+- [x] **10.** Calidad de la ejecución (ver [Calidad de la ejecución](#calidad-de-la-ejecución))
+  - [x] **Paso de revisión con el modelo.** Después de que los tests pasan, mostrarle al
         modelo el `git diff`, el `AGENTS.md` y el ticket, y pedirle que revise si se viola
         alguna regla o falta algún criterio de aceptación. Si encuentra algo, se vuelve a
         implementar. Configurable por proyecto en el `harness.yaml`, porque gasta pedidos.
         Habría detectado el `ProductoRepository` usado desde ventas en TIENDA-3, aunque los
         tests pasaban.
-  - [ ] **Alcance de más.** Caso real en TAREAS-3 (`TAREAS-3-20261105-093236.jsonl`):
+  - [x] **Alcance de más.** Caso real en TAREAS-3 (`TAREAS-3-20261105-093236.jsonl`):
         - Al reescribir `main.py` completo (paso 3), el modelo agregó `POST /tareas`, que es
           de TAREAS-2 (no mergeado). Ni el ticket, ni el plan, ni los tests lo usan.
         - Para sostenerlo creó `TareaCrear` en `modelos.py` (paso 6), fuera del plan y sin la
@@ -1405,54 +1405,61 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
            error, preferir quitar lo que sobra antes que agregar más.
         4. **`editar_archivo`** (abajo) reduce el riesgo: reescribir un archivo entero invita
            a agregar cosas de más.
-  - [ ] **`harness init --verificar` con corrección:** si la verificación falla (la
+  - [x] **`harness init --verificar` con corrección:** si la verificación falla (la
         instalación o los tests), devolverle el error al modelo para que corrija el
         `harness.yaml` generado, con un límite de intentos. Hoy solo informa el resultado.
-  - [ ] **Recomendar reglas de arquitectura por proyecto** en `harness init` o en la
+        _Pendiente de prueba real._
+  - [x] **Recomendar reglas de arquitectura por proyecto** en `harness init` o en la
         documentación: ArchUnit (Java), `import-linter` (Python),
         `dependency-cruiser` / `eslint-plugin-boundaries` (Node), enganchadas en
         `comandos.tests` o `comandos.lint` para que la validación las haga cumplir.
-  - [ ] **`init` le informa al modelo qué imágenes ya están descargadas** (`docker image ls`)
+        _Pendiente de prueba real._
+  - [x] **`init` le informa al modelo qué imágenes ya están descargadas** (`docker image ls`)
         y le pide preferirlas si son compatibles. En library-api eligió `gradle:8.10-jdk21`
         en vez de la `gradle:8.14-jdk21` ya descargada, y `--verificar` falló por el timeout
         de descarga.
-  - [ ] **`guardar_harness_yaml` advierte cuando los límites quedan por debajo de lo
+        _Pendiente de prueba real._
+  - [x] **`guardar_harness_yaml` advierte cuando los límites quedan por debajo de lo
         recomendado** para el stack detectado. En library-api, `init` no siguió la
         recomendación de 1200 s para Gradle (escribió 600) y agregó `--no-daemon`, que hace
         más lento cada comando.
-  - [ ] **`init` avisa si un proyecto Gradle no muestra el detalle de las fallas:** si el
+        _Pendiente de prueba real._
+  - [x] **`init` avisa si un proyecto Gradle no muestra el detalle de las fallas:** si el
         build no configura `testLogging` con `exceptionFormat` `FULL`, al terminar `init` le
         sugiere al usuario el bloque a agregar (no modifica el build). Por defecto Gradle solo
         muestra "AssertionError at Archivo.java:49", sin el valor esperado ni el obtenido, y
         el modelo corrige a ciegas: pasó en LIB-2 de library-api, que tardó dos intentos.
-  - [ ] **Detección de bucles:** si el modelo escribe el mismo contenido en el mismo
+        _Pendiente de prueba real._
+  - [x] **Detección de bucles:** si el modelo escribe el mismo contenido en el mismo
         archivo, o recibe exactamente el mismo error de tests varias veces seguidas,
         avisarle que replantee el enfoque (y, si sigue, cortar). En TIENDA-3 reescribió
         VentaServiceImpl 4 veces igual, con el mismo test fallando.
-  - [ ] **`editar_archivo`**: reemplazar un fragmento exacto en vez de reescribir el archivo
+  - [x] **`editar_archivo`**: reemplazar un fragmento exacto en vez de reescribir el archivo
         completo. Menos tokens y menos riesgo de borrar código por error. Está en el plan,
         pero no tenía fase asignada.
-  - [ ] **`buscar_en_codigo`** (tipo grep): encontrar dónde se usa una clase o un método sin
+  - [x] **`buscar_en_codigo`** (tipo grep): encontrar dónde se usa una clase o un método sin
         leer archivo por archivo. Está en el plan, pero no tenía fase asignada.
-  - [ ] **Campo `codigo_salida` en el log** para `ejecutar_tests`, `ejecutar_lint` y
+  - [x] **Campo `codigo_salida` en el log** para `ejecutar_tests`, `ejecutar_lint` y
         `ejecutar_comando`. Hoy `es_error` significa "la herramienta no pudo ejecutarse", y
         que los tests fallen solo se ve dentro del texto.
-  - [ ] **Cuántos tests pasaron, en la descripción del PR.** La sección Validación dice
+  - [x] **Cuántos tests pasaron, en la descripción del PR.** La sección Validación dice
         "Pasaron los tests (`pytest -q`)" pero no cuántos: agregar la última línea útil de la
         salida de los tests (por ejemplo "5 passed in 0.8s"), recortada a una línea.
-  - [ ] **Plan plegado en la descripción del PR.** Resumen y Plan repiten casi lo mismo:
+        _Pendiente de prueba real._
+  - [x] **Plan plegado en la descripción del PR.** Resumen y Plan repiten casi lo mismo:
         dejar el plan dentro de `<details><summary>Plan</summary> … </details>` para que el
         PR se lea más corto.
-  - [ ] **`.harness/memory.md` en las listas de cambios.** En la prueba real de TAREAS-1, el
+        _Pendiente de prueba real._
+  - [x] **`.harness/memory.md` en las listas de cambios.** En la prueba real de TAREAS-1, el
         commit tuvo 4 archivos (los 3 de código y `.harness/memory.md`, que el modelo creó por
         su cuenta con `guardar_memoria`), pero la sección "Cambios" del PR y la lista
         "Modificados" de la consola solo mostraron los 3 de código. Que las dos listas
         incluyan también `.harness/memory.md`, separado como "Agregados" o "Memoria", y que
         el conteo coincida con el del commit.
-  - [ ] **Prefijo "Aviso:" en los avisos de consola**, además del color amarillo, para que
+  - [x] **Prefijo "Aviso:" en los avisos de consola**, además del color amarillo, para que
         se distingan cuando la salida se copia, se redirige a un archivo o no va a una
         terminal (rich no pone colores en esos casos).
-  - [ ] **Probar la salida en conhost, PowerShell, Windows Terminal y las terminales de VS
+  - [x] **Probar la salida en conhost, PowerShell, Windows Terminal y las terminales de VS
         Code y PyCharm.** La consola ya no escribe en la última columna (en conhost puede
         agregar un salto de línea y pisar una línea); falta comprobarlo en cada una.
         - Línea perdida intermitente en el panel del plan en Windows Terminal; verificado con
@@ -1463,16 +1470,19 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
           stdio)...". Ya existe `HARNESS_CONSOLA_CRUDA=<archivo>` (en el entorno o en el
           `.env`): copia byte a byte lo que el harness escribe, con los códigos ANSI. Falta
           comparar esa copia con la pantalla en una corrida donde se pierda una línea.
-  - [ ] **Compactación con resumen del modelo.** La compactación de la fase 9 es
+        _Pendiente de prueba real._
+  - [x] **Compactación con resumen del modelo.** La compactación de la fase 9 es
         determinista (reemplaza resultados viejos por una marca). Si en una corrida real hace
         que el modelo relea mucho (vuelve a pedir lo que se omitió), probar un resumen hecho
         por el modelo, que cuesta un pedido. En la prueba de la fase 9 ninguna conversación
         llegó al umbral.
-  - [ ] **Tickets enlazados y subtareas en el mensaje inicial.** Si el ticket de Jira tiene
+        _Pendiente de prueba real._
+  - [x] **Tickets enlazados y subtareas en el mensaje inicial.** Si el ticket de Jira tiene
         `issuelinks` o subtareas (por ejemplo "como en TAREAS-2"), el harness los agrega
         resumidos al mensaje, en vez de darle al modelo una herramienta de Jira que sumaría
         tokens a todos los pedidos.
-  - [ ] **Plan con correcciones del usuario.** Hoy, con `--aprobar-plan`, solo se puede
+        _Pendiente de prueba real._
+  - [x] **Plan con correcciones del usuario.** Hoy, con `--aprobar-plan`, solo se puede
         responder s o n. Cambiar la pregunta a "¿Aprobar el plan? [s/n, o escribe qué
         cambiar]":
         - `s`: sigue como ahora.
@@ -1490,6 +1500,7 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
           "Indicaciones del usuario".
         - Sin terminal interactiva no se pregunta y se detiene, igual que el preflight de
           GitHub (hoy la pregunta se hace igual y, al no haber respuesta, no se implementa).
+        _Pendiente de prueba real._
 - [ ] **11.** Docker
   - [ ] **Con Docker cerrado.** En la prueba de la fase 10 (TAREAS-3), con Docker Desktop
         cerrado, el servidor MCP de GitHub (que corre en Docker) falló con un
