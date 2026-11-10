@@ -1544,6 +1544,13 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
           stdio)...". Ya existe `HARNESS_CONSOLA_CRUDA=<archivo>` (en el entorno o en el
           `.env`): copia byte a byte lo que el harness escribe, con los códigos ANSI. Falta
           comparar esa copia con la pantalla en una corrida donde se pierda una línea.
+        - En la prueba real de la fase 12 volvió a pasar: en TAREAS-4 faltó el paso 3 del
+          panel del segundo plan (después de una corrección con `--aprobar-plan`) y en
+          `harness init` faltó la cabecera "[2] leer_archivo(...)" (su "→" sí salió). Revisado
+          el código: durante los pasos y el plan no hay ningún `Live` ni indicador activo, y
+          ningún mensaje mueve el cursor; los dos se imprimen con `consola.print` en una sola
+          llamada. Sin causa en el harness: la próxima vez correr con
+          `HARNESS_CONSOLA_CRUDA` y comparar la copia con la pantalla.
         _Pendiente de prueba real._
   - [x] **Compactación con resumen del modelo.** La compactación de la fase 9 es
         determinista (reemplaza resultados viejos por una marca). Si en una corrida real hace
