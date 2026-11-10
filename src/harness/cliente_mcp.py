@@ -25,7 +25,7 @@ from mcp import Client, MCPError, StdioServerParameters
 from mcp.client.stdio import get_default_environment, stdio_client
 from mcp.client.streamable_http import streamable_http_client
 
-from harness.config_mcp import ServidorHTTP, ServidorMCP, ServidorStdio
+from harness.config_mcp import ServidorHTTP, ServidorMCP, ServidorStdio, es_docker_run
 
 # Generoso: la primera vez, 'docker run' descarga la imagen del servidor.
 TIMEOUT_CONEXION_SEGUNDOS = 180
@@ -39,7 +39,6 @@ INTERVALO_ESPERA_SEGUNDOS = 0.2
 TIMEOUT_HTTP = httpx2.Timeout(30.0, read=300.0)
 # Docker los necesita para encontrar el daemon; get_default_environment no los incluye.
 VARIABLES_DOCKER = ("DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "DOCKER_CERT_PATH")
-COMANDOS_DOCKER = ("docker", "docker.exe")
 # Nombres de contenedor válidos para Docker: [a-zA-Z0-9][a-zA-Z0-9_.-]*
 PATRON_NO_PERMITIDO_EN_NOMBRE = re.compile(r"[^a-zA-Z0-9_.-]")
 
@@ -85,9 +84,8 @@ def nombre_contenedor(servidor: str, ticket: str) -> str:
 
 def agregar_nombre_docker(comando: str, args: list[str], nombre: str) -> tuple[list[str], bool]:
     """Agrega --name a 'docker run' si no lo trae; devuelve los args y si lo agregó."""
-    es_docker_run = Path(comando).name.lower() in COMANDOS_DOCKER and args[:1] == ["run"]
     tiene_nombre = any(a == "--name" or a.startswith("--name=") for a in args)
-    if not es_docker_run or tiene_nombre:
+    if not es_docker_run(comando, args) or tiene_nombre:
         return args, False
     return ["run", "--name", nombre, *args[1:]], True
 

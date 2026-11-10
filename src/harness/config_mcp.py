@@ -77,6 +77,18 @@ class ServidorHTTP:
 
 ServidorMCP = ServidorStdio | ServidorHTTP
 
+COMANDOS_DOCKER = ("docker", "docker.exe")
+
+
+def es_docker_run(comando: str, args: tuple[str, ...] | list[str]) -> bool:
+    """True si el servidor se lanza con 'docker run' (necesita Docker corriendo)."""
+    return Path(comando).name.lower() in COMANDOS_DOCKER and list(args[:1]) == ["run"]
+
+
+def usa_docker(servidor: ServidorMCP | None) -> bool:
+    """True si el servidor MCP corre en Docker (stdio con 'docker run')."""
+    return isinstance(servidor, ServidorStdio) and es_docker_run(servidor.comando, servidor.args)
+
 
 def cargar_config_mcp(
     ruta: Path, entorno: Mapping[str, str] = os.environ

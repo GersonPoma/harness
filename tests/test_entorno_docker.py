@@ -13,9 +13,11 @@ from harness.config_proyecto import ConfigComandos, ConfigDocker, ConfigProyecto
 from harness.entorno_docker import (
     CODIGO_MATADO,
     CODIGO_TIEMPO_AGOTADO,
+    MENSAJE_DOCKER_NO_CORRE,
     EntornoDocker,
     ErrorDocker,
     Instalacion,
+    verificar_docker,
 )
 from harness.variables import resolver_variables
 
@@ -564,3 +566,20 @@ def test_sin_comandos_de_instalacion_no_hay_nada_que_medir(repo: Path) -> None:
     ) as entorno:
         entorno.iniciar()
     assert instalaciones == []
+
+
+def test_verificar_docker_mide_lo_que_tarda() -> None:
+    tiempos = [10.0, 12.5]
+    assert verificar_docker(DockerFalso(), reloj=lambda: tiempos.pop(0)) == 2.5
+
+
+@pytest.mark.parametrize(
+    ("respuesta", "mensaje"),
+    [
+        ((1, "Cannot connect to the Docker daemon"), MENSAJE_DOCKER_NO_CORRE),
+        ((CODIGO_TIEMPO_AGOTADO, ""), "Docker no respondió en 60 s"),
+    ],
+)
+def test_verificar_docker_con_docker_cerrado(respuesta: tuple[int, str], mensaje: str) -> None:
+    with pytest.raises(ErrorDocker, match=mensaje):
+        verificar_docker(DockerFalso({"version": [respuesta]}))

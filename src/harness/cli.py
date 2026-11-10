@@ -42,6 +42,7 @@ from harness.config_mcp import (
     elegir_servidor_github,
     elegir_servidor_jira,
     motivo_sin_servidor,
+    usa_docker,
 )
 from harness.github_mcp import crear_pull_request_mcp, puede_crear_pull_request
 from harness.config_proyecto import (
@@ -53,7 +54,13 @@ from harness.config_proyecto import (
 from harness.contexto import ContextoProyecto, cargar_agents_md
 from harness.ejecucion import Planificacion, ResultadoEjecucion, Validacion, ejecutar_ticket
 from harness.cache_dependencias import EstadoCache
-from harness.entorno_docker import EntornoDocker, ErrorDocker, Instalacion, listar_imagenes
+from harness.entorno_docker import (
+    EntornoDocker,
+    ErrorDocker,
+    Instalacion,
+    listar_imagenes,
+    verificar_docker,
+)
 from harness.entrega import (
     ConfigEntrega,
     CrearPr,
@@ -402,6 +409,8 @@ def run(
     consola.mostrar_contexto(prep.contexto)
     consola.mostrar_memoria(prep.memoria)
     es_herramientas_github = not sin_herramientas_github and leer_herramientas_github_modelo()
+    es_con_pr = not sin_push and not sin_pr
+    _verificar_docker_al_empezar(prep, reporte, es_herramientas_github, es_con_pr)
     # El servidor MCP se abre en el preflight y se cierra al salir del with: también con
     # error o Ctrl+C.
     with ExitStack() as pila:
@@ -517,6 +526,8 @@ def resume(
     # La memoria de la rama de hoy: el system prompt se regenera con ella al retomar.
     consola.mostrar_memoria(prep.memoria)
     es_herramientas_github = not sin_herramientas_github and leer_herramientas_github_modelo()
+    es_con_pr = bool(sesion.rama and sesion.rama.get("es_con_pr", True))
+    _verificar_docker_al_empezar(prep, reporte, es_herramientas_github, es_con_pr)
     with ExitStack() as pila:
         conectar = partial(_conectar_mcp, prep, pila, reporte, es_herramientas_github)
         config_entrega = _preparar_rama_para_retomar(prep, sesion, reporte, conectar)
@@ -744,6 +755,34 @@ def _terminar_ejecucion_en_sesion(
 def _sugerir_resume(prep: _Preparacion) -> None:
     if prep.sesion and not prep.sesion.sesion.es_completada:
         consola.mostrar_como_retomar(prep.ticket)
+
+
+def _necesita_docker(prep: _Preparacion, es_herramientas: bool, es_con_pr: bool) -> bool:
+    """Docker hace falta para el harness.yaml (contenedores) o para un servidor MCP que se
+    vaya a conectar y corra con 'docker run'."""
+    if prep.config_proyecto is not None:
+        return True
+    es_github = (es_herramientas or es_con_pr) and usa_docker(prep.servidor_github)
+    es_jira = es_con_pr and prep.config_jira is not None and usa_docker(prep.servidor_jira)
+    return es_github or es_jira
+
+
+def _verificar_docker_al_empezar(
+    prep: _Preparacion, reporte: _Reporte, es_herramientas: bool, es_con_pr: bool
+) -> None:
+    """Primer paso del preflight: antes de los servidores MCP y de tocar la rama.
+
+    Sin esto, con Docker cerrado fallaba primero el MCP de GitHub (con un error poco claro),
+    se creaba la rama y recién al final se decía que Docker no estaba.
+    """
+    if not _necesita_docker(prep, es_herramientas, es_con_pr):
+        return
+    try:
+        verificar_docker()
+    except ErrorDocker as error:
+        reporte.registro.registrar_error(str(error))
+        consola.mostrar_error(str(error))
+        raise typer.Exit(1) from error
 
 
 def _conectar_mcp(
@@ -1399,6 +1438,13 @@ def init(
     if not raiz.is_dir():
         consola.mostrar_error(f"No existe la carpeta del repo: {raiz}")
         raise typer.Exit(1)
+    if verificar:
+        # Antes de generar: así no se gastan pedidos al modelo si Docker está cerrado.
+        try:
+            verificar_docker()
+        except ErrorDocker as error:
+            consola.mostrar_error(str(error))
+            raise typer.Exit(1) from error
     faltantes = archivos_faltantes(raiz)
     generacion = None
     if faltantes:

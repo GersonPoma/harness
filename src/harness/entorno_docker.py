@@ -53,6 +53,7 @@ MONTAJES_SOLO_LECTURA = (".git", NOMBRE_ARCHIVO, ".harness")
 # crea uno por contenedor que, sin -v, queda huérfano ocupando disco.
 BORRAR_CONTENEDORES = ["docker", "rm", "-f", "-v"]
 MOTIVO_SIN_CACHE = "--sin-cache"
+MENSAJE_DOCKER_NO_CORRE = "Docker no está corriendo: abre Docker Desktop y vuelve a intentar."
 
 
 class EjecutorProceso(Protocol):
@@ -113,6 +114,27 @@ def ejecutar_proceso(
     except FileNotFoundError as error:
         raise ErrorDocker("No se encontró el comando 'docker': instala Docker Desktop.") from error
     return proceso.returncode, proceso.stdout
+
+
+def verificar_docker(
+    ejecutar: EjecutorProceso = ejecutar_proceso, reloj: Callable[[], float] = time.monotonic
+) -> float:
+    """Comprueba que el daemon de Docker responde; devuelve cuántos segundos tardó.
+
+    Lanza ErrorDocker con un mensaje claro si no está instalado, no corre o no responde.
+    """
+    inicio = reloj()
+    codigo, _ = ejecutar(
+        ["docker", "version", "--format", "{{.Server.Version}}"], TIMEOUT_DOCKER_SEGUNDOS
+    )
+    if codigo == CODIGO_TIEMPO_AGOTADO:
+        raise ErrorDocker(
+            f"Docker no respondió en {TIMEOUT_DOCKER_SEGUNDOS} s: revisa Docker Desktop y vuelve "
+            "a intentar."
+        )
+    if codigo != 0:
+        raise ErrorDocker(MENSAJE_DOCKER_NO_CORRE)
+    return reloj() - inicio
 
 
 def listar_imagenes() -> list[str]:
@@ -249,10 +271,8 @@ class EntornoDocker:
             self._archivo_vacio = None
 
     def _verificar_docker(self) -> None:
-        argumentos = ["docker", "version", "--format", "{{.Server.Version}}"]
-        codigo, _ = self._ejecutar(argumentos, TIMEOUT_DOCKER_SEGUNDOS)
-        if codigo != 0:
-            raise ErrorDocker("Docker no está corriendo: abre Docker Desktop y vuelve a intentar.")
+        # Sin el reloj del entorno: la duración no importa aquí (la mide el preflight).
+        verificar_docker(self._ejecutar)
 
     def _nombre_servicio(self, servicio: ConfigServicio) -> str:
         return f"{self.nombre}-{servicio.nombre}"
