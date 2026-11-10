@@ -227,4 +227,10 @@ def test_la_herramienta_usa_el_titulo_del_ticket(tmp_path: Path) -> None:
     )
     with pytest.raises(ErrorMemoria):
         herramienta.funcion(nota="Se agregó completar tareas y el filtrado")
-    assert "No: lo que hizo este ticket" in herramienta.descripcion
+    assert "lo que hizo este ticket" in herramienta.descripcion
+
+
+def test_la_descripcion_pide_solo_lo_que_no_se_deduce_del_proyecto(tmp_path: Path) -> None:
+    herramienta = crear_herramienta_memoria(tmp_path, "T-1", [], lambda _: None, "Titulo")
+    assert "Solo lo que no se deduce leyendo el proyecto" in herramienta.descripcion
+    assert "No: 'Los tests usan FastAPI TestClient" in herramienta.descripcion

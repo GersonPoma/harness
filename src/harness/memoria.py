@@ -43,12 +43,16 @@ PATRON_SECRETO = re.compile(
 DESCRIPCION_HERRAMIENTA = (
     "Guarda una nota en la memoria del proyecto (.harness/memory.md) para los próximos "
     "tickets: algo que descubriste del proyecto y que no está en AGENTS.md (un comando, una "
-    "variable que necesitan los tests, una trampa del código). Una línea, como máximo "
+    "variable que necesitan los tests, una trampa del código). Solo lo que no se deduce "
+    "leyendo el proyecto: si otro modelo lo ve en un minuto abriendo los archivos (qué "
+    "framework o librerías usa, cómo están escritos los tests, qué hay en cada carpeta), no "
+    "lo guardes. Casi siempre no hace falta ninguna nota. Una línea, como máximo "
     f"{MAX_CARACTERES_NOTA} caracteres. Nunca secretos (tokens, contraseñas, API keys). "
     "Sí: 'Los tests necesitan TAREAS_DB_URL en variables_entorno', 'mvn -q oculta los "
-    "errores de compilación: correr con -e para verlos'. No: lo que hizo este ticket ('El "
-    "repositorio soporta filtrado opcional en listar'), porque ya queda en el código y en el "
-    "PR; una nota así se rechaza."
+    "errores de compilación: correr con -e para verlos'. No: 'Los tests usan FastAPI "
+    "TestClient y requieren FastAPI con Pydantic' (se ve en el código y en las "
+    "dependencias); lo que hizo este ticket ('El repositorio soporta filtrado opcional en "
+    "listar'), porque ya queda en el código y en el PR; una nota así se rechaza."
 )
 # Una nota que repite el título del ticket describe lo que se acaba de hacer, no algo útil
 # para el próximo (TAREAS-3). Se comparan las palabras significativas por su comienzo, así
