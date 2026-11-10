@@ -367,7 +367,11 @@ def test_sin_token_hace_push_pero_no_pr(
     entrega = entregar(proyecto, config, _resultado(), MENSAJE, _armar_pedido, None)
 
     assert entrega.es_pusheado and entrega.pull_request is None
-    assert entrega.motivo == "Falta GITHUB_TOKEN en el .env: se hizo push, pero no el pull request."
+    assert entrega.motivo == (
+        "Falta el token de GitHub (GITHUB_TOKEN en el entorno o en ~/.harness/config.toml; se "
+        "guarda con 'harness config --credencial GITHUB_TOKEN'). Se hizo push, pero no el pull "
+        "request."
+    )
     assert pedidos_pr == []
 
 

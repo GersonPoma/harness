@@ -171,7 +171,8 @@ def test_verificar_acceso_con_un_token_que_sirve() -> None:
 
 def test_verificar_acceso_sin_token_no_llama_a_github() -> None:
     github = GitHubFalso()
-    with pytest.raises(ErrorGitHub, match="Falta GITHUB_TOKEN en el .env") as error:
+    with pytest.raises(ErrorGitHub, match="Falta el token de GitHub .GITHUB_TOKEN en el "
+                       "entorno o en ~/.harness/config.toml") as error:
         verificar_acceso(REPO, "main", None, github.transporte)
     assert PISTA_PERMISOS in str(error.value)
     assert github.pedidos == []

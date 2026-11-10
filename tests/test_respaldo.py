@@ -61,7 +61,7 @@ def test_si_cae_el_ultimo_se_propaga() -> None:
 
 
 def test_un_error_de_configuracion_no_pasa_al_siguiente() -> None:
-    clave = ErrorProveedor("El proveedor 'gemini' rechazó la API key: revisa el .env.")
+    clave = ErrorProveedor("El proveedor 'gemini' rechazó la API key: revisa GEMINI_API_KEY.")
     segundo = ProveedorFalso([terminar()])
     cadena, cambios = _cadena(ProveedorFalso([clave]), segundo)
     with pytest.raises(ErrorProveedor, match="API key"):
@@ -137,7 +137,7 @@ def test_leer_respaldo_quita_el_modelo_actual(monkeypatch: pytest.MonkeyPatch) -
         ("openrouter:", "no es proveedor:modelo"),
         ("otro:modelo", "Proveedor 'otro' no válido en HARNESS_RESPALDO"),
         ("personalizado:modelo", "Proveedor 'personalizado' no válido"),
-        ("groq:llama-3", "Falta GROQ_API_KEY en el .env"),
+        ("groq:llama-3", "Falta GROQ_API_KEY .* guárdala con 'harness config --credencial"),
     ],
 )
 def test_leer_respaldo_con_errores(

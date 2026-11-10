@@ -101,8 +101,12 @@ def avisos_secretos_cortos(
     nombres: Iterable[str], entorno: Mapping[str, str] = os.environ
 ) -> list[str]:
     """Tokens de APIs (modelo, GitHub, Jira, mcp.json) demasiado cortos: casi seguro un error."""
+    # Import diferido: config importa los presets de proveedores, que no hacen falta aquí.
+    from harness.config import de_donde_viene
+
     return [
-        f"El valor de {nombre} es demasiado corto para ser un token real: revisa el .env."
+        f"El valor de {nombre} es demasiado corto para ser un token real: revisa {nombre} "
+        f"({de_donde_viene(nombre)})."
         for nombre in _cortas(nombres, entorno)
     ]
 

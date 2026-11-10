@@ -1,13 +1,16 @@
 """Pull requests en GitHub, con su API REST.
 
 Necesita un token fine-grained sobre el repo con "Contents: Read-only" y "Pull requests: Read and
-write" (en GITHUB_TOKEN del .env). El push no lo usa: va con las credenciales de Git del usuario.
+write" (GITHUB_TOKEN, del entorno o de ~/.harness/config.toml). El push no lo usa: va con
+las credenciales de Git del usuario.
 """
 
 import re
 from dataclasses import dataclass
 
 import httpx
+
+from harness.config import MENSAJE_FALTA_TOKEN_GITHUB
 
 URL_API = "https://api.github.com"
 URL_WEB = "https://github.com"
@@ -96,7 +99,7 @@ def verificar_acceso(
     sin crear uno: si falta, el PR falla recién al final.
     """
     if not token:
-        raise ErrorGitHub(f"Falta GITHUB_TOKEN en el .env. {PISTA_PERMISOS}")
+        raise ErrorGitHub(f"{MENSAJE_FALTA_TOKEN_GITHUB} {PISTA_PERMISOS}")
     ruta_repo = f"/repos/{repo.duenio}/{repo.nombre}"
     comprobaciones = [
         ("/user", {}, "GitHub rechazó el token: está vencido, revocado o mal copiado."),

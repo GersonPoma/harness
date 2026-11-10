@@ -76,7 +76,8 @@ def test_avisos_secretos_cortos() -> None:
     avisos = avisos_secretos_cortos(["CORTO", "LARGO", "VACIO", "NO_EXISTE", "JUSTO", "CORTO"],
                                     entorno)
     assert avisos == [
-        "El valor de CORTO es demasiado corto para ser un token real: revisa el .env."
+        "El valor de CORTO es demasiado corto para ser un token real: revisa CORTO (viene "
+        "del entorno)."
     ]
 
 

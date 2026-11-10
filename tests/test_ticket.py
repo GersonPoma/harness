@@ -75,5 +75,5 @@ def test_leer_config_jira_dice_que_falta(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setenv("JIRA_URL", "https://ejemplo.atlassian.net")
     monkeypatch.delenv("JIRA_EMAIL", raising=False)
     monkeypatch.setenv("JIRA_API_TOKEN", " ")
-    with pytest.raises(ErrorConfiguracion, match="falta JIRA_EMAIL, JIRA_API_TOKEN en el .env"):
+    with pytest.raises(ErrorConfiguracion, match="falta JIRA_EMAIL, JIRA_API_TOKEN: guárdalo"):
         leer_config_jira()

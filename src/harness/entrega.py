@@ -11,6 +11,7 @@ from pathlib import Path
 from harness import git, github
 from harness.cambios import CambiosRepo
 from harness.carpetas import CARPETA_LOGS
+from harness.config import MENSAJE_FALTA_TOKEN_GITHUB
 from harness.config_proyecto import ConfigComandos, ConfigGit
 from harness.ejecucion import ResultadoEjecucion
 from harness.alcance import EstadoAlcance
@@ -330,7 +331,7 @@ def _abrir_pr(
         entrega.motivo = f"El remoto '{config.remoto}' no es de GitHub: se hizo push, sin PR."
         return
     if crear_pr is None and not token_github:
-        entrega.motivo = "Falta GITHUB_TOKEN en el .env: se hizo push, pero no el pull request."
+        entrega.motivo = f"{MENSAJE_FALTA_TOKEN_GITHUB} Se hizo push, pero no el pull request."
         return
     pedido = armar_pedido_pr(repo_github)
     try:

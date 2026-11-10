@@ -8,7 +8,7 @@ from typing import Any
 
 import openai
 
-from harness.config import ConfigModelo
+from harness.config import ConfigModelo, donde_configurar
 from harness.proveedores.base import (
     MOTIVO_CAIDO,
     MOTIVO_CUOTA_DIARIA,
@@ -40,8 +40,8 @@ FINISH_LLAMADA_MALFORMADA = "MALFORMED_FUNCTION_CALL"
 MAX_REPETICIONES_MALFORMADA = 2
 
 SUGERENCIA_OTRO_PROVEEDOR = (
-    "configura otro proveedor en HARNESS_RESPALDO (o cambia HARNESS_PROVEEDOR / HARNESS_MODELO) "
-    "en el .env."
+    "configura un respaldo (respaldo en ~/.harness/config.toml o HARNESS_RESPALDO) o usa otro "
+    "modelo (--perfil, o --proveedor y --modelo)."
 )
 
 _ROLES_OPENAI = {
@@ -168,8 +168,10 @@ class ProveedorOpenAICompatible:
     def _error_permanente(self, error: openai.APIError) -> ErrorProveedor:
         proveedor = self._config.proveedor
         if isinstance(error, openai.AuthenticationError):
+            variable = self._config.variable_api_key or "la API key"
             return ErrorProveedor(
-                f"El proveedor '{proveedor}' rechazó la API key: revisa el .env."
+                f"El proveedor '{proveedor}' rechazó la API key: revisa "
+                f"{donde_configurar(variable)}."
             )
         estado = getattr(error, "status_code", "desconocido")
         return ErrorProveedor(f"'{proveedor}' respondió con error {estado}: {error.message}")

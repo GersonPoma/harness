@@ -24,6 +24,8 @@ from harness.proveedores.presets import PRESETS, PROVEEDOR_PERSONALIZADO
 # El .env vive en la raíz del repo del harness, no en la carpeta desde donde se ejecuta.
 RUTA_ENV = Path(__file__).resolve().parents[2] / ".env"
 
+# Las de configuración (no secretos) empiezan así: no se guardan como credencial.
+PREFIJO_VARIABLES_HARNESS = "HARNESS_"
 VAR_PROVEEDOR = "HARNESS_PROVEEDOR"
 VAR_MODELO = "HARNESS_MODELO"
 VAR_BASE_URL = "HARNESS_BASE_URL"
@@ -54,6 +56,10 @@ ORIGEN_USUARIO = "~/.harness/config.toml"
 ORIGEN_OPCION_PROVEEDOR = "--proveedor"
 ORIGEN_OPCION_PERFIL = "--perfil"
 ORIGEN_PERFIL_PREDETERMINADO = "predeterminado"
+MENSAJE_FALTA_TOKEN_GITHUB = (
+    "Falta el token de GitHub (GITHUB_TOKEN en el entorno o en ~/.harness/config.toml; se "
+    "guarda con 'harness config --credencial GITHUB_TOKEN')."
+)
 MENSAJE_SIN_MODELO = (
     "No hay modelo configurado: ejecuta 'harness config' (o define HARNESS_PROVEEDOR y "
     "HARNESS_MODELO en el entorno)."
@@ -279,9 +285,9 @@ def leer_config_jira() -> ConfigJira:
     faltantes = [variable for variable, valor in valores.items() if not valor]
     if faltantes:
         raise ErrorConfiguracion(
-            f"Para leer tickets de Jira falta {', '.join(faltantes)} en el .env. Agrégalo en "
-            f"{RUTA_ENV} (el API token se crea en https://id.atlassian.com/manage-profile/"
-            "security/api-tokens)."
+            f"Para leer tickets de Jira falta {', '.join(faltantes)}: guárdalo con 'harness "
+            "config' (o ponlo en el entorno o, en desarrollo, en el .env). El API token se crea "
+            "en https://id.atlassian.com/manage-profile/security/api-tokens."
         )
     return ConfigJira(
         valores[VAR_JIRA_URL].rstrip("/"), valores[VAR_JIRA_EMAIL], valores[VAR_JIRA_TOKEN]
@@ -308,10 +314,31 @@ def _de(origen: str) -> str:
     return f"del {origen.removeprefix('el ')}" if origen.startswith("el ") else f"de {origen}"
 
 
+def donde_configurar(variable: str) -> str:
+    """La variable y de dónde salió ("GEMINI_API_KEY (viene de ~/.harness/config.toml)"), o
+    cómo guardarla si no está: para que un mensaje no nombre solo el .env."""
+    origen = origen_variable(variable)
+    if origen is None:
+        return (
+            f"{variable} (no está: guárdala con 'harness config --credencial {variable}')"
+        )
+    return f"{variable} ({de_donde_viene(variable)})"
+
+
+def de_donde_viene(variable: str) -> str:
+    """'viene del .env', 'viene de ~/.harness/config.toml' o 'viene del entorno'."""
+    return f"viene {_de(origen_variable(variable) or ORIGEN_ENTORNO)}"
+
+
 def _leer_obligatoria(variable: str, que_es: str) -> str:
     valor = os.environ.get(variable, "").strip()
-    if not valor:
-        raise ErrorConfiguracion(
-            f"Falta {variable} en el .env ({que_es}). Agrégala en {RUTA_ENV}."
+    if valor:
+        return valor
+    if variable.startswith(PREFIJO_VARIABLES_HARNESS):
+        donde = "en el entorno o en el .env, o usa un perfil de 'harness config'"
+    else:
+        donde = (
+            f"guárdala con 'harness config --credencial {variable}' (o ponla en el entorno o, "
+            "en desarrollo, en el .env)"
         )
-    return valor
+    raise ErrorConfiguracion(f"Falta {variable} ({que_es}): {donde}.")

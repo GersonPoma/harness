@@ -177,7 +177,9 @@ def test_sin_credenciales_de_jira_dice_cuales_faltan(
     proveedor = ProveedorFalso([terminar()])
     codigo, salida = _correr(monkeypatch, repo_sin_yaml, proveedor, ticket="TAREAS-3")
     assert codigo == 1 and proveedor.conversaciones == []
-    assert "falta JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN en el .env" in " ".join(salida.split())
+    assert "falta JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN: guárdalo con 'harness config'" in (
+        " ".join(salida.split())
+    )
 
 
 def test_ni_archivo_ni_clave(
@@ -376,7 +378,8 @@ def test_un_secreto_corto_se_avisa_y_no_rompe_el_log(
 
     assert codigo == 0
     assert (
-        "El valor de GITHUB_TOKEN es demasiado corto para ser un token real: revisa el .env."
+        "El valor de GITHUB_TOKEN es demasiado corto para ser un token real: revisa "
+        "GITHUB_TOKEN (viene del entorno)."
         in " ".join(salida.split())
     )
     (evento,) = [e for e in _eventos_del_log(repo_sin_yaml) if e["evento"] == "ticket"]

@@ -205,3 +205,37 @@ def test_config_toml_invalido_es_error_de_configuracion(sin_env: Path) -> None:
     ruta_config().write_text("perfil = 'x'\n", encoding="utf-8")
     with pytest.raises(ErrorConfiguracion, match="no existe el perfil 'x'"):
         cargar_env(sin_env)
+
+
+# --- Mensajes que dicen de dónde sale cada valor ------------------------------------------
+
+from harness.config import donde_configurar  # noqa: E402
+
+
+def test_donde_configurar_segun_el_origen(sin_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _usuario()
+    monkeypatch.setenv("GITHUB_TOKEN", "token-del-entorno-0123")
+    sin_env.write_text("JIRA_API_TOKEN=token-del-env-0123\n", encoding="utf-8")
+    cargar_env(sin_env)
+    assert donde_configurar("GEMINI_API_KEY") == (
+        "GEMINI_API_KEY (viene de ~/.harness/config.toml)"
+    )
+    assert donde_configurar("GITHUB_TOKEN") == "GITHUB_TOKEN (viene del entorno)"
+    assert donde_configurar("JIRA_API_TOKEN") == "JIRA_API_TOKEN (viene del .env)"
+    assert donde_configurar("OPENAI_API_KEY") == (
+        "OPENAI_API_KEY (no está: guárdala con 'harness config --credencial OPENAI_API_KEY')"
+    )
+
+
+def test_falta_una_key_sin_nombrar_solo_el_env(
+    sin_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HARNESS_PROVEEDOR", "openrouter")
+    monkeypatch.setenv("HARNESS_MODELO", "m")
+    with pytest.raises(ErrorConfiguracion) as error:
+        cargar_config(sin_env)
+    assert str(error.value) == (
+        "Falta OPENROUTER_API_KEY (la API key del proveedor 'openrouter'): guárdala con "
+        "'harness config --credencial OPENROUTER_API_KEY' (o ponla en el entorno o, en "
+        "desarrollo, en el .env)."
+    )
