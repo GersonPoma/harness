@@ -1,6 +1,7 @@
 """Salida por consola de una ejecución, con rich."""
 
 import atexit
+import getpass
 import sys
 from pathlib import Path
 from typing import Any, ClassVar, TextIO
@@ -16,6 +17,7 @@ from harness.bucle import Paso
 from harness.cambios import CambiosRepo
 from harness.comentario_pr import COMENTADO, POR_MCP, SIN_URL, YA_ESTABA, ResultadoComentario
 from harness.compactacion import MODO_RESUMEN, Compactacion
+from harness.config_usuario import ConfigUsuario
 from harness.contexto import MAX_CARACTERES_AGENTS, ContextoProyecto
 from harness.ejecucion import ResultadoEjecucion, Validacion
 from harness.cache_dependencias import MOTIVO_DESACTIVADA, EstadoCache
@@ -30,6 +32,7 @@ from harness.limpieza import Elemento, PlanLimpieza, ResultadoLimpieza
 from harness.memoria import MAX_CARACTERES_MEMORIA, RUTA_MEMORIA, Memoria
 from harness.plan import Plan, archivos_fuera_del_plan
 from harness.proveedores.base import MOTIVO_CAIDO, MOTIVO_CUOTA_DIARIA, MOTIVO_LIMITE
+from harness.proveedores.presets import PRESETS
 from harness.proveedores.respaldo import CambioProveedor
 from harness.sesion import (
     MOTIVO_BUCLE,
@@ -928,3 +931,98 @@ def _resumir_resultado(resultado: str) -> str:
     if len(lineas) > 1:
         resumen += f" (+{len(lineas) - 1} líneas)"
     return resumen
+
+
+# --- harness config y harness perfiles ------------------------------------------------------
+
+
+def preguntar(texto: str, defecto: str | None = None) -> str:
+    """Una pregunta con valor por defecto (Enter lo deja). Lanza EOFError sin respuesta."""
+    pista = f" [{defecto}]" if defecto else ""
+    respuesta = consola.input(f"{escape(texto)}{escape(pista)}: ").strip()
+    return respuesta or (defecto or "")
+
+
+def preguntar_si_no(texto: str) -> bool:
+    """Una pregunta [s/N]: Enter o sin respuesta posible (EOF) es que no."""
+    while True:
+        try:
+            respuesta = consola.input(f"{escape(texto)} {escape('[s/N]')} ").strip().lower()
+        except EOFError:
+            return False
+        if respuesta in RESPUESTAS_SI:
+            return True
+        if not respuesta or respuesta in RESPUESTAS_NO:
+            return False
+
+
+def preguntar_oculto(texto: str) -> str:
+    """Una credencial: lo que se escribe no se ve en la pantalla (getpass)."""
+    return getpass.getpass(f"{texto}: ").strip()
+
+
+def mostrar_ok(mensaje: str) -> None:
+    """Algo que salió bien (en verde, con ✓)."""
+    consola.print(f"[bold green]✓[/] {escape(mensaje)}")
+
+
+def mostrar_texto(mensaje: str) -> None:
+    """Una línea de texto sin formato."""
+    consola.print(escape(mensaje))
+
+
+def mostrar_ruta_config(ruta: Path, existe: bool) -> None:
+    """Dónde está config.toml y si ya existe."""
+    estado = "" if existe else " [dim](todavía no existe)[/]"
+    consola.print(f"[bold green]Configuración[/] {escape(str(ruta))}{estado}")
+
+
+def mostrar_perfiles(
+    ruta: Path,
+    usuario: ConfigUsuario,
+    keys: dict[str, bool],
+    respaldo: str | None,
+    revisor: str | None,
+    en_uso: str | None,
+) -> None:
+    """La lista de perfiles (* el predeterminado), con la variable de su key y si está."""
+    consola.print(f"[bold]Perfiles[/] [dim]({escape(str(ruta))})[/]")
+    if not usuario.perfiles:
+        consola.print(
+            "  No hay perfiles: créalos con 'harness config' o 'harness perfil agregar "
+            "<nombre>'."
+        )
+    ancho_nombre = max((len(n) for n in usuario.perfiles), default=0)
+    modelos = {n: f"{p.proveedor} / {p.modelo}" for n, p in usuario.perfiles.items()}
+    ancho_modelo = max((len(m) for m in modelos.values()), default=0)
+    for nombre, perfil in usuario.perfiles.items():
+        marca = "*" if nombre == usuario.perfil else " "
+        variable = perfil.api_key_env or PRESETS[perfil.proveedor].variable_api_key or ""
+        estado = "[green]✓[/]" if keys.get(nombre) else "[red]✗ falta[/]"
+        consola.print(
+            f" {marca} {escape(nombre.ljust(ancho_nombre))}  "
+            f"{escape(modelos[nombre].ljust(ancho_modelo))}  {escape(variable)} {estado}"
+        )
+    if respaldo:
+        consola.print(f"Respaldo: {escape(respaldo)}")
+    if revisor:
+        consola.print(f"Revisor: {escape(revisor)}")
+    if en_uso:
+        consola.print(f"En uso ahora: {escape(en_uso)}")
+
+
+def mostrar_credenciales(
+    filas: list[tuple[str, str | None, str | None]], url_jira: str | None, email_jira: str | None
+) -> None:
+    """Cada credencial enmascarada y de dónde sale (nunca el valor completo)."""
+    consola.print("[bold]Credenciales[/]")
+    ancho = max((len(nombre) for nombre, _, _ in filas), default=0)
+    for nombre, valor, origen in filas:
+        if valor is None:
+            consola.print(f"  {escape(nombre.ljust(ancho))}  [dim]no está[/]")
+        else:
+            consola.print(
+                f"  {escape(nombre.ljust(ancho))}  {escape(valor)}  ({escape(origen or '')})"
+            )
+    if url_jira or email_jira:
+        consola.print(f"[bold]Jira[/] {escape(url_jira or '-')}  {escape(email_jira or '-')}")

@@ -9,7 +9,7 @@ from typing import Annotated
 import typer
 from rich import print
 
-from harness import consola, git, github
+from harness import comandos_config, consola, git, github
 from harness.bucle import MAX_PASOS_POR_DEFECTO, ErrorBucle, ErrorRespuestaVacia, Paso
 from harness.alcance import Alcance, EstadoAlcance
 from harness.bucles import DetectorBucles
@@ -184,6 +184,7 @@ AYUDA_CONSERVAR = (
 )
 
 app = typer.Typer(help="Harness de IA para generación de código")
+app.command(name="config")(comandos_config.config)
 
 
 @dataclass

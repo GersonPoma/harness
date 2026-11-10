@@ -1703,14 +1703,23 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
   - [ ] **`ProveedorAnthropic`** (preset `anthropic`), para quien elija Claude. Define su
         propio `adaptar_esquema`: los esquemas de las herramientas (los de MCP, por ejemplo) se
         adaptan a lo que acepta la API de Anthropic.
-  - [ ] **`harness config` + `~/.harness/config.toml`**, con el orden de prioridad: opciones
+  - [x] **`harness config` + `~/.harness/config.toml`**, con el orden de prioridad: opciones
         del comando → variables de entorno / `.env` → `config.toml`. Necesario para que otros
         lo instalen con `uv tool install git+...` y lo usen sin el repo. `mcp.json` pasa a
         `~/.harness/mcp.json`.
-        - Ajustar el mensaje "Falta GITHUB_TOKEN en el .env" (en `github.verificar_acceso` y
-          en `entrega._abrir_pr`): el token también puede venir de una variable de entorno o
+        - [x] Ajustar el mensaje "Falta GITHUB_TOKEN en el .env" (en `github.verificar_acceso`
+          y en `entrega._abrir_pr`): el token también puede venir de una variable de entorno o
           de `config.toml`. Por ejemplo: "Falta el token de GitHub (GITHUB_TOKEN en el entorno
           o en ~/.harness/config.toml)".
+        Hecho (ver [Configuración](#configuración-por-usuario-no-por-proyecto)):
+        `config_usuario.py` lee y escribe `config.toml` (validado, atómico, `0600` en Linux y
+        macOS), `cargar_env` carga sus credenciales sin pisar el entorno ni el `.env`, y todas
+        entran en los secretos que se ocultan. `harness config` es un asistente con terminal;
+        sin ella, `--importar-env` (pasa el `.env` de desarrollo), `--credencial NOMBRE` (el
+        valor oculto, o por stdin) y `--mostrar` (cada credencial como `****` más los últimos
+        4 caracteres, con su origen). `mcp.json` se busca en `~/.harness/` y después junto al
+        `.env`; la plantilla viaja en el paquete (`plantillas/mcp.example.json`). Los mensajes
+        de credenciales que faltan dicen de dónde sale cada valor (`donde_configurar`).
   - [ ] **Perfiles de modelo** en `~/.harness/config.toml`: cada perfil tiene un nombre, un
         proveedor (preset) y un modelo, y uno es el predeterminado. Las API keys se guardan
         una sola vez por proveedor, en `[credenciales]`, y las comparten los perfiles.

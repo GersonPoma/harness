@@ -100,7 +100,7 @@ class ConfigJira:
     token: str = field(repr=False)
 
 
-def cargar_env(ruta_env: Path = RUTA_ENV) -> None:
+def cargar_env(ruta_env: Path | None = None) -> None:
     """Carga el .env y después las credenciales de config.toml en el entorno, sin pisar nada.
 
     El entorno real gana sobre el .env (load_dotenv no sobrescribe) y los dos sobre
@@ -109,7 +109,8 @@ def cargar_env(ruta_env: Path = RUTA_ENV) -> None:
     válido.
     """
     antes = set(os.environ)
-    load_dotenv(ruta_env)
+    # RUTA_ENV se lee aquí y no como valor por defecto: así los tests pueden cambiarla.
+    load_dotenv(ruta_env or RUTA_ENV)
     for nombre in set(os.environ) - antes:
         _origenes.setdefault(nombre, ORIGEN_ENV)
     for nombre, valor in _variables_de_usuario(leer_usuario()).items():
@@ -141,7 +142,7 @@ def secretos_de_usuario() -> list[str]:
         return []
 
 
-def cargar_config(ruta_env: Path = RUTA_ENV, perfil: str | None = None) -> ConfigModelo:
+def cargar_config(ruta_env: Path | None = None, perfil: str | None = None) -> ConfigModelo:
     """El modelo según el orden de prioridad, sin --proveedor/--modelo (ver elegir_modelo).
 
     Con `perfil` (--perfil), ese perfil de config.toml; si no, HARNESS_PROVEEDOR del entorno o
