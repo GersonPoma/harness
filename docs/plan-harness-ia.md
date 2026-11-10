@@ -1502,11 +1502,16 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
           GitHub (hoy la pregunta se hace igual y, al no haber respuesta, no se implementa).
         _Pendiente de prueba real._
 - [ ] **11.** Docker
-  - [ ] **Con Docker cerrado.** En la prueba de la fase 10 (TAREAS-3), con Docker Desktop
+  - [x] **Con Docker cerrado.** En la prueba de la fase 10 (TAREAS-3), con Docker Desktop
         cerrado, el servidor MCP de GitHub (que corre en Docker) falló con un
         "ExceptionGroup" poco claro, y la rama `feature/<TICKET>` se creó antes de detectar
         que Docker no estaba. Verificar Docker al principio del preflight, antes de la rama
         y del MCP, con un mensaje claro ("Docker no está corriendo: abre Docker Desktop").
+        Hecho: `run`, `resume` e `init --verificar` comprueban Docker primero (solo si hay
+        `harness.yaml` o un servidor MCP con `docker run` que se vaya a usar) y cortan con
+        código 1 sin rama ni MCP. Si un servidor MCP no conecta, el error muestra las
+        excepciones de adentro del grupo de anyio y las últimas líneas que el servidor
+        escribió en stderr en esa sesión (sin secretos).
   - [ ] **Opción `--conservar`:** no borrar los contenedores al terminar, para poder
         conectarse a la base y depurar. Mostrar cómo conectarse y cómo borrarlos después.
   - [ ] **Etiquetas propias en contenedores y redes** (`harness=1`, `harness.ticket=...`):

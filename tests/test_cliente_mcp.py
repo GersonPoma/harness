@@ -1,6 +1,7 @@
 import json
 import sys
 from collections.abc import Iterator
+from concurrent.futures import Future
 from pathlib import Path
 
 import pytest
@@ -107,6 +108,38 @@ def test_un_comando_que_no_existe_no_conecta(tmp_path: Path) -> None:
     with pytest.raises(ErrorMCP, match="No se pudo conectar con el servidor MCP 'github'"):
         with _sesion(servidor, tmp_path):
             pass
+
+
+def test_si_el_servidor_sale_al_arrancar_se_ve_la_causa_real(tmp_path: Path) -> None:
+    # Así falla 'docker run' con Docker Desktop cerrado: escribe en stderr y sale.
+    codigo = (
+        "import sys; print('docker: error during connect: el pipe no existe', file=sys.stderr); "
+        "print('token tok-secreto-de-prueba', file=sys.stderr); sys.exit(125)"
+    )
+    servidor = ServidorStdio(
+        "github", sys.executable, ("-c", codigo), secretos=("tok-secreto-de-prueba",)
+    )
+    ruta_log = tmp_path / "logs" / "T-1-mcp-github.log"
+    ruta_log.parent.mkdir(parents=True)
+    ruta_log.write_text("línea de una sesión anterior\n", encoding="utf-8")
+    with pytest.raises(ErrorMCP) as error:
+        with SesionMCP(servidor, ruta_log, TICKET):
+            pass
+    mensaje = str(error.value)
+    assert "docker: error during connect: el pipe no existe" in mensaje
+    assert "ExceptionGroup" not in mensaje and "TaskGroup" not in mensaje
+    assert "tok-secreto-de-prueba" not in mensaje and "token ****" in mensaje
+    assert "sesión anterior" not in mensaje
+
+
+def test_describir_fallo_muestra_las_excepciones_de_adentro_del_grupo() -> None:
+    grupo = ExceptionGroup(
+        "unhandled errors in a TaskGroup",
+        [ExceptionGroup("interno", [ConnectionError("conexión rechazada")]), OSError("x")],
+    )
+    tarea: Future[None] = Future()
+    tarea.set_exception(grupo)
+    assert cliente_mcp._describir_fallo(tarea) == "ConnectionError: conexión rechazada; OSError: x"
 
 
 def test_un_servidor_que_no_responde_a_tiempo(

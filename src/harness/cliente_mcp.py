@@ -26,6 +26,7 @@ from mcp.client.stdio import get_default_environment, stdio_client
 from mcp.client.streamable_http import streamable_http_client
 
 from harness.config_mcp import ServidorHTTP, ServidorMCP, ServidorStdio, es_docker_run
+from harness.variables import ocultar_secretos
 
 # Generoso: la primera vez, 'docker run' descarga la imagen del servidor.
 TIMEOUT_CONEXION_SEGUNDOS = 180
@@ -41,6 +42,9 @@ TIMEOUT_HTTP = httpx2.Timeout(30.0, read=300.0)
 VARIABLES_DOCKER = ("DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "DOCKER_CERT_PATH")
 # Nombres de contenedor válidos para Docker: [a-zA-Z0-9][a-zA-Z0-9_.-]*
 PATRON_NO_PERMITIDO_EN_NOMBRE = re.compile(r"[^a-zA-Z0-9_.-]")
+# Si no conecta, la causa real suele estar en lo que el servidor escribió en stderr (por
+# ejemplo, "docker: error during connect"): se muestran sus últimas líneas.
+MAX_LINEAS_LOG_ERROR = 5
 
 
 class ErrorMCP(Exception):
@@ -105,6 +109,8 @@ class SesionMCP:
         self._cerrar: anyio.Event | None = None
         self._lista = threading.Event()
         self._contenedor: str | None = None
+        # Dónde empieza en el log lo que escribió el servidor en esta sesión.
+        self._inicio_log: int | None = None
 
     def __enter__(self) -> "SesionMCP":
         try:
@@ -159,6 +165,7 @@ class SesionMCP:
     def _abrir_log(self) -> TextIO:
         # Los logs del servidor van a un archivo: en la consola se mezclarían con el harness.
         self._ruta_log.parent.mkdir(parents=True, exist_ok=True)
+        self._inicio_log = self._ruta_log.stat().st_size if self._ruta_log.exists() else 0
         return self._pila.enter_context(self._ruta_log.open("a", encoding="utf-8"))
 
     async def _mantener(self, transporte: Any) -> None:
@@ -180,13 +187,29 @@ class SesionMCP:
             if time.monotonic() > limite:
                 raise ErrorMCP(
                     f"El servidor MCP '{self.servidor.nombre}' no respondió en "
-                    f"{TIMEOUT_CONEXION_SEGUNDOS} s."
+                    f"{TIMEOUT_CONEXION_SEGUNDOS} s.{self._salida_del_servidor()}"
                 )
         if self._cliente is None:
             raise ErrorMCP(
                 f"No se pudo conectar con el servidor MCP '{self.servidor.nombre}': "
-                f"{_describir_fallo(self._tarea)}"
+                f"{_describir_fallo(self._tarea)}{self._salida_del_servidor()}"
             )
+
+    def _salida_del_servidor(self) -> str:
+        """Las últimas líneas que el servidor escribió en su log en esta sesión, sin secretos."""
+        if self._inicio_log is None:
+            return ""
+        try:
+            with self._ruta_log.open("rb") as archivo:
+                archivo.seek(self._inicio_log)
+                texto = archivo.read().decode("utf-8", errors="replace")
+        except OSError:
+            return ""
+        lineas = [linea.rstrip() for linea in texto.splitlines() if linea.strip()]
+        if not lineas:
+            return ""
+        ultimas = ocultar_secretos("\n".join(lineas[-MAX_LINEAS_LOG_ERROR:]), self.servidor.secretos)
+        return f"\nLo último que escribió el servidor:\n{ultimas}"
 
     async def _llamar(self, nombre: str, argumentos: dict[str, Any]) -> ResultadoMCP:
         with anyio.fail_after(TIMEOUT_LLAMADA_SEGUNDOS):
@@ -237,4 +260,21 @@ def _describir_fallo(tarea: Future[None] | None) -> str:
     if tarea.cancelled():
         return "se canceló."
     error = tarea.exception()
-    return f"{type(error).__name__}: {error}" if error else "se cerró al iniciar."
+    if error is None:
+        return "se cerró al iniciar."
+    # anyio envuelve el error real en grupos ("unhandled errors in a TaskGroup"): se muestran
+    # las excepciones de adentro, que son las que dicen qué pasó.
+    causas = [_describir_excepcion(hoja) for hoja in _hojas(error)]
+    return "; ".join(dict.fromkeys(causas))
+
+
+def _hojas(error: BaseException) -> list[BaseException]:
+    """Las excepciones de un grupo (y de sus grupos anidados), o la misma si no es un grupo."""
+    if isinstance(error, BaseExceptionGroup):
+        return [hoja for interna in error.exceptions for hoja in _hojas(interna)]
+    return [error]
+
+
+def _describir_excepcion(error: BaseException) -> str:
+    texto = str(error).strip()
+    return f"{type(error).__name__}: {texto}" if texto else type(error).__name__
