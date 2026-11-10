@@ -133,7 +133,7 @@ def test_leer_respaldo_quita_el_modelo_actual(monkeypatch: pytest.MonkeyPatch) -
 @pytest.mark.parametrize(
     ("valor", "mensaje"),
     [
-        ("openrouter", "no es proveedor:modelo"),
+        ("openrouter", "No existe el perfil 'openrouter'"),
         ("openrouter:", "no es proveedor:modelo"),
         ("otro:modelo", "Proveedor 'otro' no válido en HARNESS_RESPALDO"),
         ("personalizado:modelo", "Proveedor 'personalizado' no válido"),
@@ -147,3 +147,53 @@ def test_leer_respaldo_con_errores(
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     with pytest.raises(ErrorConfiguracion, match=mensaje):
         leer_respaldo()
+
+
+# --- Perfiles en el respaldo --------------------------------------------------------------
+
+from harness.config_usuario import ConfigUsuario, Perfil, guardar_config_usuario  # noqa: E402
+
+
+def _perfiles() -> None:
+    guardar_config_usuario(ConfigUsuario(
+        perfil="rapido",
+        respaldo=["fuerte", "groq:llama-3"],
+        perfiles={
+            "rapido": Perfil(proveedor="gemini", modelo="flash"),
+            "fuerte": Perfil(proveedor="openrouter", modelo="nemotron:free"),
+            "mio": Perfil(proveedor="personalizado", modelo="m", base_url="https://mi.api/v1",
+                          api_key_env="MI_KEY"),
+        },
+    ))
+
+
+def test_respaldo_de_config_toml_con_perfiles(monkeypatch: pytest.MonkeyPatch) -> None:
+    _perfiles()
+    monkeypatch.setenv("OPENROUTER_API_KEY", "clave-openrouter-0123456789")
+    monkeypatch.setenv("GROQ_API_KEY", "clave-groq-0123456789")
+    respaldo = leer_respaldo()
+    assert [(c.proveedor, c.modelo, c.perfil) for c in respaldo] == [
+        ("openrouter", "nemotron:free", "fuerte"), ("groq", "llama-3", None),
+    ]
+
+
+def test_harness_respaldo_gana_sobre_config_toml_y_acepta_perfiles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _perfiles()
+    monkeypatch.setenv("HARNESS_RESPALDO", "mio, groq:otro")
+    monkeypatch.setenv("MI_KEY", "clave-propia-0123456789")
+    monkeypatch.setenv("GROQ_API_KEY", "clave-groq-0123456789")
+    respaldo = leer_respaldo()
+    # Un perfil personalizado sí se admite: trae su URL.
+    assert [(c.proveedor, c.base_url) for c in respaldo] == [
+        ("personalizado", "https://mi.api/v1"), ("groq", "https://api.groq.com/openai/v1"),
+    ]
+
+
+def test_el_respaldo_con_perfiles_no_repite_el_actual(monkeypatch: pytest.MonkeyPatch) -> None:
+    _perfiles()
+    monkeypatch.setenv("OPENROUTER_API_KEY", "clave-openrouter-0123456789")
+    monkeypatch.setenv("GROQ_API_KEY", "clave-groq-0123456789")
+    actual = ConfigModelo("openrouter", "nemotron:free", None, "clave-openrouter-0123456789")
+    assert [c.modelo for c in leer_respaldo(actual)] == ["llama-3"]

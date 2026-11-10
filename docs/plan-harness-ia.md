@@ -1024,18 +1024,23 @@ harness run TAREAS-1 --perfil fuerte
 ### Respaldo entre proveedores
 
 Desde la fase 9, si el proveedor principal se cae, **la misma conversación sigue con el
-siguiente** de una lista, desde el mismo paso. Mientras no existan los perfiles (fase 12), la
-lista va en el `.env`:
+siguiente** de una lista, desde el mismo paso. La lista va en `HARNESS_RESPALDO` (entorno o
+`.env`) o, si no está, en `respaldo` de `~/.harness/config.toml` (fase 12; el `.env` gana):
 
 ```
 HARNESS_RESPALDO=openrouter:nvidia/nemotron-3-ultra-550b-a55b:free, openrouter:google/gemma-4-31b-it:free
 ```
 
-- **Formato:** `proveedor:modelo`, separado en el **primer** `:` (los modelos gratis de
-  OpenRouter terminan en `:free`). Cada uno usa la API key de su preset (`OPENROUTER_API_KEY`);
-  `personalizado` no se admite, porque necesita su URL. Un proveedor desconocido o una key
-  que falta detienen la ejecución antes de empezar. Una entrada sin `:` será el nombre de un
-  perfil (fase 12); hoy es un error.
+```toml
+respaldo = ["fuerte", "groq:openai/gpt-oss-120b"]   # en config.toml
+```
+
+- **Formato:** el nombre de un perfil de `config.toml` (una entrada sin `:`) o
+  `proveedor:modelo`, separado en el **primer** `:` (los modelos gratis de OpenRouter terminan
+  en `:free`). Cada uno usa la API key de su preset (`OPENROUTER_API_KEY`); `personalizado`
+  como `proveedor:modelo` no se admite, porque necesita su URL, pero un perfil personalizado
+  sí (la trae). Un proveedor o perfil desconocido o una key que falta detienen la ejecución
+  antes de empezar.
 - **Sin repetir:** si el modelo actual (el del `.env`, o el de `resume --proveedor/--modelo`)
   está en la lista, se saca de ella: pasar a él sería repetir el que acaba de fallar.
 - **Cuándo se pasa al siguiente** (`ErrorProveedorCaido`):

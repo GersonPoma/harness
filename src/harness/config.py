@@ -30,6 +30,8 @@ VAR_API_KEY_ENV = "HARNESS_API_KEY_ENV"
 # Proveedores de respaldo, en orden: si el principal se cae, la ejecución sigue con estos.
 VAR_RESPALDO = "HARNESS_RESPALDO"
 SEPARADOR_RESPALDO = ","
+SEPARADOR_PROVEEDOR = ":"
+ORIGEN_RESPALDO_USUARIO = "respaldo de config.toml"
 # Solo para el pull request: el push usa las credenciales de Git del usuario.
 VAR_TOKEN_GITHUB = "GITHUB_TOKEN"
 # Servidores MCP del usuario (formato mcpServers), junto al .env mientras se desarrolla.
@@ -192,21 +194,33 @@ def _desde_variables() -> ConfigModelo:
 
 
 def leer_respaldo(actual: ConfigModelo | None = None) -> list[ConfigModelo]:
-    """Los proveedores de respaldo de HARNESS_RESPALDO, en orden ("proveedor:modelo, ...").
+    """Los modelos de respaldo, en orden: HARNESS_RESPALDO (entorno o .env) o, si no está,
+    `respaldo` de config.toml.
 
-    Se separa en el primer ':' porque los modelos gratis de OpenRouter terminan en ':free'.
-    Se quita el modelo `actual` si está en la lista: pasar a él sería repetir el que acaba de
-    fallar. Lanza ErrorConfiguracion si una entrada no se entiende o le falta la API key.
+    Cada entrada es el nombre de un perfil (sin ':') o proveedor:modelo, separado en el primer
+    ':' porque los modelos gratis de OpenRouter terminan en ':free'. Se quita el modelo
+    `actual` si está en la lista: pasar a él sería repetir el que acaba de fallar. Lanza
+    ErrorConfiguracion si una entrada no se entiende o le falta la API key.
     """
+    usuario = leer_usuario()
     texto = os.environ.get(VAR_RESPALDO, "")
+    entradas = [parte.strip() for parte in texto.split(SEPARADOR_RESPALDO) if parte.strip()]
+    origen = VAR_RESPALDO
+    if not texto.strip():
+        entradas, origen = list(usuario.respaldo), ORIGEN_RESPALDO_USUARIO
     respaldo = []
-    for entrada in (parte.strip() for parte in texto.split(SEPARADOR_RESPALDO)):
-        if not entrada:
-            continue
-        config = _leer_entrada_respaldo(entrada)
+    for entrada in entradas:
+        config = leer_entrada(entrada, usuario, origen)
         if actual is None or (config.proveedor, config.modelo) != (actual.proveedor, actual.modelo):
             respaldo.append(config)
     return respaldo
+
+
+def leer_entrada(entrada: str, usuario: ConfigUsuario, origen: str) -> ConfigModelo:
+    """Un perfil de config.toml (sin ':') o proveedor:modelo (respaldo y revisor)."""
+    if SEPARADOR_PROVEEDOR not in entrada:
+        return _desde_perfil(usuario, entrada.strip(), origen)
+    return _leer_entrada_respaldo(entrada, origen)
 
 
 def elegir_modelo(
@@ -227,13 +241,13 @@ def elegir_modelo(
 
 
 def _leer_entrada_respaldo(entrada: str, origen: str = VAR_RESPALDO) -> ConfigModelo:
-    # Sin ':' será el nombre de un perfil de config.toml (fase 12); hoy solo proveedor:modelo.
-    proveedor, separador, modelo = entrada.partition(":")
+    # Sin perfil detrás: personalizado no se admite, porque necesita su URL (un perfil sí).
+    proveedor, separador, modelo = entrada.partition(SEPARADOR_PROVEEDOR)
     proveedor, modelo = proveedor.strip().lower(), modelo.strip()
     if not separador or not modelo:
         raise ErrorConfiguracion(
             f"'{entrada}' en {origen} no es proveedor:modelo "
-            "(por ejemplo openrouter:qwen/qwen3-coder:free)."
+            "(por ejemplo openrouter:qwen/qwen3-coder:free) ni el nombre de un perfil."
         )
     if proveedor not in PRESETS or proveedor == PROVEEDOR_PERSONALIZADO:
         conocidos = ", ".join(p for p in PRESETS if p != PROVEEDOR_PERSONALIZADO)
