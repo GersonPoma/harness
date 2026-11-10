@@ -994,3 +994,40 @@ def test_sin_modelo_configurado_pide_harness_config(
 ) -> None:
     codigo, salida, _ = _correr_con_config_real(monkeypatch, repo_sin_yaml, [])
     assert codigo == 1 and "ejecuta 'harness config'" in salida
+
+
+@requiere_git
+def test_con_harness_yaml_la_respuesta_final_tambien_se_ve(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    (repo_sin_yaml / "harness.yaml").write_text(YAML_CON_DOCKER, encoding="utf-8")
+    iniciar_repo(repo_sin_yaml)
+
+    class EntornoFalso:
+        conservados = None
+
+        def __init__(self, *_args: object, **_opciones: object) -> None:
+            pass
+
+        def __enter__(self) -> "EntornoFalso":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            pass
+
+        def iniciar(self, **_opciones: object) -> None:
+            pass
+
+        def marcar_cambio(self, *_args: object) -> None:
+            pass
+
+    def ejecutar_falso(*_args: object, **opciones: object):
+        opciones["al_respuesta"](1, "Hecho: agregué el filtro.")
+        raise ErrorDocker("corte de prueba")
+
+    monkeypatch.setattr(cli, "EntornoDocker", EntornoFalso)
+    monkeypatch.setattr(cli, "ejecutar_ticket", ejecutar_falso)
+    codigo, salida = _correr(monkeypatch, repo_sin_yaml, [], "--sin-push", "--sin-plan")
+    assert codigo == 1
+    assert "[1] Respuesta: Hecho: agregué el filtro." in salida
+    assert any(e["evento"] == "respuesta" for e in _eventos_del_log(repo_sin_yaml))

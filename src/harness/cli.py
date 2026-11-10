@@ -1452,6 +1452,7 @@ def _ejecutar_con_validacion(
         planificacion=_planificacion(prep, reporte),
         continuacion=_continuacion(prep),
         revisar_paso=DetectorBucles(prep.repo).revisar,
+        al_respuesta=reporte.respuesta,
         revision=_revision(prep, config_proyecto, antes, reporte),
         alcance=Alcance(
             prep.repo, antes, crear_herramientas_lectura(prep.repo), entorno.marcar_cambio,
