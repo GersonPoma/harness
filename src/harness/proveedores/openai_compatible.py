@@ -9,22 +9,19 @@ from typing import Any
 import openai
 
 from harness.config import ConfigModelo, donde_configurar
-from harness.proveedores.base import (
-    MOTIVO_CAIDO,
-    MOTIVO_CUOTA_DIARIA,
-    MOTIVO_LIMITE,
-    ErrorProveedor,
-    ErrorProveedorCaido,
-)
+from harness.proveedores.base import ErrorProveedor
 from harness.proveedores.esquemas import quitar_extensiones, resolver_referencias
 from harness.proveedores.presets import PRESETS, PerfilEsquema
+from harness.proveedores.reintentos import (
+    MAX_REINTENTOS,
+    ErrorPasajero,
+    Reintentos,
+    espera_de_retry_after,
+)
 from harness.tipos import Herramienta, LlamadaHerramienta, Mensaje, RespuestaModelo, Rol
 
 # Gemini gratis permite 15 pedidos por minuto: uno cada 4 segundos como mínimo.
 INTERVALO_MINIMO_SEGUNDOS = 4.0
-MAX_REINTENTOS = 5
-ESPERA_INICIAL_SEGUNDOS = 5.0
-ESPERA_MAXIMA_SEGUNDOS = 60.0
 # El SDK espera 600 s por defecto: un pedido colgado congelaría la ejecución 10 minutos por
 # cada reintento. Una respuesta normal tarda segundos.
 TIMEOUT_PEDIDO_SEGUNDOS = 120.0
@@ -38,11 +35,6 @@ PATRON_CUOTA_DIARIA = re.compile(r"per[\s_-]?day", re.IGNORECASE)
 # conversación (firma de reemplazo): repetir el mismo pedido suele alcanzar.
 FINISH_LLAMADA_MALFORMADA = "MALFORMED_FUNCTION_CALL"
 MAX_REPETICIONES_MALFORMADA = 2
-
-SUGERENCIA_OTRO_PROVEEDOR = (
-    "configura un respaldo (respaldo en ~/.harness/config.toml o HARNESS_RESPALDO) o usa otro "
-    "modelo (--perfil, o --proveedor y --modelo)."
-)
 
 _ROLES_OPENAI = {
     Rol.SISTEMA: "system",
@@ -65,8 +57,6 @@ class ProveedorOpenAICompatible:
         max_reintentos: int = MAX_REINTENTOS,
     ) -> None:
         self._config = config
-        # Con un respaldo detrás conviene rendirse antes: el siguiente proveedor sí responde.
-        self._max_reintentos = max_reintentos
         self.id = f"{config.proveedor}/{config.modelo}"
         self._perfil_esquema = PRESETS[config.proveedor].perfil_esquema
         self._firma_de_reemplazo = PRESETS[config.proveedor].firma_de_reemplazo
@@ -78,11 +68,11 @@ class ProveedorOpenAICompatible:
             max_retries=0,
             timeout=TIMEOUT_PEDIDO_SEGUNDOS,
         )
-        self._dormir = dormir
-        self._reloj = reloj
-        # Avisa de cada reintento para que una espera larga no parezca un cuelgue.
-        self._al_reintentar = al_reintentar
-        self._ultimo_pedido: float | None = None
+        # Con un respaldo detrás conviene rendirse antes: el siguiente proveedor sí responde.
+        self._reintentos = Reintentos(
+            config.proveedor, max_reintentos, dormir, reloj, al_reintentar,
+            INTERVALO_MINIMO_SEGUNDOS,
+        )
 
     def responder(
         self,
@@ -129,41 +119,22 @@ class ProveedorOpenAICompatible:
             respuesta = self._pedir_con_reintentos(parametros)
             if not _es_llamada_malformada(respuesta):
                 return respuesta
-            if self._al_reintentar:
-                self._al_reintentar(
-                    f"{self._config.proveedor.capitalize()} generó una llamada a herramienta mal "
-                    f"formada ({FINISH_LLAMADA_MALFORMADA}): se repite el pedido "
-                    f"({repeticion}/{MAX_REPETICIONES_MALFORMADA})."
-                )
+            self._reintentos.avisar(
+                f"{self._config.proveedor.capitalize()} generó una llamada a herramienta mal "
+                f"formada ({FINISH_LLAMADA_MALFORMADA}): se repite el pedido "
+                f"({repeticion}/{MAX_REPETICIONES_MALFORMADA})."
+            )
         # Si sigue igual, el bucle la trata como respuesta vacía.
         return self._pedir_con_reintentos(parametros)
 
     def _pedir_con_reintentos(self, parametros: dict[str, Any]) -> Any:
-        espera = ESPERA_INICIAL_SEGUNDOS
-        reintento = 0
-        while True:
-            self._respetar_intervalo()
-            try:
-                return self._cliente.chat.completions.create(**parametros)
-            except openai.APIError as error:
-                if not _es_pasajero(error):
-                    raise self._error_permanente(error) from error
-                if _es_cuota_diaria(error):
-                    raise self._error_cuota_diaria() from error
-                if reintento == self._max_reintentos:
-                    raise self._error_agotado(error) from error
-                reintento += 1
-                segundos = _espera_sugerida(error) or espera
-                self._avisar_reintento(error, reintento, segundos)
-                self._dormir(segundos)
-                espera = min(espera * 2, ESPERA_MAXIMA_SEGUNDOS)
-
-    def _avisar_reintento(self, error: openai.APIError, reintento: int, segundos: float) -> None:
-        if self._al_reintentar:
-            self._al_reintentar(
-                f"{self._config.proveedor.capitalize()} {_describir(error)}, "
-                f"reintento {reintento}/{self._max_reintentos} en {segundos:g} s..."
+        try:
+            return self._reintentos.pedir(
+                lambda: self._cliente.chat.completions.create(**parametros), _clasificar,
+                (openai.APIError,),
             )
+        except openai.APIError as error:
+            raise self._error_permanente(error) from error
 
     def _error_permanente(self, error: openai.APIError) -> ErrorProveedor:
         proveedor = self._config.proveedor
@@ -175,39 +146,6 @@ class ProveedorOpenAICompatible:
             )
         estado = getattr(error, "status_code", "desconocido")
         return ErrorProveedor(f"'{proveedor}' respondió con error {estado}: {error.message}")
-
-    def _error_agotado(self, error: openai.APIError) -> ErrorProveedorCaido:
-        proveedor = self._config.proveedor
-        reintentos = self._max_reintentos
-        if getattr(error, "status_code", None) == ESTADO_LIMITE:
-            return ErrorProveedorCaido(
-                f"Se agotó el límite de pedidos del proveedor '{proveedor}' (error 429) después "
-                f"de {reintentos} reintentos. Espera un rato o {SUGERENCIA_OTRO_PROVEEDOR}",
-                MOTIVO_LIMITE,
-            )
-        return ErrorProveedorCaido(
-            f"El servicio de '{proveedor}' no está disponible ({_describir(error)}) después de "
-            f"{reintentos} reintentos. Intenta más tarde o {SUGERENCIA_OTRO_PROVEEDOR}",
-            MOTIVO_CAIDO,
-        )
-
-    def _error_cuota_diaria(self) -> ErrorProveedorCaido:
-        return ErrorProveedorCaido(
-            f"Se agotó la cuota diaria del proveedor '{self._config.proveedor}' (error 429): "
-            f"no se recupera esperando unos minutos, se renueva una vez por día. "
-            f"Mañana, o ahora mismo si {SUGERENCIA_OTRO_PROVEEDOR}",
-            MOTIVO_CUOTA_DIARIA,
-        )
-
-    def _respetar_intervalo(self) -> None:
-        ahora = self._reloj()
-        if self._ultimo_pedido is not None:
-            faltante = INTERVALO_MINIMO_SEGUNDOS - (ahora - self._ultimo_pedido)
-            if faltante > 0:
-                self._dormir(faltante)
-                ahora += faltante
-        self._ultimo_pedido = ahora
-
 
     def _a_mensaje_openai(self, mensaje: Mensaje) -> dict[str, Any]:
         resultado: dict[str, Any] = {
@@ -241,6 +179,18 @@ class ProveedorOpenAICompatible:
         return {}
 
 
+def _clasificar(error: BaseException) -> ErrorPasajero | None:
+    """Los errores que pueden resolverse esperando; None para los demás."""
+    if not isinstance(error, openai.APIError) or not _es_pasajero(error):
+        return None
+    return ErrorPasajero(
+        _describir(error),
+        es_limite=getattr(error, "status_code", None) == ESTADO_LIMITE,
+        es_cuota_diaria=_es_cuota_diaria(error),
+        espera_sugerida=_espera_sugerida(error),
+    )
+
+
 def _es_cuota_diaria(error: openai.APIError) -> bool:
     if getattr(error, "status_code", None) != ESTADO_LIMITE:
         return False
@@ -270,11 +220,9 @@ def _describir(error: openai.APIError) -> str:
 def _espera_sugerida(error: openai.APIError) -> float | None:
     """Segundos que pide esperar el servidor en Retry-After, si los manda."""
     respuesta = getattr(error, "response", None)
-    valor = respuesta.headers.get("retry-after") if respuesta is not None else None
-    try:
-        return min(float(valor), ESPERA_MAXIMA_SEGUNDOS) if valor else None
-    except ValueError:
-        return None
+    return espera_de_retry_after(
+        respuesta.headers.get("retry-after") if respuesta is not None else None
+    )
 
 
 def _es_llamada_malformada(respuesta: Any) -> bool:

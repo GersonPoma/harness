@@ -8,7 +8,7 @@ import openai
 import pytest
 
 from harness.config import ConfigModelo
-from harness.proveedores import openai_compatible
+from harness.proveedores import openai_compatible, reintentos
 from harness.proveedores.base import (
     MOTIVO_CAIDO,
     MOTIVO_CUOTA_DIARIA,
@@ -238,7 +238,7 @@ def test_reintenta_ante_429_y_respeta_retry_after() -> None:
     respuesta = proveedor.responder([Mensaje(Rol.USUARIO, "hola")], [])
     assert respuesta.texto == "ok"
     assert len(cliente.pedidos) == 3
-    assert reloj.esperas == [7.0, openai_compatible.ESPERA_INICIAL_SEGUNDOS * 2]
+    assert reloj.esperas == [7.0, reintentos.ESPERA_INICIAL_SEGUNDOS * 2]
 
 
 def test_429_agotado_da_error_claro() -> None:
@@ -300,7 +300,7 @@ def test_503_reintenta_avisa_y_sigue() -> None:
     proveedor, cliente, reloj = crear([error_http(503), respuesta_openai("ok")], avisos)
     assert proveedor.responder([Mensaje(Rol.USUARIO, "hola")], []).texto == "ok"
     assert len(cliente.pedidos) == 2
-    assert reloj.esperas[0] == openai_compatible.ESPERA_INICIAL_SEGUNDOS
+    assert reloj.esperas[0] == reintentos.ESPERA_INICIAL_SEGUNDOS
     assert avisos == [f"Gemini saturado (503), reintento 1/{MAX_REINTENTOS} en 5 s..."]
 
 

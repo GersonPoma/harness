@@ -4,8 +4,9 @@ from collections.abc import Callable, Sequence
 
 from harness.config import ConfigModelo
 from harness.proveedores.base import ProveedorLLM
-from harness.proveedores.openai_compatible import MAX_REINTENTOS, ProveedorOpenAICompatible
+from harness.proveedores.openai_compatible import ProveedorOpenAICompatible
 from harness.proveedores.presets import PRESETS, FormatoApi
+from harness.proveedores.reintentos import MAX_REINTENTOS
 from harness.proveedores.respaldo import CambioProveedor, ProveedorConRespaldo
 
 # Con otro proveedor detrás no conviene esperar los 5 reintentos (~2,5 minutos).

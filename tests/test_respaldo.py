@@ -78,7 +78,7 @@ RESPALDO = ConfigModelo("openrouter", "o:free", "https://y", "clave-falsa-987654
 def test_sin_respaldo_es_un_proveedor_solo() -> None:
     proveedor = crear_proveedor(PRINCIPAL)
     assert not isinstance(proveedor, ProveedorConRespaldo)
-    assert proveedor._max_reintentos == MAX_REINTENTOS
+    assert proveedor._reintentos.max_reintentos == MAX_REINTENTOS
 
 
 def test_con_respaldo_menos_reintentos_salvo_el_ultimo() -> None:
@@ -86,8 +86,8 @@ def test_con_respaldo_menos_reintentos_salvo_el_ultimo() -> None:
     assert isinstance(cadena, ProveedorConRespaldo)
     (nombre_1, primero), (nombre_2, ultimo) = cadena._proveedores
     assert (nombre_1, nombre_2) == ("gemini/g", "openrouter/o:free")
-    assert primero._max_reintentos == REINTENTOS_CON_RESPALDO
-    assert ultimo._max_reintentos == MAX_REINTENTOS
+    assert primero._reintentos.max_reintentos == REINTENTOS_CON_RESPALDO
+    assert ultimo._reintentos.max_reintentos == MAX_REINTENTOS
 
 
 # --- HARNESS_RESPALDO ----------------------------------------------------------------------
