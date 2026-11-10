@@ -159,7 +159,9 @@ MENSAJE_ENTREGAR_REVISION = (
 )
 
 MENSAJE_IMPLEMENTAR = (
-    "Plan registrado. Ahora impleméntalo. Si en el camino tienes que tocar archivos que no "
+    "Plan registrado. Ahora impleméntalo. Los archivos que leíste mientras planificabas siguen "
+    "en la conversación: no los vuelvas a leer, salvo que hayan cambiado; cada paso cuenta "
+    "contra el límite de la implementación. Si en el camino tienes que tocar archivos que no "
     "estaban en el plan, hazlo solo si es necesario y explica por qué en tu resumen final."
 )
 

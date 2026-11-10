@@ -351,3 +351,8 @@ def test_quita_la_numeracion_que_pone_el_modelo() -> None:
     assert plan.pasos == [
         "Crear el modelo", "Agregar el endpoint", "Correr tests", "Paso 3 sin número",
     ]
+
+
+def test_implementar_dice_que_lo_leido_en_el_plan_sigue_en_la_conversacion() -> None:
+    assert "siguen en la conversación" in MENSAJE_IMPLEMENTAR
+    assert "salvo que hayan cambiado" in MENSAJE_IMPLEMENTAR
