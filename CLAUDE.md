@@ -51,8 +51,12 @@ harness/
 └── src/harness/
     ├── cli.py              # punto de entrada (typer): run, resume, ticket, init, version
     ├── bucle.py            # bucle de tool calling
-    ├── ejecucion.py        # plan + implementación + validación
-    ├── planificacion.py    # ronda de plan (proponer_plan)
+    ├── ejecucion.py        # plan, implementación, fuera del plan, validación y revisión
+    ├── planificacion.py    # ronda de plan (proponer_plan) y sus correcciones
+    ├── revision.py         # paso de revisión del diff (informar_revision)
+    ├── alcance.py          # justificar o revertir lo que cambió fuera del plan
+    ├── bucles.py           # detección de bucles (mismo archivo, mismo error)
+    ├── resumen_tests.py    # cuántos tests pasaron, para la consola y el PR
     ├── prompts.py          # textos que recibe el modelo
     ├── tipos.py            # Mensaje, Herramienta, LlamadaHerramienta, RespuestaModelo
     ├── consola.py          # salida con rich (sin la última columna; HARNESS_CONSOLA_CRUDA)
@@ -120,7 +124,7 @@ uv tool install -e .      # dejar "harness" como comando global (editable)
 ## Memoria (ver plan para el detalle)
 
 - Dentro de una ejecución: la lista `messages`, con recorte de salidas largas
-  y compactación de resultados viejos cuando crece demasiado.
+  y compactación de resultados viejos cuando crece demasiado (marca o resumen del modelo).
 - Del proyecto: `AGENTS.md` / `harness.yaml` del repo objetivo.
 - Entre ejecuciones, en el repo objetivo:
   - `.harness/memory.md` (se sube a Git) + herramienta `guardar_memoria(nota)`

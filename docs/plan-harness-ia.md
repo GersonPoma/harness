@@ -73,7 +73,12 @@ for paso in range(MAX_PASOS):
 
 ### Entender el proyecto
 
-- **`list_dir`**, **`read_file`**, **`search_code`** (tipo grep).
+- **`list_dir`**, **`read_file`**, **`search_code`** (tipo grep). En el código:
+  `listar_directorio`, `leer_archivo` y, desde la fase 10, **`buscar_en_codigo(patron, ruta,
+  es_regex)`**: devuelve `ruta:línea: texto` (hasta 100 coincidencias, 200 caracteres por
+  línea), recorre los mismos archivos que la foto de cambios (con Git, los que no ignora el
+  `.gitignore`) y nunca lee `.git`, archivos de secretos, binarios ni archivos de más de 1 MB.
+  También está en la ronda de plan y en la revisión.
 - **Archivos de configuración dentro del repo objetivo** (en su raíz). No se le pasan al
   harness: el harness los busca solo al arrancar y los mete en el contexto inicial del
   modelo. Quedan versionados con Git junto al código.
@@ -102,14 +107,40 @@ for paso in range(MAX_PASOS):
   - Al terminar recuerda revisarlos: `harness.yaml` define qué se ejecuta (`instalar`,
     `comandos_permitidos`).
   - `--verificar`: levanta el entorno con el `harness.yaml` (servicios incluidos), instala y
-    corre los tests, e informa si funcionan (código 1 si no). Solo informa: no corrige el YAML.
+    corre los tests, e informa si funcionan (código 1 si no). **Desde la fase 10**, si el
+    `harness.yaml` lo generó init en esa misma corrida y la instalación o los tests fallan,
+    el modelo recibe la cola del error (sin secretos) y puede guardar uno corregido; se
+    verifica de nuevo, como mucho 2 veces (`MAX_CORRECCIONES_INIT`). Si responde con texto
+    ("el YAML está bien, falla el código"), se termina. Uno que ya existía solo se informa.
+  - **Imágenes ya descargadas (fase 10):** init le pasa al modelo la lista de
+    `docker image ls` (hasta 50, sin `<none>`) y le pide preferir una compatible. En
+    library-api había elegido `gradle:8.10-jdk21` con la 8.14 ya descargada.
+  - **Advertencias de límites (fase 10):** `guardar_harness_yaml` no guarda, la primera vez,
+    un YAML de Gradle con `timeout_comando_segundos` < 1200, `max_caracteres_salida` < 6000 o
+    `--no-daemon`, ni uno de Maven con menos de 600 / 6000. Devuelve las advertencias: el
+    modelo corrige, o insiste con `ignorar_advertencias: true` y la consola lo avisa.
+  - **Gradle sin el detalle de las fallas (fase 10):** si `build.gradle(.kts)` no tiene
+    `exceptionFormat`, init sugiere el bloque de `testLogging` (Groovy o Kotlin) sin tocar el
+    build.
+  - **Reglas de arquitectura (fase 10):** si el proyecto no usa ya ArchUnit, import-linter o
+    dependency-cruiser, init recomienda la del stack y remite a "Reglas de arquitectura" en
+    `docs/harness-yaml.md`.
   - `harness run` no llama a `init` por su cuenta: si falta algún archivo, avisa y lo sugiere.
     Un `harness.yaml` tiene que verlo una persona antes del primer uso.
 
 ### Escribir código
 
-- **`write_file`**
-- **`edit_file`**: reemplaza un fragmento exacto, no reescribe todo el archivo.
+- **`write_file`** (`escribir_archivo`): crea un archivo o lo reescribe completo.
+- **`edit_file`** (`editar_archivo(ruta, texto_actual, texto_nuevo, reemplazar_todas)`, fase
+  10): reemplaza un fragmento exacto, no reescribe todo el archivo. El prompt pide usarla
+  para cambiar parte de un archivo existente.
+  - Si el fragmento no aparece: "Vuelve a leer el archivo y copia el fragmento exacto". Antes
+    de dar el error se prueba con `\r\n` si el archivo usa finales de Windows y el fragmento
+    no, y el reemplazo se escribe con los mismos finales.
+  - Si aparece más de una vez: el error dice cuántas y en qué líneas, y pide más contexto o
+    `reemplazar_todas: true`.
+  - Mismas protecciones que `escribir_archivo` (rutas, secretos, `archivos_protegidos`), y
+    avisa la escritura para reinstalar dependencias si hace falta.
 
 ### Ejecutar y validar (aquí está la autocorrección)
 
@@ -199,9 +230,10 @@ harness run PROJ-123
   donde cada archivo es `{ruta, accion: crear|modificar|eliminar, motivo}`. La ronda termina
   cuando la llama con un plan válido; si el plan no cumple el formato, el error vuelve al
   modelo para que lo corrija.
-- Tiene hasta `limites.max_pasos_plan` pasos (10 sin la clave), descontados de `max_pasos` y
-  nunca más de la mitad de ellos, para que quede al menos la mitad para implementar.
-  Si responde con texto o se le acaban, se le pide "llama a `proponer_plan` ahora", ya sin
+- Tiene hasta `limites.max_pasos_plan` pasos (10 sin la clave). **Desde la fase 10 es un
+  presupuesto propio:** `max_pasos` cuenta recién desde que se aprueba el plan, y
+  `--max-pasos` no recorta el plan (antes se descontaba de `max_pasos`, con el tope de la
+  mitad). Si responde con texto o se le acaban, se le pide "llama a `proponer_plan` ahora", ya sin
   herramientas de lectura y con `tool_choice` obligando a `proponer_plan` donde el
   proveedor lo acepta (fase 9). Si aun así no llega un plan válido, tiene **una sola
   oportunidad más**, con un mensaje explícito ("es la única herramienta que existe ahora…"),
@@ -221,9 +253,96 @@ harness run PROJ-123
   así las salidas de compilación de cada stack quedan fuera según su `.gitignore`; si no es
   Git, se usa una lista fija de carpetas (más `target`, `build`, `dist`, `out`, `.gradle` y
   `bin`, la salida de algunos IDEs).
-- `--aprobar-plan`: muestra el plan y pregunta "¿Implementar? [s/n]"; con "n" termina sin
-  implementar (código 0). Por defecto el harness sigue solo.
+- `--aprobar-plan` (con correcciones desde la fase 10): muestra el plan, los tokens gastados
+  hasta ahí, y pregunta "¿Aprobar el plan? [s/n, o escribe qué cambiar]".
+  - `s`: implementa. `n`, Enter o sin respuesta: termina sin implementar (código 0).
+  - Cualquier otro texto es una corrección: va al modelo ("El usuario pidió este cambio al
+    plan: …"), hay otra ronda de plan con su propio `max_pasos_plan` y se vuelve a preguntar.
+    Sin límite de correcciones.
+  - Las correcciones quedan en el log (`correccion_plan`) y en la sección "Indicaciones del
+    usuario" del PR.
+  - Sin terminal interactiva, `run` se detiene antes de empezar (antes preguntaba igual).
+  - Por defecto el harness sigue solo.
+- **Fuera del plan (fase 10):** al terminar la implementación, antes de validar, si cambiaron
+  archivos que no estaban en el plan, el modelo tiene una ronda con `justificar_cambio(ruta,
+  motivo)` y `revertir_archivo(ruta)` (más las de lectura), con presupuesto propio. Ver
+  [Calidad de la ejecución](#calidad-de-la-ejecución).
 - `--sin-plan`: salta la ronda de plan (tickets triviales o para ahorrar pedidos).
+
+### Calidad de la ejecución
+
+La validación (tests y lint) no ve todo: en TAREAS-3 el modelo agregó un endpoint que nadie
+pidió con los tests en verde, en TIENDA-3 violó una regla de `AGENTS.md` y reescribió
+`VentaServiceImpl` 4 veces igual, y el PR no decía cuántos tests pasaron ni que la memoria
+había cambiado. La fase 10 agrega:
+
+- **Paso de revisión** (`revision.py`, sección `revision` de `harness.yaml`, activa por
+  defecto; `--sin-revision` para una ejecución).
+  - Con los tests en verde, el modelo recibe el diff de lo que cambió (sin `memory.md`, sin
+    secretos, hasta 30.000 caracteres) y lo revisa contra las reglas de `AGENTS.md`, los
+    criterios del ticket y el alcance (código que ningún criterio pide). Solo puede leer y
+    termina con `informar_revision(es_aprobado, problemas)`, con `tool_choice` en el último
+    paso.
+  - Si encuentra problemas, el modelo vuelve a implementar, se valida y se revisa otra vez,
+    hasta `max_vueltas` (2). Si quedan problemas, igual se hace el commit (los tests pasan)
+    y van en la sección "Revisión" del PR, con un aviso en consola.
+  - Tiene su propio presupuesto (`revision.max_pasos`, 6 por ronda): no descuenta de
+    `max_pasos`. Las validaciones que siguen a una corrección de la revisión no cuentan para
+    `max_intentos_validacion`.
+  - **Trabajo futuro:** la revisión la hace el mismo modelo que implementó, que tiende a
+    aprobar su propio trabajo. Probar más adelante revisar con un modelo distinto (por
+    ejemplo, el primero de la lista de respaldo).
+- **Alcance de más** (`alcance.py`), con las cuatro propuestas del caso TAREAS-3:
+  1. la ronda de justificar o revertir los cambios fuera del plan, antes de validar.
+     `revertir_archivo` solo toca archivos que cambiaron durante la ejecución (según la foto
+     de cambios), y solo si el último commit tiene exactamente lo que había al empezar; si
+     no, pide deshacerlo con `editar_archivo` o justificarlo. Las justificaciones y lo
+     revertido van en la sección "Cambios fuera del plan" del PR, y en el evento
+     `fuera_del_plan`;
+  2. la revisión marca el código que no corresponde a ningún criterio;
+  3. el system prompt: "implementa solo lo que piden los criterios del ticket… ante un error,
+     antes de agregar código, prefiere quitar lo que sobra";
+  4. `editar_archivo`.
+- **Detección de bucles** (`bucles.py`): mismo contenido en el mismo archivo (también
+  volviendo a una versión anterior) o el mismo error de tests seguido, sin contar horas ni
+  duraciones. A la 3.ª repetición se agrega una nota al resultado ("replantea el enfoque"); a
+  la 5.ª se corta con el motivo `bucle`, que se puede retomar con `resume`. Una validación
+  con el mismo informe que la anterior también se lo dice al modelo.
+- **Tickets relacionados:** de Jira se leen también `issuelinks`, `subtasks` y `parent`, y el
+  mensaje inicial suma "## Tickets relacionados" con la relación, la clave, el título y el
+  estado (como máximo 20, sin descripciones, y con la aclaración de que su detalle no está
+  disponible).
+- **Compactación con resumen:** `limites.compactacion: resumen` (ver
+  [Memoria](#1-dentro-de-una-ejecución-obligatoria)).
+- **Consola, log y PR:**
+  - los avisos llevan el prefijo "Aviso:", además del amarillo;
+  - el evento `herramienta` de `ejecutar_tests`, `ejecutar_lint` y `ejecutar_comando` trae
+    `codigo_salida` y `es_tiempo_agotado`;
+  - "✓ Validación 1: tests OK (8 passed in 0.18s)" y, en el PR, el mismo resumen de los
+    tests (pytest, Maven, Gradle o Jest; con `mvn -q` no hay línea que lo diga y no se
+    muestra);
+  - el plan del PR va plegado en `<details>`;
+  - `.harness/memory.md` aparece aparte, como "Memoria", en la consola y en los cambios del
+    PR, y el total coincide con los archivos del commit.
+
+**Prueba real** (fase 10, TAREAS-3 con `--sin-push`, Gemini 3.5 Flash-Lite): usó
+`editar_archivo` 4 veces, no tocó nada fuera del plan, "✓ Validación 1: tests OK (8 passed
+in 0.18s)", "✓ Revisión 1: sin problemas", la memoria listada aparte y los avisos con
+"Aviso:".
+
+**Pendientes de prueba real** (cubiertos por los tests): el PR completo, el plan con
+correcciones, la compactación con resumen, init con imágenes y advertencias (y la corrección
+de `--verificar`), los tickets enlazados y la salida en las terminales.
+
+**Lo que salió en la prueba** (anotado en el roadmap):
+- con Docker cerrado, el error del servidor MCP ("ExceptionGroup") y la rama creada antes de
+  detectar que Docker no está (fase 11);
+- los pasos saltaron de `[8]` a `[10]`. No es una línea perdida: el `[9]` fue la respuesta
+  final de la implementación (texto, sin herramientas), que cuenta como paso pero no se
+  muestra ni queda en el log como herramienta, y la revisión arrancó en el 10 (fase 12);
+- una nota de memoria que describe el ticket actual ("El repositorio soporta filtrado
+  opcional en listar y método completar tarea"), aunque la herramienta pide guardar solo lo
+  útil para tickets futuros (fase 12).
 
 ---
 
@@ -945,6 +1064,11 @@ memoria la pone el harness. Hay tres niveles.
     - Consola y log: "Conversación compactada: 14 resultados viejos omitidos (−85.000
       caracteres)." y el evento `compactacion`. La sesión guarda los mensajes ya compactados.
     - En la prueba real ninguna conversación llegó al umbral: está cubierta por los tests.
+    - **Con resumen del modelo (fase 10):** con `limites.compactacion: resumen`, un pedido
+      aparte al mismo modelo (sin herramientas) resume esos resultados en hasta 2.000
+      caracteres; el resumen va en el lugar del primero y los demás quedan como "[Incluido
+      en el resumen de un resultado anterior: …]". Cuesta un pedido (sus tokens se suman); si
+      falla, sale vacío o no ahorra, se usa la marca. Por defecto sigue la marca.
 
 ### 2. Del proyecto (obligatoria)
 
@@ -1367,6 +1491,11 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         - Sin terminal interactiva no se pregunta y se detiene, igual que el preflight de
           GitHub (hoy la pregunta se hace igual y, al no haber respuesta, no se implementa).
 - [ ] **11.** Docker
+  - [ ] **Con Docker cerrado.** En la prueba de la fase 10 (TAREAS-3), con Docker Desktop
+        cerrado, el servidor MCP de GitHub (que corre en Docker) falló con un
+        "ExceptionGroup" poco claro, y la rama `feature/<TICKET>` se creó antes de detectar
+        que Docker no estaba. Verificar Docker al principio del preflight, antes de la rama
+        y del MCP, con un mensaje claro ("Docker no está corriendo: abre Docker Desktop").
   - [ ] **Opción `--conservar`:** no borrar los contenedores al terminar, para poder
         conectarse a la base y depurar. Mostrar cómo conectarse y cómo borrarlos después.
   - [ ] **Etiquetas propias en contenedores y redes** (`harness=1`, `harness.ticket=...`):
@@ -1412,6 +1541,18 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         despertado. Si molesta: avisar cuando la instalación tarda mucho más que la anterior
         del proyecto, o documentar que se puede apagar Resource Saver.
 - [ ] **12.** Distribución y pulido
+  - [ ] **Revisar con un modelo distinto** (trabajo futuro de la fase 10). La revisión la hace
+        el mismo modelo que implementó; probar revisar con otro, por ejemplo el primero de
+        la lista de respaldo, y comparar cuántos problemas encuentra cada uno.
+  - [ ] **El paso de la respuesta final no se ve.** En TAREAS-3 los pasos saltaron de `[8]` a
+        `[10]`: el `[9]` fue la respuesta final de la implementación (texto, sin
+        herramientas), que cuenta como paso pero no se muestra ni queda en el log como
+        herramienta. Mostrarlo ("[9] respuesta final") o no numerarlo.
+  - [ ] **Notas de memoria que describen el ticket actual.** En TAREAS-3 el modelo guardó "El
+        repositorio soporta filtrado opcional en listar y método completar tarea", que es lo
+        que acababa de hacer, aunque la herramienta pide guardar solo lo útil para tickets
+        futuros. Reforzar la descripción con ejemplos de lo que sí y lo que no, o rechazar
+        notas que repiten el título o los criterios del ticket.
   - [ ] **`ProveedorAnthropic`** (preset `anthropic`), para quien elija Claude. Define su
         propio `adaptar_esquema`: los esquemas de las herramientas (los de MCP, por ejemplo) se
         adaptan a lo que acepta la API de Anthropic.
