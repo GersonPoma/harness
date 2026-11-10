@@ -49,6 +49,8 @@ from harness.variables import VariablesResueltas, resolver_variables
 # La instalación descarga dependencias: puede tardar mucho más que un comando normal.
 TIMEOUT_INSTALACION_SEGUNDOS = 900
 TIMEOUT_DOCKER_SEGUNDOS = 60
+# Si el primer comando de Docker tarda más que esto, Docker Desktop estaba dormido.
+UMBRAL_DOCKER_DORMIDO_SEGUNDOS = 5
 # Cada cuánto se actualiza el progreso de una descarga aunque docker no escriba nada.
 INTERVALO_PROGRESO_SEGUNDOS = 1.0
 # Una línea de 'docker pull' por capa: "a2abf6c4d29d: Pull complete".
@@ -266,6 +268,21 @@ def usuario_del_host() -> str | None:
     if sys.platform != "linux" or not hasattr(os, "getuid"):
         return None
     return f"{os.getuid()}:{os.getgid()}"
+
+
+def aviso_docker_dormido(segundos: float) -> str | None:
+    """El aviso de Resource Saver si Docker tardó demasiado en responder; None si no.
+
+    Normalmente 'docker version' responde en menos de 1 s. En la prueba de la fase 9, con
+    Docker Desktop en pausa por Resource Saver, la instalación tardó 1 min 39 s en vez de 20 s.
+    """
+    if segundos < UMBRAL_DOCKER_DORMIDO_SEGUNDOS:
+        return None
+    return (
+        f"Docker tardó {round(segundos)} s en responder: Docker Desktop puede estar dormido por "
+        "Resource Saver, y lo que sigue (instalar, los tests) va a tardar más. Para "
+        "desactivarlo: Docker Desktop > Settings > Resources > Resource Saver."
+    )
 
 
 def verificar_docker(

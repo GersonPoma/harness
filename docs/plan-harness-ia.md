@@ -1585,7 +1585,7 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         muestra las capas listas y el tiempo ("3 de 7 capas (1 min 05 s)"): sin terminal,
         docker no da bytes, pero sí el estado de cada capa. Al pasarse, el error dice qué
         clave subir.
-  - [ ] **Docker Desktop recién despertado (Resource Saver).** En la prueba de la fase 9, la
+  - [x] **Docker Desktop recién despertado (Resource Saver).** En la prueba de la fase 9, la
         instalación de TAREAS-3 tardó 1 min 39 s con la caché reutilizada (las otras, 11 a
         20 s). No fue el harness: Docker Desktop estaba en pausa por Resource Saver desde las
         07:35 y se despertó a las 08:20:07, 11 s después de arrancar la ejecución (el
@@ -1593,6 +1593,11 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         2 minutos después todavía tardó 43 s. El `pip install` corre en el contenedor recién
         despertado. Si molesta: avisar cuando la instalación tarda mucho más que la anterior
         del proyecto, o documentar que se puede apagar Resource Saver.
+        Hecho con un aviso: el preflight de Docker (`run`, `resume`, `init --verificar`) mide
+        cuánto tarda `docker version`; si pasa de `UMBRAL_DOCKER_DORMIDO_SEGUNDOS` (5 s;
+        normalmente tarda menos de 1 s), avisa que Docker Desktop puede estar dormido por
+        Resource Saver y cómo desactivarlo (Settings > Resources > Resource Saver). Queda en
+        el log como `aviso`.
 - [ ] **12.** Distribución y pulido
   - [ ] **Revisar con un modelo distinto** (trabajo futuro de la fase 10). La revisión la hace
         el mismo modelo que implementó; probar revisar con otro, por ejemplo el primero de

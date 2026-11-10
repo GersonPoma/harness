@@ -58,6 +58,7 @@ from harness.entorno_docker import (
     EntornoDocker,
     ErrorDocker,
     Instalacion,
+    aviso_docker_dormido,
     ejecutar_proceso,
     listar_imagenes,
     verificar_docker,
@@ -794,11 +795,14 @@ def _verificar_docker_al_empezar(
     if not _necesita_docker(prep, es_herramientas, es_con_pr):
         return
     try:
-        verificar_docker()
+        segundos = verificar_docker()
     except ErrorDocker as error:
         reporte.registro.registrar_error(str(error))
         consola.mostrar_error(str(error))
         raise typer.Exit(1) from error
+    aviso = aviso_docker_dormido(segundos)
+    if aviso:
+        reporte.aviso(aviso)
 
 
 def _conectar_mcp(
@@ -1467,10 +1471,12 @@ def init(
     if verificar:
         # Antes de generar: así no se gastan pedidos al modelo si Docker está cerrado.
         try:
-            verificar_docker()
+            aviso = aviso_docker_dormido(verificar_docker())
         except ErrorDocker as error:
             consola.mostrar_error(str(error))
             raise typer.Exit(1) from error
+        if aviso:
+            consola.mostrar_aviso(aviso)
     faltantes = archivos_faltantes(raiz)
     generacion = None
     if faltantes:

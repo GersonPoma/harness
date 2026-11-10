@@ -236,6 +236,46 @@ def test_init_verificar_sin_conservar_no_conserva(
     assert recibido["al_conservar"] is None
 
 
+AVISO_DORMIDO = "Docker Desktop puede estar dormido por Resource Saver"
+
+
+@requiere_git
+@pytest.mark.parametrize(("segundos", "es_avisado"), [(6.2, True), (1.0, False)])
+def test_run_avisa_si_docker_tarda_en_responder(
+    monkeypatch: pytest.MonkeyPatch, repo: Path, segundos: float, es_avisado: bool
+) -> None:
+    (repo / "harness.yaml").write_text(YAML, encoding="utf-8")
+    iniciar_repo(repo)
+    monkeypatch.setattr(cli, "verificar_docker", lambda: segundos)
+
+    def ejecutar_falso(*_: object) -> None:
+        raise ErrorDocker("fin de la prueba")
+
+    monkeypatch.setattr(cli, "_ejecutar", ejecutar_falso)
+    argumentos = ["run", str(repo.parent / "T-1.md"), "--repo", str(repo), "--sin-push"]
+    _, salida = _invocar(monkeypatch, argumentos)
+
+    assert (AVISO_DORMIDO in salida) is es_avisado
+    (log,) = (repo / ".harness" / "logs").glob("T-1-*.jsonl")
+    avisos = [
+        e for e in map(json.loads, log.read_text(encoding="utf-8").splitlines())
+        if e["evento"] == "aviso" and AVISO_DORMIDO in e.get("mensaje", "")
+    ]
+    assert bool(avisos) is es_avisado
+    if es_avisado:
+        assert "Docker tardó 6 s en responder" in salida
+        assert "Settings > Resources > Resource Saver" in salida
+
+
+def test_init_verificar_avisa_si_docker_tarda(monkeypatch: pytest.MonkeyPatch, repo: Path) -> None:
+    (repo / "AGENTS.md").write_text("# x", encoding="utf-8")
+    (repo / "harness.yaml").write_text(YAML, encoding="utf-8")
+    monkeypatch.setattr(cli, "verificar_docker", lambda: 12.0)
+    monkeypatch.setattr(cli, "verificar_config", lambda *_a, **_k: ResultadoComando(0, "ok"))
+    _, salida = _invocar(monkeypatch, ["init", "--repo", str(repo), "--verificar"])
+    assert "Docker tardó 12 s en responder" in salida and AVISO_DORMIDO in salida
+
+
 def test_init_sin_verificar_no_exige_docker(monkeypatch: pytest.MonkeyPatch, repo: Path) -> None:
     llamadas = _docker_cerrado(monkeypatch)
     monkeypatch.setattr(cli, "_generar_archivos_init", lambda *_: None)
