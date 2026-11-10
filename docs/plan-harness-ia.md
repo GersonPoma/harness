@@ -390,10 +390,14 @@ Tu PC
 ### Secuencia que ejecuta el harness
 
 ```
+ANTES DE TODO (preflight, fase 11)
+0. docker version                                      ← ¿Docker corre? antes del MCP y la rama
+
 AL EMPEZAR LA EJECUCIÓN (una sola vez)
-1. docker network create harness-PROJ-123              ← red privada por ejecución
-2. docker run -d --network harness-PROJ-123 --network-alias db \
-     --name harness-PROJ-123-db -e POSTGRES_PASSWORD -e POSTGRES_DB postgres:16
+1. docker network create --label harness=1 ... harness-PROJ-123-<id>   ← red privada
+2. docker run -d --network harness-PROJ-123-<id> --network-alias db \
+     --name harness-PROJ-123-<id>-db --label harness=1 ... \
+     -e POSTGRES_PASSWORD -e POSTGRES_DB postgres:16
 3. esperar a que "pg_isready" responda                 ← Postgres tarda unos segundos
 4. docker run -d --network harness-PROJ-123 --name proyecto \
      -e DATABASE_URL -e PIP_CACHE_DIR -e MAVEN_OPTS ... \
@@ -406,10 +410,19 @@ CADA VEZ QUE EL MODELO CORRE TESTS O UN COMANDO
 6. docker exec proyecto <comando>                      ← mismo contenedor, sin reinstalar
 
 AL TERMINAR (siempre, en un try/finally)
-7. borrar contenedores y red
+7. borrar contenedores y red                           ← salvo con --conservar
 ```
 
 - Sin servicios (como tareas-api) se saltan los pasos 1 a 3.
+- **Nombres y etiquetas (fase 11):** `<id>` son 6 caracteres propios de cada ejecución, así
+  dos ejecuciones del mismo proyecto y ticket nunca comparten nombre. Todo lleva
+  `harness=1`, `harness.proyecto`, `harness.ticket`, `harness.ejecucion`, `harness.pid` y
+  `harness.host` (y `harness.conservar=1` con `--conservar`). Antes del paso 1 se borran los
+  restos del proyecto que dejó una ejecución cuyo proceso ya terminó, buscados por etiqueta;
+  una ejecución viva, o una de otra máquina, nunca se toca.
+- **`harness limpiar`** borra los restos huérfanos de todos los proyectos (y con `--cache`
+  los volúmenes de caché, con `--imagenes` las imágenes del `harness.yaml` actual), siempre
+  por etiqueta y por id, mostrando el tamaño y preguntando antes.
 - Dentro de la red, el contenedor del proyecto llega a la base usando el nombre del servicio
   (`db`) como dirección.
 - Los valores de las variables (`-e NOMBRE`) van en el entorno del proceso `docker`, no en la
@@ -1501,7 +1514,18 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         - Sin terminal interactiva no se pregunta y se detiene, igual que el preflight de
           GitHub (hoy la pregunta se hace igual y, al no haber respuesta, no se implementa).
         _Pendiente de prueba real._
-- [ ] **11.** Docker
+- [x] **11.** Docker (ver [Entorno de ejecución en Docker](#entorno-de-ejecución-en-docker))
+  - **Tests con Docker real** (`uv run pytest -m docker`, 12 tests): dos ejecuciones vivas
+    del mismo proyecto no se borran entre sí; `--conservar` deja el contenedor y `limpiar` no
+    lo toca mientras su proceso vive; `limpiar` borra un huérfano (pid de un proceso ya
+    terminado) y deja uno vivo; `limpiar --cache` borra solo su volumen; el `docker pull` de
+    una imagen chica da el progreso por capas. Cada test usa un proyecto único y borra solo
+    lo suyo, y una imagen que tuvo que descargar (`redis:7-alpine`, `hello-world`) la borra
+    al final por id. Después de la suite, `docker ps -a`, `docker network ls` (con
+    `label=harness=1`) y `docker volume ls` quedaron igual que antes.
+  - _Pendiente de prueba real:_ el preflight con Docker Desktop cerrado y el error del MCP
+    (con TAREAS-3), el aviso de Resource Saver, `harness limpiar` desde la consola y
+    `docker.usuario_host` en Linux.
   - [x] **Con Docker cerrado.** En la prueba de la fase 10 (TAREAS-3), con Docker Desktop
         cerrado, el servidor MCP de GitHub (que corre en Docker) falló con un
         "ExceptionGroup" poco claro, y la rama `feature/<TICKET>` se creó antes de detectar
