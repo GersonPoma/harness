@@ -456,3 +456,24 @@ def test_mostrar_instalacion(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_el_limite_dice_los_pasos_de_implementacion(pasos: int, extra: int, texto: str) -> None:
     resultado = ResultadoEjecucion(None, pasos, 0, 0, True, None, 0, pasos_extra=extra)
     assert consola.texto_limite_pasos(resultado) == texto
+
+
+def test_los_enlaces_a_la_documentacion_apuntan_a_github_y_a_secciones_que_existen() -> None:
+    assert consola.URL_HARNESS_YAML == (
+        "https://github.com/GersonPoma/harness/blob/main/docs/harness-yaml.md"
+    )
+    raiz = Path(__file__).parents[1]
+    titulos = (raiz / "docs" / "harness-yaml.md").read_text(encoding="utf-8").splitlines()
+    ancla = consola.URL_REGLAS_ARQUITECTURA.split("#")[1]
+    assert "## Reglas de arquitectura" in titulos and ancla == "reglas-de-arquitectura"
+
+
+def test_ningun_mensaje_nombra_una_ruta_de_docs_del_harness() -> None:
+    fuentes = Path(consola.__file__).parent.rglob("*.py")
+    for fuente in fuentes:
+        lineas = fuente.read_text(encoding="utf-8").splitlines()
+        # Los docstrings de módulo (primera línea) y los comentarios pueden citar docs/: no
+        # los ve el usuario.
+        con_docs = [linea for linea in lineas[1:] if not linea.lstrip().startswith("#")
+                    and ('"docs/' in linea or "(docs/" in linea)]
+        assert con_docs == [], fuente

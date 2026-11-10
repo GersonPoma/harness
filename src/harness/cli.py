@@ -1309,9 +1309,9 @@ def _preparar_ejecucion(
     if config_proyecto is None:
         consola.mostrar_aviso(
             "El repo no tiene harness.yaml: se trabaja sin Docker, sin tests y sin validación, "
-            "y por eso sin commit ni push. Créalo con 'harness init' o a mano "
-            "(docs/harness-yaml.md)."
+            "y por eso sin commit ni push. Créalo con 'harness init' o a mano:"
         )
+        consola.mostrar_enlace(consola.URL_HARNESS_YAML)
     revisores = [config_revisor] if config_revisor else []
     _avisar_secretos_cortos(
         [config, *respaldo, *revisores], variables, servidor_github, servidor_jira

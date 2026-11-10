@@ -47,6 +47,11 @@ from harness.sesion import (
 from harness.ticket import FUENTE_LOCAL, Ticket
 
 MAX_CARACTERES_RESUMEN = 120
+# La documentación del harness se nombra con su enlace: quien lo instaló desde GitHub no tiene
+# la carpeta docs/, y una ruta suelta parece un archivo del proyecto del usuario.
+URL_REPO_HARNESS = "https://github.com/GersonPoma/harness"
+URL_HARNESS_YAML = f"{URL_REPO_HARNESS}/blob/main/docs/harness-yaml.md"
+URL_REGLAS_ARQUITECTURA = f"{URL_HARNESS_YAML}#reglas-de-arquitectura"
 AVISO_FIN_SIN_AGENTS = (
     "El repo no tiene AGENTS.md: el modelo trabajó sin las convenciones del proyecto. "
     "Créalo con 'harness init'."
@@ -241,9 +246,15 @@ def mostrar_recomendacion_arquitectura(stack: str, herramienta: str) -> None:
     """Cómo hacer cumplir las reglas de arquitectura de AGENTS.md en la validación."""
     consola.print(
         f"[dim]Reglas de arquitectura ({escape(stack)}): para que la validación las haga "
-        f"cumplir, y no solo el modelo, se recomienda {escape(herramienta)}. Ver "
-        "docs/harness-yaml.md, \"Reglas de arquitectura\".[/]"
+        f"cumplir, y no solo el modelo, se recomienda {escape(herramienta)}. Ver:[/]"
     )
+    mostrar_enlace(URL_REGLAS_ARQUITECTURA)
+
+
+def mostrar_enlace(url: str) -> None:
+    """Un enlace en su propia línea y sin ajustar: Rich partiría la URL en un guion y la
+    terminal ya no la reconocería entera."""
+    consola.print(Text(f"  {url}", style="dim"), soft_wrap=True)
 
 
 def mostrar_sugerencia_test_logging(archivo: str, bloque: str) -> None:

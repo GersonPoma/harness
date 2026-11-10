@@ -265,4 +265,7 @@ def test_init_muestra_la_recomendacion(tmp_path: Path) -> None:
     resultado = CliRunner().invoke(cli.app, ["init", "--repo", str(tmp_path)])
     salida = " ".join(resultado.output.split())
     assert "Reglas de arquitectura (Python): para que la validación las haga cumplir" in salida
-    assert 'docs/harness-yaml.md, "Reglas de arquitectura"' in salida
+    assert (
+        "  https://github.com/GersonPoma/harness/blob/main/docs/harness-yaml.md"
+        "#reglas-de-arquitectura\n" in resultado.output
+    )

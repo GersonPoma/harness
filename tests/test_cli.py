@@ -676,6 +676,7 @@ def test_sin_harness_yaml_no_hay_git(monkeypatch: pytest.MonkeyPatch, repo_sin_y
     codigo, salida = _correr(monkeypatch, repo_sin_yaml, [terminar()], "--sin-plan")
     assert codigo == 0
     assert "sin commit ni push" in " ".join(salida.split())
+    assert f"  {cli.consola.URL_HARNESS_YAML}\n" in salida
     eventos = [e["evento"] for e in _eventos_del_log(repo_sin_yaml)]
     assert "rama" not in eventos and "entrega" not in eventos
 
