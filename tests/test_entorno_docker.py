@@ -413,7 +413,7 @@ def _montajes(docker: DockerFalso) -> list[str]:
 
 
 def test_tapa_los_env_con_un_archivo_vacio_de_solo_lectura(repo: Path) -> None:
-    for ruta in [".env", "backend/.env.local", ".env.example", ".venv/.env"]:
+    for ruta in [".env", "backend/.env.local", ".env.example", ".venv/.env", ".envrc"]:
         (repo / ruta).parent.mkdir(parents=True, exist_ok=True)
         (repo / ruta).write_text("API_KEY=real\n", encoding="utf-8")
     docker = DockerFalso()
@@ -425,6 +425,7 @@ def test_tapa_los_env_con_un_archivo_vacio_de_solo_lectura(repo: Path) -> None:
     vacio = Path(fuentes.pop())
     assert tapas == [
         f"type=bind,source={vacio},target=/app/.env,readonly",
+        f"type=bind,source={vacio},target=/app/.envrc,readonly",
         f"type=bind,source={vacio},target=/app/backend/.env.local,readonly",
     ]
     assert vacio.read_bytes() == b""

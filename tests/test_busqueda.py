@@ -67,12 +67,13 @@ def test_patrones_invalidos(codigo: Path, patron: str, es_regex: bool, mensaje: 
 def test_no_lee_secretos_ni_git_ni_binarios(codigo: Path) -> None:
     (codigo / ".env").write_text("CLAVE_VentaService=sk-secreta\n", encoding="utf-8")
     (codigo / ".env.local").write_text("VentaService=1\n", encoding="utf-8")
+    (codigo / ".envrc").write_text("export VentaService=sk-direnv\n", encoding="utf-8")
     (codigo / ".git").mkdir()
     (codigo / ".git" / "config").write_text("VentaService\n", encoding="utf-8")
     (codigo / "logo.bin").write_bytes(b"\xff\xfeVentaService\x00")
     resultado = buscar_en_codigo(codigo, "VentaService")
     assert ".env" not in resultado and ".git" not in resultado and "logo" not in resultado
-    assert "sk-secreta" not in resultado
+    assert "sk-secreta" not in resultado and "sk-direnv" not in resultado
 
 
 def test_no_sale_del_repo(codigo: Path) -> None:

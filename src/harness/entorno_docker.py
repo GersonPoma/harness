@@ -711,7 +711,7 @@ class EntornoDocker:
         return variables
 
     def _montajes_secretos(self, destino: str) -> list[str]:
-        """Tapa cada .env con un archivo vacío de solo lectura.
+        """Tapa cada .env (y .envrc) con un archivo vacío de solo lectura.
 
         Las herramientas ya no dejan leerlos, pero el repo está montado completo: sin esto,
         'cat .env' o un test que lo imprima le mostraría los secretos al modelo.

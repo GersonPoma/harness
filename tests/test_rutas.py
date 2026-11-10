@@ -46,14 +46,16 @@ def test_rechaza_symlink_que_sale_del_repo(repo: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "ruta", [".env", ".env.local", ".env.production", ".ENV", "backend/.env", "src/../.env"]
+    "ruta",
+    [".env", ".env.local", ".env.production", ".ENV", "backend/.env", "src/../.env", ".envrc",
+     "web/.ENVRC"],
 )
 def test_rechaza_archivos_de_secretos(repo: Path, ruta: str) -> None:
     with pytest.raises(ErrorRuta, match="puede contener secretos"):
         resolver_ruta(repo, ruta)
 
 
-@pytest.mark.parametrize("ruta", [".env.example", ".ENV.EXAMPLE", ".envrc", "env.py", "a.env"])
+@pytest.mark.parametrize("ruta", [".env.example", ".ENV.EXAMPLE", ".envrc.py", "env.py", "a.env"])
 def test_permite_archivos_que_no_son_de_secretos(repo: Path, ruta: str) -> None:
     assert resolver_ruta(repo, ruta) == (repo / ruta).resolve()
 

@@ -13,11 +13,11 @@ def test_busca_env_en_subcarpetas_saltando_las_ignoradas(repo: Path) -> None:
     _crear(
         repo,
         ".env", "backend/.env.local", "backend/config/.ENV.production",
-        ".env.example", ".envrc",
+        ".env.example", ".envrc", "web/.envrc", "envrc.py",
         ".venv/.env", "node_modules/paquete/.env", ".git/.env",
     )
     assert buscar_archivos_de_secretos(repo) == [
-        ".env", "backend/.env.local", "backend/config/.ENV.production",
+        ".env", ".envrc", "backend/.env.local", "backend/config/.ENV.production", "web/.envrc",
     ]
 
 

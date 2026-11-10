@@ -1667,8 +1667,11 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
   - [ ] **Logs más legibles** (resumen por ejecución, tiempos por etapa).
   - [ ] **Repetir el aviso de "falta AGENTS.md" en el resumen final**: hoy aparece una vez
         al inicio y se pierde detrás de "Instalando dependencias...".
-  - [ ] **Ocultar también `.envrc`** (archivo de direnv, que suele tener secretos) en las
+  - [x] **Ocultar también `.envrc`** (archivo de direnv, que suele tener secretos) en las
         herramientas y dentro del contenedor, igual que `.env`.
+        Hecho en `secretos.es_archivo_de_secretos`, el único punto que miran `leer_archivo`,
+        `escribir_archivo`, `editar_archivo`, `buscar_en_codigo` y el montaje vacío del
+        contenedor; el prompt lo nombra.
   - [ ] **Mover el ticket de Jira a "En revisión" al abrir el PR** (una transición de
         Jira), opcional por proyecto porque cada flujo de trabajo nombra distinto sus
         estados.

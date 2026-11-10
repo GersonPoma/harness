@@ -306,6 +306,8 @@ Hay además archivos que el modelo **no puede ni leer**, igual que `.git/`:
   repo y sin importar mayúsculas: suelen tener secretos reales (API keys, contraseñas), y
   lo que lee el modelo se envía a la API del proveedor. `leer_archivo` y `escribir_archivo`
   los rechazan con un error que dice que el archivo puede contener secretos.
+- `.envrc` (el archivo de direnv, que exporta variables al entrar en la carpeta), por lo
+  mismo: se trata igual que un `.env`, también dentro del contenedor y en `buscar_en_codigo`.
 - Se permite `.env.example`: es la plantilla sin valores reales que se sube a Git.
 - La comprobación se hace sobre la ruta ya resuelta, así que un symlink con otro nombre que
   apunta a un `.env` también se rechaza.
@@ -313,7 +315,7 @@ Hay además archivos que el modelo **no puede ni leer**, igual que `.git/`:
 - **Dentro del contenedor los `.env` se ven vacíos.** Las herramientas no son el único
   camino: el repo se monta completo, y `cat .env` (o un test que lo imprima) le mostraría su
   contenido al modelo. Por eso, al crear el contenedor, el harness monta un archivo vacío de
-  solo lectura encima de cada `.env` y `.env.*` del repo (también en subcarpetas, saltando
+  solo lectura encima de cada `.env`, `.env.*` y `.envrc` del repo (también en subcarpetas, saltando
   `.git`, `.venv`, `node_modules` y las demás carpetas ignoradas). `.env.example` se ve normal.
   El `.env` del disco no se modifica.
 - Por lo mismo, **los tests no pueden depender de un `.env`**: si un proyecto necesita

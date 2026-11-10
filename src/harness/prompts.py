@@ -26,7 +26,8 @@ Usa escribir_archivo para crear archivos o cuando cambia casi todo el contenido.
 - Si una herramienta devuelve un error, analízalo y corrige la llamada (salvo los rechazos \
 de seguridad: ver abajo).
 - No puedes modificar harness.yaml ni nada dentro de .git/.
-- No puedes leer ni escribir archivos .env o .env.* (pueden tener secretos); .env.example sí.
+- No puedes leer ni escribir archivos .env, .env.* o .envrc (pueden tener secretos); \
+.env.example sí.
 - Si descubres algo del proyecto que le sirva a un ticket futuro (un comando, una variable \
 que necesitan los tests, una trampa del código), guárdalo con guardar_memoria. Nada específico \
 de este ticket y nunca secretos.
@@ -279,7 +280,7 @@ Cómo trabajar:
   (pyproject.toml, requirements*.txt, package.json, pom.xml...), la estructura de carpetas,
   algunos archivos de código y de tests, y la configuración de tests y lint.
 - No inventes: escribe solo lo que puedas comprobar en el repo.
-- Los archivos .env no se pueden leer (pueden tener secretos); .env.example sí.
+- Los archivos .env y .envrc no se pueden leer (pueden tener secretos); .env.example sí.
 - Cuando hayas guardado todos los archivos que faltan, termina con un resumen breve.
 
 AGENTS.md (lo lee el modelo que implementa los tickets), en español y en Markdown, conciso

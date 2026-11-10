@@ -30,7 +30,7 @@ def resolver_ruta(repo: Path, ruta: str) -> Path:
         raise ErrorRuta(f"'{ruta}' está fuera del repo objetivo.")
     if _esta_dentro_de(_relativa(repo_resuelto, destino), CARPETAS_PROHIBIDAS):
         raise ErrorRuta(f"'{ruta}' está en una carpeta prohibida para el harness.")
-    # .env y .env.* tampoco: suelen tener secretos reales y su contenido iría a la API del
+    # .env, .env.* y .envrc tampoco: suelen tener secretos reales y su contenido iría a la API del
     # modelo. Se mira el destino ya resuelto: un symlink a .env con otro nombre también cae.
     if es_archivo_de_secretos(destino.name):
         raise ErrorRuta(
