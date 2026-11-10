@@ -6,7 +6,12 @@ from harness.cambios import CambiosRepo
 from harness.ejecucion import Planificacion, ejecutar_ticket
 from harness.herramientas import crear_herramientas, crear_herramientas_lectura
 from harness.herramientas.archivos import ErrorHerramienta
-from harness.plan import Plan, archivos_fuera_del_plan, crear_herramienta_plan
+from harness.plan import (
+    PARAMETROS_PLAN,
+    Plan,
+    archivos_fuera_del_plan,
+    crear_herramienta_plan,
+)
 from harness.planificacion import (
     AVISO_FIN_EXPLORACION,
     AVISO_ULTIMA_OPORTUNIDAD,
@@ -70,6 +75,21 @@ def test_plan_invalido_vuelve_al_modelo(cambios: dict, error: str) -> None:
     herramienta = crear_herramienta_plan(lambda _: None)
     with pytest.raises(ErrorHerramienta, match=f"Plan inválido: .*{error}"):
         herramienta.funcion(**_plan(**cambios))
+
+
+def test_tests_dentro_de_un_archivo_dicen_donde_van() -> None:
+    herramienta = crear_herramienta_plan(lambda _: None)
+    archivos = [{"ruta": "a.py", "accion": "crear", "motivo": "x", "tests": ["test_a"]}]
+    with pytest.raises(ErrorHerramienta) as error:
+        herramienta.funcion(**_plan(archivos=archivos))
+    assert "archivos.0.tests" in str(error.value)
+    assert "los tests van en la clave 'tests' del plan" in str(error.value)
+
+
+def test_la_descripcion_dice_donde_van_los_tests() -> None:
+    herramienta = crear_herramienta_plan(lambda _: None)
+    assert "nunca dentro de un archivo" in herramienta.descripcion
+    assert "sin 'tests'" in PARAMETROS_PLAN["properties"]["archivos"]["description"]
 
 
 def test_archivos_fuera_del_plan() -> None:

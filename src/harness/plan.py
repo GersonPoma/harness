@@ -16,6 +16,12 @@ ACCIONES = ("crear", "modificar", "eliminar")
 # "1. Crear..." o "2) Agregar...": el harness ya numera los pasos al mostrarlos.
 PATRON_NUMERACION = re.compile(r"^\s*\d+\s*[.)-]\s*")
 
+# Gemini suele mandar "tests" dentro de un elemento de "archivos": el error dice dónde va.
+AYUDA_CLAVE_DE_MAS_EN_ARCHIVO = (
+    "cada archivo lleva solo ruta, accion y motivo; los tests van en la clave 'tests' del "
+    "plan, al mismo nivel que 'archivos'"
+)
+
 Accion = Literal["crear", "modificar", "eliminar"]
 TextoNoVacio = Field(min_length=1)
 
@@ -70,7 +76,11 @@ def crear_herramienta_plan(al_proponer: Callable[[Plan], None]) -> Herramienta:
         nombre=NOMBRE_HERRAMIENTA_PLAN,
         descripcion=(
             "Registra tu plan para el ticket antes de implementarlo. Llámala una sola vez, "
-            "cuando ya sepas qué archivos vas a tocar."
+            "cuando ya sepas qué archivos vas a tocar. Tiene cuatro claves al mismo nivel: "
+            "resumen, archivos, pasos y tests. Cada elemento de 'archivos' lleva solo ruta, "
+            "accion y motivo; los tests van en la clave 'tests' del plan, nunca dentro de un "
+            "archivo (un archivo de tests que vas a crear o cambiar va en 'archivos' con su "
+            "ruta, como cualquier otro)."
         ),
         parametros=PARAMETROS_PLAN,
         funcion=proponer_plan,
@@ -86,7 +96,10 @@ PARAMETROS_PLAN = {
         },
         "archivos": {
             "type": "array",
-            "description": "Archivos que vas a crear, modificar o eliminar.",
+            "description": (
+                "Archivos que vas a crear, modificar o eliminar. Cada uno lleva solo ruta, "
+                "accion y motivo: sin 'tests' ni otras claves."
+            ),
             "items": {
                 "type": "object",
                 "properties": {
@@ -104,7 +117,10 @@ PARAMETROS_PLAN = {
         },
         "tests": {
             "type": "array",
-            "description": "Tests que vas a agregar o cambiar.",
+            "description": (
+                "Tests que vas a agregar o cambiar, en texto (va acá, al mismo nivel que "
+                "'archivos', no dentro de un archivo)."
+            ),
             "items": {"type": "string"},
         },
     },
@@ -126,4 +142,6 @@ def describir_error(error: ValidationError) -> str:
     for detalle in error.errors():
         ruta = ".".join(str(parte) for parte in detalle["loc"]) or "(raíz)"
         partes.append(f"{ruta}: {detalle['msg']}")
+        if detalle["type"] == "extra_forbidden" and detalle["loc"][:1] == ("archivos",):
+            partes[-1] += f" ({AYUDA_CLAVE_DE_MAS_EN_ARCHIVO})"
     return "; ".join(partes)
