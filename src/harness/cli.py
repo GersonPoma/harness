@@ -1,5 +1,6 @@
 import os
 from collections.abc import Callable
+from importlib import metadata
 from contextlib import ExitStack, nullcontext
 from dataclasses import asdict, dataclass, field, replace
 from functools import partial
@@ -169,6 +170,7 @@ from harness.variables import (
 )
 
 CODIGO_CANCELADO = 130
+NOMBRE_PAQUETE = "harness"
 MENSAJE_REQUIERE_AGENTS = (
     "Este proyecto requiere AGENTS.md (requiere_agents_md: true). Créalo con 'harness init'."
 )
@@ -1861,7 +1863,7 @@ def ver_ticket(
 @app.command()
 def version() -> None:
     """Muestra la versión del harness."""
-    print("harness 0.1.0")
+    print(f"harness {metadata.version(NOMBRE_PAQUETE)}")
 
 
 def main() -> None:

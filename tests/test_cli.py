@@ -1056,3 +1056,10 @@ def test_un_corte_tambien_deja_el_resumen(
     assert codigo == 1
     (resumen,) = (repo_sin_yaml / ".harness" / "logs").glob("T-1-*.md")
     assert "**Resultado:** se cortó: El modelo respondió vacío" in resumen.read_text("utf-8")
+
+
+def test_version_del_paquete() -> None:
+    from importlib import metadata
+
+    resultado = CliRunner().invoke(cli.app, ["version"])
+    assert resultado.output.strip() == f"harness {metadata.version('harness')}"

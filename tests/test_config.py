@@ -265,3 +265,29 @@ def test_revisor_con_el_orden_de_prioridad(sin_env: Path, monkeypatch: pytest.Mo
 
 def test_sin_revisor(sin_env: Path) -> None:
     assert leer_revisor() is None
+
+
+# --- Instalado con uv tool install ----------------------------------------------------------
+
+
+def test_instalado_no_busca_el_env_de_desarrollo(
+    sin_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import harness.config as modulo_config
+
+    sin_env.write_text("HARNESS_PROVEEDOR=groq\n", encoding="utf-8")
+    monkeypatch.setattr(modulo_config, "RUTA_ENV", sin_env)
+    monkeypatch.setattr(modulo_config, "ES_INSTALADO", True)
+    cargar_env()
+    assert "HARNESS_PROVEEDOR" not in os.environ
+    # Con una ruta explícita sí (la usan los tests y --importar-env no pasa por aquí).
+    cargar_env(sin_env)
+    assert os.environ["HARNESS_PROVEEDOR"] == "groq"
+
+
+def test_instalado_el_mcp_json_es_solo_el_del_usuario(monkeypatch: pytest.MonkeyPatch) -> None:
+    import harness.config as modulo_config
+    from harness.config_usuario import ruta_mcp_usuario
+
+    monkeypatch.setattr(modulo_config, "ES_INSTALADO", True)
+    assert modulo_config.ruta_mcp() == ruta_mcp_usuario()

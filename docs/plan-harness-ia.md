@@ -1315,7 +1315,13 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
 ### Para que funcione en cualquier máquina
 
 - **Credenciales por usuario:** variable de entorno o archivo global `~/.harness/config.toml`
-  (`harness config` pide la API key la primera vez), no un `.env` dentro del proyecto.
+  (`harness config` pide la API key la primera vez), no un `.env` dentro del proyecto. Instalado
+  con `uv tool install` (no editable), el harness nunca busca un `.env` de desarrollo (el
+  paquete está en `site-packages`) y `mcp.json` es solo el de `~/.harness/`. La plantilla de
+  `mcp.json` viaja dentro del paquete; `harness version` lee la versión instalada.
+- **README.md:** requisitos, instalación desde GitHub, primer uso (`harness config`,
+  `harness perfil probar`, `harness init --verificar`, `harness run`), comandos, configuración
+  y seguridad.
 - **Requisitos:** Docker y git. El harness lo comprueba al arrancar y avisa si falta algo.
   No hace falta tener PostgreSQL ni otras bases instaladas: van en contenedores.
 - `.venv/`, `.env`, `.harness/sessions/` y `.harness/logs/` van al `.gitignore`.

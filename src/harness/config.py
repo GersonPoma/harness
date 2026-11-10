@@ -23,6 +23,10 @@ from harness.proveedores.presets import PRESETS, PROVEEDOR_PERSONALIZADO
 
 # El .env vive en la raíz del repo del harness, no en la carpeta desde donde se ejecuta.
 RUTA_ENV = Path(__file__).resolve().parents[2] / ".env"
+# Instalado con uv tool install (no editable), el paquete está en site-packages: ahí no hay
+# repo ni .env de desarrollo, y parents[2] sería una carpeta del Python de la herramienta.
+CARPETA_PAQUETES = "site-packages"
+ES_INSTALADO = CARPETA_PAQUETES in Path(__file__).resolve().parts
 
 # Las de configuración (no secretos) empiezan así: no se guardan como credencial.
 PREFIJO_VARIABLES_HARNESS = "HARNESS_"
@@ -113,7 +117,8 @@ def cargar_env(ruta_env: Path | None = None) -> None:
     """
     antes = set(os.environ)
     # RUTA_ENV se lee aquí y no como valor por defecto: así los tests pueden cambiarla.
-    load_dotenv(ruta_env or RUTA_ENV)
+    if ruta_env is not None or not ES_INSTALADO:
+        load_dotenv(ruta_env or RUTA_ENV)
     for nombre in set(os.environ) - antes:
         _origenes.setdefault(nombre, ORIGEN_ENV)
     for nombre, valor in _variables_de_usuario(leer_usuario()).items():
@@ -296,7 +301,9 @@ def _leer_entrada_respaldo(entrada: str, origen: str = VAR_RESPALDO) -> ConfigMo
 def ruta_mcp() -> Path:
     """El mcp.json que se usa: ~/.harness/mcp.json, o el de desarrollo si ese no existe."""
     usuario = ruta_mcp_usuario()
-    return usuario if usuario.is_file() else RUTA_MCP_DESARROLLO
+    if usuario.is_file() or ES_INSTALADO:
+        return usuario
+    return RUTA_MCP_DESARROLLO
 
 
 def leer_token_github() -> str | None:
