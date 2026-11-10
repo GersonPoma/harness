@@ -3,6 +3,7 @@
 from collections.abc import Callable, Sequence
 
 from harness.config import ConfigModelo
+from harness.proveedores.anthropic import ProveedorAnthropic
 from harness.proveedores.base import ProveedorLLM
 from harness.proveedores.openai_compatible import ProveedorOpenAICompatible
 from harness.proveedores.presets import PRESETS, FormatoApi
@@ -44,6 +45,10 @@ def _crear_uno(
     formato = PRESETS[config.proveedor].formato
     if formato == FormatoApi.OPENAI:
         return ProveedorOpenAICompatible(
+            config, al_reintentar=al_reintentar, max_reintentos=max_reintentos
+        )
+    if formato == FormatoApi.ANTHROPIC:
+        return ProveedorAnthropic(
             config, al_reintentar=al_reintentar, max_reintentos=max_reintentos
         )
     raise ValueError(f"Formato de API sin implementar: {formato}")

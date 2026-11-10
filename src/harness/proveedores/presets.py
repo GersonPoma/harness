@@ -8,6 +8,7 @@ class FormatoApi(StrEnum):
     """Formato de API que habla el proveedor; define qué clase lo implementa."""
 
     OPENAI = "openai"
+    ANTHROPIC = "anthropic"
 
 
 class PerfilEsquema(StrEnum):
@@ -48,6 +49,8 @@ PRESETS: dict[str, Preset] = {
     "groq": Preset(FormatoApi.OPENAI, "https://api.groq.com/openai/v1", "GROQ_API_KEY"),
     "openrouter": Preset(FormatoApi.OPENAI, "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
     "openai": Preset(FormatoApi.OPENAI, None, "OPENAI_API_KEY"),
+    # Su propio formato (Messages): ProveedorAnthropic, con su propio adaptar_esquema.
+    "anthropic": Preset(FormatoApi.ANTHROPIC, None, "ANTHROPIC_API_KEY"),
     # La URL y la variable de la key las escribe el usuario en el .env.
     # No se sabe qué API hay detrás: sin tool_choice, que una API podría rechazar.
     PROVEEDOR_PERSONALIZADO: Preset(FormatoApi.OPENAI, None, None, es_con_tool_choice=False),

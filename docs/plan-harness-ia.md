@@ -902,7 +902,7 @@ por empresa:
 | Formato | Proveedores que lo usan | Clase interna | Fase |
 |---|---|---|---|
 | OpenAI | Gemini, Groq, OpenRouter, OpenAI, DeepSeek, Mistral... | `ProveedorOpenAICompatible` (SDK `openai` + `base_url`) | 1 |
-| Anthropic | Claude | `ProveedorAnthropic` (SDK `anthropic`) | 8 |
+| Anthropic | Claude | `ProveedorAnthropic` (SDK `anthropic`) | 12 |
 
 ### Proveedores conocidos (presets)
 
@@ -915,7 +915,7 @@ proveedores conocidos. Cada uno define el formato, la `base_url` y la variable d
 | `groq` | OpenAI | `https://api.groq.com/openai/v1` | `GROQ_API_KEY` |
 | `openrouter` | OpenAI | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
 | `openai` | OpenAI | (la del SDK) | `OPENAI_API_KEY` |
-| `anthropic` | Anthropic | (la del SDK) | `ANTHROPIC_API_KEY` |
+| `anthropic` | Anthropic (fase 12) | (la del SDK) | `ANTHROPIC_API_KEY` |
 | `personalizado` | OpenAI | la escribe el usuario | la escribe el usuario |
 
 Una función `crear_proveedor(config) -> ProveedorLLM` mira el preset y crea la clase que
@@ -1700,9 +1700,23 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
         mínimo; palabras de 4 letras o más, sin tildes, comparadas por sus primeras 5 letras,
         así "filtrarlas" y "filtrado" cuentan igual). Solo el título, no los criterios, para
         no rechazar notas útiles. La nota real de TAREAS-3 se rechaza; la de TAREAS-2 no.
-  - [ ] **`ProveedorAnthropic`** (preset `anthropic`), para quien elija Claude. Define su
+  - [x] **`ProveedorAnthropic`** (preset `anthropic`), para quien elija Claude. Define su
         propio `adaptar_esquema`: los esquemas de las herramientas (los de MCP, por ejemplo) se
         adaptan a lo que acepta la API de Anthropic.
+        Hecho en `proveedores/anthropic.py`, con el SDK `anthropic` y solo tipos propios hacia
+        afuera: el system va aparte, los resultados de herramientas son `tool_result` de un
+        mensaje del usuario, los mensajes seguidos del mismo rol se unen (Anthropic exige que
+        se alternen) y los ids se normalizan a `[a-zA-Z0-9_-]` en los dos lados (una
+        conversación que llega del respaldo trae ids de otros). `herramienta_obligatoria` va
+        como `tool_choice` `{"type": "tool"}`; `max_tokens` 16.000 y timeout de 300 s; caché
+        automática del prompt (`cache_control`); una llamada cortada por `max_tokens` vuelve
+        al modelo como error. `adaptar_esquema` quita las claves `x-...` y garantiza
+        `"type": "object"` en la raíz (`$ref`/`$defs` se aceptan). Los reintentos son los de
+        `proveedores/reintentos.py`, compartidos con `ProveedorOpenAICompatible`: 429, 529,
+        5xx, sin conexión y tiempo agotado se reintentan (con `retry-after`), y al agotarse
+        lanza `ErrorProveedorCaido`, así el respaldo pasa al siguiente. Cubierto con un
+        cliente falso (`test_anthropic.py`).
+        _Pendiente de prueba real (hace falta una API key de Anthropic, que es de pago)._
   - [x] **`harness config` + `~/.harness/config.toml`**, con el orden de prioridad: opciones
         del comando → variables de entorno / `.env` → `config.toml`. Necesario para que otros
         lo instalen con `uv tool install git+...` y lo usen sin el repo. `mcp.json` pasa a
