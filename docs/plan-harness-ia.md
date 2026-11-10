@@ -1626,10 +1626,14 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
   - [ ] **Revisar con un modelo distinto** (trabajo futuro de la fase 10). La revisión la hace
         el mismo modelo que implementó; probar revisar con otro, por ejemplo el primero de
         la lista de respaldo, y comparar cuántos problemas encuentra cada uno.
-  - [ ] **El paso de la respuesta final no se ve.** En TAREAS-3 los pasos saltaron de `[8]` a
+  - [x] **El paso de la respuesta final no se ve.** En TAREAS-3 los pasos saltaron de `[8]` a
         `[10]`: el `[9]` fue la respuesta final de la implementación (texto, sin
         herramientas), que cuenta como paso pero no se muestra ni queda en el log como
         herramienta. Mostrarlo ("[9] respuesta final") o no numerarlo.
+        Hecho mostrándolo, porque el paso sí cuenta contra `max_pasos`: toda respuesta sin
+        herramientas (la final, o un texto en la ronda de plan o de revisión) se ve como
+        `[9] Respuesta: <primera línea>` y queda en el log como evento `respuesta` con el
+        texto. Los `[N]` de la pantalla coinciden con los pasos del log.
   - [ ] **Notas de memoria que describen el ticket actual.** En TAREAS-3 el modelo guardó "El
         repositorio soporta filtrado opcional en listar y método completar tarea", que es lo
         que acababa de hacer, aunque la herramienta pide guardar solo lo útil para tickets

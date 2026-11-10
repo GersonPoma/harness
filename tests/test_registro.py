@@ -83,3 +83,11 @@ def test_oculta_secretos_con_comillas_o_barras(repo: Path) -> None:
     texto = registro.ruta.read_text(encoding="utf-8")
     assert "cl" not in texto
     assert json.loads(texto)["mensaje"] == "falló con ****"
+
+
+def test_registra_la_respuesta_sin_herramientas_como_paso(repo: Path) -> None:
+    registro = RegistroPasos(repo, "T", secretos=["sk-secreta"])
+    registro.registrar_respuesta(9, "Listo, sin usar sk-secreta")
+    (evento,) = [json.loads(linea) for linea in registro.ruta.read_text("utf-8").splitlines()]
+    evento.pop("hora")
+    assert evento == {"evento": "respuesta", "paso": 9, "texto": "Listo, sin usar ****"}

@@ -171,6 +171,7 @@ def ejecutar_init(
     al_paso: Callable[[Paso], None] | None = None,
     al_aviso: Callable[[str], None] | None = None,
     imagenes: list[str] | None = None,
+    al_respuesta: Callable[[int, str], None] | None = None,
 ) -> ResultadoInit:
     """Pide al modelo los archivos que faltan; termina cuando los guardó todos.
 
@@ -193,7 +194,7 @@ def ejecutar_init(
     resultado.mensajes = mensajes
     bucle = ejecutar_bucle(
         proveedor, mensajes, [*crear_herramientas_lectura(repo), *guardar], MAX_PASOS_INIT,
-        al_paso, al_aviso=al_aviso, es_fin=es_fin,
+        al_paso, al_aviso=al_aviso, es_fin=es_fin, al_respuesta=al_respuesta,
     )
     _acumular(resultado, bucle)
     if not es_fin():
@@ -204,6 +205,7 @@ def ejecutar_init(
         extra = ejecutar_bucle(
             proveedor, mensajes, _solo_para(guardar, pendientes), MAX_PASOS_GUARDAR, al_paso,
             primer_paso=resultado.pasos + 1, al_aviso=al_aviso, es_fin=es_fin,
+            al_respuesta=al_respuesta,
         )
         _acumular(resultado, extra)
     if not es_fin():
@@ -220,6 +222,7 @@ def corregir_harness_yaml(
     primer_paso: int = 1,
     al_paso: Callable[[Paso], None] | None = None,
     al_aviso: Callable[[str], None] | None = None,
+    al_respuesta: Callable[[int, str], None] | None = None,
 ) -> CorreccionInit:
     """Le devuelve al modelo el error de --verificar para que corrija el harness.yaml que
     escribió; puede responder con texto si el problema no es del YAML."""
@@ -229,7 +232,7 @@ def corregir_harness_yaml(
     bucle = ejecutar_bucle(
         proveedor, mensajes, [*crear_herramientas_lectura(repo), *guardar],
         MAX_PASOS_CORRECCION_INIT, al_paso, primer_paso=primer_paso, al_aviso=al_aviso,
-        es_fin=lambda: bool(guardados),
+        es_fin=lambda: bool(guardados), al_respuesta=al_respuesta,
     )
     return CorreccionInit(
         bool(guardados), bucle.texto_final, bucle.pasos, bucle.tokens_entrada,

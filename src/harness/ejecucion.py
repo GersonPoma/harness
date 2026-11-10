@@ -91,6 +91,7 @@ def ejecutar_ticket(
     revisar_paso: Callable[[Paso], str | None] | None = None,
     revision: Revision | None = None,
     alcance: Alcance | None = None,
+    al_respuesta: Callable[[int, str], None] | None = None,
 ) -> ResultadoEjecucion:
     """Planifica (si se pide), implementa y valida; si la validación falla, el modelo corrige.
 
@@ -103,10 +104,11 @@ def ejecutar_ticket(
     `revision`: con los tests en verde, el modelo revisa su diff; si encuentra problemas,
     vuelve a implementar (hasta revision.max_vueltas revisiones).
     `alcance`: antes de validar, el modelo justifica o revierte lo que cambió fuera del plan.
+    `al_respuesta`: cada respuesta del modelo sin herramientas (en todas las rondas).
     """
     resultado = continuacion or ResultadoEjecucion(None, 0, 0, 0, False, None, 0)
     if continuacion is None and planificacion and not _planificar(
-        resultado, proveedor, mensajes, planificacion, al_paso, al_aviso
+        resultado, proveedor, mensajes, planificacion, al_paso, al_aviso, al_respuesta
     ):
         return resultado
     informe_anterior = None
@@ -114,7 +116,7 @@ def ejecutar_ticket(
         bucle = ejecutar_bucle(
             proveedor, mensajes, herramientas, max_pasos - resultado.pasos_con_presupuesto,
             al_paso, primer_paso=resultado.pasos + 1, al_aviso=al_aviso,
-            revisar_paso=revisar_paso,
+            revisar_paso=revisar_paso, al_respuesta=al_respuesta,
         )
         _acumular(resultado, bucle.pasos, bucle.tokens_entrada, bucle.tokens_salida)
         resultado.texto_final = bucle.texto_final
@@ -124,7 +126,9 @@ def ejecutar_ticket(
         if validar is None:
             return resultado
         if alcance and resultado.plan:
-            _resolver_alcance(resultado, proveedor, mensajes, alcance, al_paso, al_aviso)
+            _resolver_alcance(
+                resultado, proveedor, mensajes, alcance, al_paso, al_aviso, al_respuesta
+            )
 
         es_valido, informe = validar()
         resultado.validaciones += 1
@@ -136,7 +140,8 @@ def ejecutar_ticket(
             al_validar(Validacion(resultado.validaciones, es_valido, informe, resumen))
         if es_valido:
             if not _hay_que_corregir_por_revision(
-                resultado, proveedor, mensajes, revision, max_pasos, al_paso, al_aviso
+                resultado, proveedor, mensajes, revision, max_pasos, al_paso, al_aviso,
+                al_respuesta,
             ):
                 return resultado
             continue
@@ -162,6 +167,7 @@ def _planificar(
     planificacion: Planificacion,
     al_paso: Callable[[Paso], None] | None,
     al_aviso: Callable[[str], None] | None,
+    al_respuesta: Callable[[int, str], None] | None = None,
 ) -> bool:
     """Corre la ronda de plan (y una más por cada corrección del usuario); devuelve si hay
     que seguir con la implementación."""
@@ -170,6 +176,7 @@ def _planificar(
         ronda = planificar(
             proveedor, mensajes, planificacion.herramientas_lectura,
             planificacion.max_pasos_plan, al_paso, al_aviso, resultado.pasos + 1, correccion,
+            al_respuesta,
         )
         _acumular(resultado, ronda.pasos, ronda.tokens_entrada, ronda.tokens_salida)
         # El plan tiene su propio presupuesto: max_pasos cuenta desde que se aprueba.
@@ -199,11 +206,12 @@ def _resolver_alcance(
     alcance: Alcance,
     al_paso: Callable[[Paso], None] | None,
     al_aviso: Callable[[str], None] | None,
+    al_respuesta: Callable[[int, str], None] | None = None,
 ) -> None:
     """Justificar o revertir lo que cambió fuera del plan (con su propio presupuesto)."""
     ronda = resolver_fuera_del_plan(
         proveedor, mensajes, resultado.plan, alcance, resultado.alcance, resultado.pasos + 1,
-        al_paso, al_aviso,
+        al_paso, al_aviso, al_respuesta,
     )
     if ronda is not None:
         _acumular(resultado, ronda.pasos, ronda.tokens_entrada, ronda.tokens_salida)
@@ -218,6 +226,7 @@ def _hay_que_corregir_por_revision(
     max_pasos: int,
     al_paso: Callable[[Paso], None] | None,
     al_aviso: Callable[[str], None] | None,
+    al_respuesta: Callable[[int, str], None] | None = None,
 ) -> bool:
     """Con los tests en verde: revisa y, si hay problemas, deja el pedido de corregirlos.
 
@@ -226,7 +235,9 @@ def _hay_que_corregir_por_revision(
     estado = resultado.revision
     if revision is None or estado.vueltas >= revision.max_vueltas or estado.es_fallida:
         return False
-    ronda = revisar(proveedor, mensajes, revision, resultado.pasos + 1, al_paso, al_aviso)
+    ronda = revisar(
+        proveedor, mensajes, revision, resultado.pasos + 1, al_paso, al_aviso, al_respuesta
+    )
     _acumular(resultado, ronda.pasos, ronda.tokens_entrada, ronda.tokens_salida)
     # La revisión tiene su propio presupuesto: no le quita pasos a la implementación.
     resultado.pasos_extra += ronda.pasos

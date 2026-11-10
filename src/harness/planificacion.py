@@ -51,6 +51,7 @@ def planificar(
     al_aviso: Callable[[str], None] | None = None,
     primer_paso: int = 1,
     correccion: str | None = None,
+    al_respuesta: Callable[[int, str], None] | None = None,
 ) -> ResultadoPlan:
     """Corre una ronda de plan; termina en cuanto el modelo llama a proponer_plan.
 
@@ -68,6 +69,7 @@ def planificar(
         proveedor, mensajes, [*herramientas_lectura, herramienta_plan],
         max_pasos_plan, al_paso, primer_paso=primer_paso, al_aviso=al_aviso,
         es_fin=lambda: bool(propuestos), nota_restantes=_nota_restantes,
+        al_respuesta=al_respuesta,
     )
     pasos, entrada, salida = bucle.pasos, bucle.tokens_entrada, bucle.tokens_salida
     # Respondió con texto o se le acabaron los pasos: se le pide el plan, sin explorar más.
@@ -82,7 +84,7 @@ def planificar(
         extra = ejecutar_bucle(
             proveedor, mensajes, [herramienta_plan], 1, al_paso,
             primer_paso=primer_paso + pasos, al_aviso=al_aviso, es_fin=lambda: bool(propuestos),
-            herramienta_obligatoria=NOMBRE_HERRAMIENTA_PLAN,
+            herramienta_obligatoria=NOMBRE_HERRAMIENTA_PLAN, al_respuesta=al_respuesta,
         )
         pasos += extra.pasos
         entrada += extra.tokens_entrada

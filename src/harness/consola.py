@@ -314,6 +314,13 @@ def mostrar_paso(paso: Paso) -> None:
     consola.print(f"    · {llamada} {resultado}")
 
 
+def mostrar_respuesta(numero: int, texto: str) -> None:
+    """Una respuesta del modelo sin herramientas (la final de la implementación, por ejemplo):
+    cuenta como paso, así que se muestra con su número."""
+    resumen = _resumir_resultado(texto) if texto.strip() else "(sin texto)"
+    consola.print(f"[cyan][{numero}][/] [bold]Respuesta:[/] [dim]{escape(resumen)}[/]")
+
+
 def mostrar_validacion(validacion: Validacion) -> None:
     """Muestra si pasaron los tests + lint al terminar una vuelta."""
     if validacion.es_valido:

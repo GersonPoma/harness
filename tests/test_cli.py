@@ -870,3 +870,19 @@ def test_una_conversacion_larga_se_compacta_y_se_avisa(
     assert "Conversación compactada: se omitió 1 resultado viejo" in " ".join(salida.split())
     (evento, *_) = [e for e in _eventos_del_log(repo_sin_yaml) if e["evento"] == "compactacion"]
     assert evento["resultados_omitidos"] == 1 and evento["caracteres_ahorrados"] > 0
+
+
+def test_la_respuesta_final_se_ve_con_su_numero_y_queda_en_el_log(
+    monkeypatch: pytest.MonkeyPatch, repo_sin_yaml: Path
+) -> None:
+    # En TAREAS-3 los pasos saltaron de [8] a [10]: el [9] era la respuesta final.
+    leer = LlamadaHerramienta("a", "leer_archivo", {"ruta": "app.py"})
+    respuestas = [pedir(leer), terminar("Hecho: agregué el filtro.\nDetalle")]
+    codigo, salida = _correr(monkeypatch, repo_sin_yaml, respuestas, "--sin-plan")
+    assert codigo == 0
+    assert "[1] leer_archivo(ruta='app.py')" in salida
+    assert "[2] Respuesta: Hecho: agregué el filtro." in salida
+    eventos = _eventos_del_log(repo_sin_yaml)
+    pasos = [e["paso"] for e in eventos if e["evento"] in ("herramienta", "respuesta")]
+    assert pasos == [1, 2]
+    assert eventos[-1]["evento"] == "fin" and eventos[-1]["pasos"] == 2

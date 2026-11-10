@@ -77,6 +77,10 @@ class RegistroPasos:
             evento["codigo_salida"], evento["es_tiempo_agotado"] = salida
         self._escribir(evento)
 
+    def registrar_respuesta(self, numero: int, texto: str) -> None:
+        """Registra una respuesta del modelo sin herramientas (cuenta como paso)."""
+        self._escribir({"evento": "respuesta", "paso": numero, "texto": texto})
+
     def registrar_validacion(self, validacion: Validacion) -> None:
         """Registra una corrida de tests + lint y su informe, el mismo que recibe el modelo."""
         self._escribir({

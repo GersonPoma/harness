@@ -271,6 +271,14 @@ class _Reporte:
         if self.sesion:
             self.sesion.paso(paso.numero)
 
+    def respuesta(self, numero: int, texto: str) -> None:
+        """El modelo respondió sin herramientas: el paso cuenta, así que también se ve."""
+        self.ultimo_paso = numero
+        consola.mostrar_respuesta(numero, texto)
+        self.registro.registrar_respuesta(numero, texto)
+        if self.sesion:
+            self.sesion.paso(numero)
+
     def cambio_proveedor(self, cambio: CambioProveedor) -> None:
         # El pedido que falló es el del paso siguiente al último que terminó.
         paso = self.ultimo_paso + 1
@@ -1294,6 +1302,7 @@ def _ejecutar(
             planificacion=_planificacion(prep, reporte),
             continuacion=_continuacion(prep),
             revisar_paso=DetectorBucles(prep.repo).revisar,
+            al_respuesta=reporte.respuesta,
         )
         return resultado, comparar(antes, tomar_instantanea(prep.repo))
     # El with garantiza que los contenedores se borran aunque algo falle o haya Ctrl+C.
@@ -1523,7 +1532,8 @@ def _generar_archivos_init(repo: Path, faltantes: list[str]) -> _GeneracionInit:
     try:
         proveedor = crear_proveedor(config, reporte.reintento)
         resultado = ejecutar_init(
-            proveedor, repo, reporte.paso, reporte.aviso, imagenes=listar_imagenes()
+            proveedor, repo, reporte.paso, reporte.aviso, imagenes=listar_imagenes(),
+            al_respuesta=reporte.respuesta,
         )
     except (ErrorProveedor, ErrorRespuestaVacia, ErrorInit) as error:
         registro.registrar_error(str(error))
@@ -1568,7 +1578,7 @@ def _corregir_harness_yaml(repo: Path, generacion: _GeneracionInit, error: str) 
     try:
         correccion = corregir_harness_yaml(
             generacion.proveedor, generacion.mensajes, repo, error, generacion.pasos + 1,
-            reporte.paso, reporte.aviso,
+            reporte.paso, reporte.aviso, reporte.respuesta,
         )
     except (ErrorProveedor, ErrorRespuestaVacia) as fallo:
         reporte.registro.registrar_error(str(fallo))

@@ -68,6 +68,7 @@ def resolver_fuera_del_plan(
     primer_paso: int,
     al_paso: Callable[[Paso], None] | None = None,
     al_aviso: Callable[[str], None] | None = None,
+    al_respuesta: Callable[[int, str], None] | None = None,
 ) -> ResultadoRondaAlcance | None:
     """La ronda de justificar o revertir; None si no hay nada fuera del plan sin resolver."""
     pendientes = _sin_resolver(plan, _cambios(alcance), estado)
@@ -79,6 +80,7 @@ def resolver_fuera_del_plan(
         proveedor, mensajes, [*alcance.herramientas_lectura, *herramientas],
         PASOS_BASE_ALCANCE + len(pendientes), al_paso, primer_paso=primer_paso,
         al_aviso=al_aviso, es_fin=lambda: not _sin_resolver(plan, _cambios(alcance), estado),
+        al_respuesta=al_respuesta,
     )
     estado.pendientes = _sin_resolver(plan, _cambios(alcance), estado)
     if alcance.al_resolver:

@@ -56,6 +56,7 @@ def ejecutar_bucle(
     nota_restantes: Callable[[int], str | None] | None = None,
     herramienta_obligatoria: str | None = None,
     revisar_paso: Callable[[Paso], str | None] | None = None,
+    al_respuesta: Callable[[int, str], None] | None = None,
 ) -> ResultadoBucle:
     """Llama al modelo hasta que deje de pedir herramientas o se acaben los pasos.
 
@@ -69,6 +70,8 @@ def ejecutar_bucle(
     `herramienta_obligatoria` se le pide al proveedor en cada pedido (ver ProveedorLLM).
     `revisar_paso` mira cada herramienta ejecutada: puede devolver una nota para su resultado
     o lanzar ErrorBucle, que se propaga después de guardar los resultados del paso.
+    `al_respuesta` recibe el número de paso y el texto cuando el modelo responde sin pedir
+    herramientas: ese paso cuenta como los demás, así que también se muestra.
     """
     por_nombre = {h.nombre: h for h in herramientas}
     tokens_entrada = tokens_salida = 0
@@ -84,6 +87,8 @@ def ejecutar_bucle(
         vacias_seguidas = 0
         mensajes.append(Mensaje(Rol.ASISTENTE, respuesta.texto, respuesta.llamadas))
         if not respuesta.llamadas:
+            if al_respuesta:
+                al_respuesta(numero, respuesta.texto or "")
             pasos = numero - primer_paso + 1
             return ResultadoBucle(respuesta.texto, pasos, tokens_entrada, tokens_salida, False)
         total = len(respuesta.llamadas)

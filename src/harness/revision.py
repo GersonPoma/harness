@@ -101,6 +101,7 @@ def revisar(
     primer_paso: int,
     al_paso: Callable[[Paso], None] | None = None,
     al_aviso: Callable[[str], None] | None = None,
+    al_respuesta: Callable[[int, str], None] | None = None,
 ) -> ResultadoRonda:
     """Una ronda de revisión: lee lo que necesite y llama a informar_revision.
 
@@ -113,6 +114,7 @@ def revisar(
     bucle = ejecutar_bucle(
         proveedor, mensajes, [*revision.herramientas_lectura, herramienta], explorar, al_paso,
         primer_paso=primer_paso, al_aviso=al_aviso, es_fin=lambda: bool(informes),
+        al_respuesta=al_respuesta,
     )
     pasos, entrada, salida = bucle.pasos, bucle.tokens_entrada, bucle.tokens_salida
     if not informes:
@@ -120,7 +122,7 @@ def revisar(
         extra = ejecutar_bucle(
             proveedor, mensajes, [herramienta], 1, al_paso, primer_paso=primer_paso + pasos,
             al_aviso=al_aviso, es_fin=lambda: bool(informes),
-            herramienta_obligatoria=NOMBRE_HERRAMIENTA_REVISION,
+            herramienta_obligatoria=NOMBRE_HERRAMIENTA_REVISION, al_respuesta=al_respuesta,
         )
         pasos += extra.pasos
         entrada += extra.tokens_entrada

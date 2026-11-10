@@ -153,3 +153,16 @@ def test_respuestas_vacias_cuentan_para_el_limite_de_pasos(repo: Path) -> None:
         proveedor, crear_mensajes_iniciales("T"), crear_herramientas(repo), max_pasos=2
     )
     assert resultado.es_limite_alcanzado
+
+
+def test_la_respuesta_sin_herramientas_se_avisa_con_su_numero_de_paso(repo: Path) -> None:
+    proveedor = ProveedorFalso([
+        pedir(LlamadaHerramienta("c1", "leer_archivo", {"ruta": "src/app.py"})),
+        terminar("Hecho: agregué el filtro."),
+    ])
+    respuestas: list[tuple[int, str]] = []
+    ejecutar_bucle(
+        proveedor, crear_mensajes_iniciales("T"), crear_herramientas(repo), primer_paso=8,
+        al_respuesta=lambda numero, texto: respuestas.append((numero, texto)),
+    )
+    assert respuestas == [(9, "Hecho: agregué el filtro.")]
