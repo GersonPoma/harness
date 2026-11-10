@@ -177,6 +177,22 @@ def test_cache_tiene_que_ser_booleano(tmp_path: Path) -> None:
     assert "docker.cache" in _error(tmp_path, contenido)
 
 
+def test_timeout_descarga_por_defecto_y_explicito(tmp_path: Path) -> None:
+    assert _cargar(tmp_path, MINIMO).docker.timeout_descarga_segundos == 600
+    contenido = MINIMO.replace(
+        "  imagen: python:3.12-slim", "  imagen: x\n  timeout_descarga_segundos: 1800"
+    )
+    assert _cargar(tmp_path, contenido).docker.timeout_descarga_segundos == 1800
+
+
+@pytest.mark.parametrize("valor", ["0", "'600'", "-5"])
+def test_timeout_descarga_invalido(tmp_path: Path, valor: str) -> None:
+    contenido = MINIMO.replace(
+        "  imagen: python:3.12-slim", f"  imagen: x\n  timeout_descarga_segundos: {valor}"
+    )
+    assert "docker.timeout_descarga_segundos" in _error(tmp_path, contenido)
+
+
 @pytest.mark.parametrize("directorio", ["/harness-cache", "/harness-cache/app", "/"])
 def test_directorio_de_trabajo_no_puede_pisar_la_cache(tmp_path: Path, directorio: str) -> None:
     contenido = MINIMO.replace(

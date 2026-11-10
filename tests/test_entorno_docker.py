@@ -1,4 +1,5 @@
 import json
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -19,8 +20,10 @@ from harness.entorno_docker import (
     EntornoDocker,
     ErrorDocker,
     Instalacion,
+    ejecutar_proceso_con_lineas,
     verificar_docker,
 )
+from harness import entorno_docker
 from harness import etiquetas as modulo_etiquetas
 from harness.variables import resolver_variables
 
@@ -729,6 +732,80 @@ def test_los_restos_conservados_no_se_borran_al_empezar(repo: Path) -> None:
     })
     _iniciar(repo, docker, usar_cache=False).cerrar()
     assert [a for a in docker.llamadas if a[1] == "rm"] == [["docker", "rm", "-f", "-v", NOMBRE]]
+
+
+SALIDA_PULL = [
+    "16: Pulling from library/postgres\n",
+    "a2abf6c4d29d: Pulling fs layer\n",
+    "b3bbf6c4d29e: Pulling fs layer\n",
+    "c4cbf6c4d29f: Already exists\n",
+    "a2abf6c4d29d: Pull complete\n",
+    None,
+    "b3bbf6c4d29e: Pull complete\n",
+]
+
+
+def test_la_descarga_muestra_las_capas_y_usa_el_timeout_de_harness_yaml(repo: Path) -> None:
+    pedidos: list[tuple[list[str], float]] = []
+
+    def descargar_falso(argumentos, timeout, al_avanzar):
+        pedidos.append((argumentos, timeout))
+        for linea in SALIDA_PULL:
+            al_avanzar(linea)
+        return 0, "".join(linea for linea in SALIDA_PULL if linea)
+
+    config = CONFIG_SERVICIOS.model_copy(update={
+        "docker": CONFIG_SERVICIOS.docker.model_copy(update={"timeout_descarga_segundos": 1800})
+    })
+    docker = DockerFalso({"image": [(1, "No such image"), (0, "[]")]})
+    reloj = iter([0.0, 0.0, 1.0, 2.0, 3.0, 65.0, 66.0, 70.0, *[71.0] * 50])
+    avisos: list[str] = []
+    variables = resolver_variables(config, {"CLAVE_PG": "secreta"})
+    EntornoDocker(
+        repo, config, "NOTAS-1", variables, ejecutar=docker, descargar=descargar_falso,
+        reloj=lambda: next(reloj),
+    ).iniciar(al_avanzar=avisos.append)
+    assert pedidos == [(["docker", "pull", "postgres:16"], 1800)]
+    descarga = [a for a in avisos if a.startswith("Descargando")]
+    assert descarga[0] == "Descargando la imagen postgres:16 (solo la primera vez)..."
+    # "Already exists" ya cuenta como lista; el None (sin líneas) solo avanza el tiempo.
+    assert "Descargando la imagen postgres:16: 1 de 3 capas (3 s)..." in descarga
+    assert "Descargando la imagen postgres:16: 2 de 3 capas (1 min 05 s)..." in descarga
+    assert "Descargando la imagen postgres:16: 2 de 3 capas (1 min 06 s)..." in descarga
+    assert descarga[-1] == "Descargando la imagen postgres:16: 3 de 3 capas (1 min 10 s)..."
+
+
+def test_la_descarga_que_tarda_demasiado_dice_que_clave_subir(repo: Path) -> None:
+    docker = DockerFalso({"image": [(1, "No such image")]})
+    entorno = _entorno_servicios(
+        repo, docker, descargar=lambda *_: (CODIGO_TIEMPO_AGOTADO, "")
+    )
+    with pytest.raises(ErrorDocker) as error:
+        entorno.iniciar()
+    mensaje = str(error.value)
+    assert "tardó más de 600 s" in mensaje
+    assert "docker.timeout_descarga_segundos" in mensaje
+
+
+def test_ejecutar_proceso_con_lineas_pasa_cada_linea() -> None:
+    lineas: list[str | None] = []
+    codigo, salida = ejecutar_proceso_con_lineas(
+        [sys.executable, "-c", "print('uno'); print('dos')"], 30, lineas.append
+    )
+    assert codigo == 0
+    assert salida.splitlines() == ["uno", "dos"]
+    assert [linea.strip() for linea in lineas if linea] == ["uno", "dos"]
+
+
+def test_ejecutar_proceso_con_lineas_corta_por_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(entorno_docker, "INTERVALO_PROGRESO_SEGUNDOS", 0.1)
+    ticks: list[str | None] = []
+    codigo, _ = ejecutar_proceso_con_lineas(
+        [sys.executable, "-c", "import time; time.sleep(30)"], 0.5, ticks.append
+    )
+    assert codigo == CODIGO_TIEMPO_AGOTADO
+    # Sin líneas, igual se avisa que el tiempo corre.
+    assert ticks and all(t is None for t in ticks)
 
 
 def test_verificar_docker_mide_lo_que_tarda() -> None:

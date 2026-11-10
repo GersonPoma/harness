@@ -6,10 +6,12 @@ necesita servicios (base de datos...), cada uno corre en su contenedor, en una r
 """
 
 import os
+import queue
 import re
 import secrets
 import subprocess
 import tempfile
+import threading
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -45,9 +47,12 @@ from harness.variables import VariablesResueltas, resolver_variables
 
 # La instalación descarga dependencias: puede tardar mucho más que un comando normal.
 TIMEOUT_INSTALACION_SEGUNDOS = 900
-# Una imagen como postgres:16 pesa cientos de MB: la primera descarga puede tardar.
-TIMEOUT_DESCARGA_SEGUNDOS = 600
 TIMEOUT_DOCKER_SEGUNDOS = 60
+# Cada cuánto se actualiza el progreso de una descarga aunque docker no escriba nada.
+INTERVALO_PROGRESO_SEGUNDOS = 1.0
+# Una línea de 'docker pull' por capa: "a2abf6c4d29d: Pull complete".
+PATRON_CAPA = re.compile(r"^([0-9a-f]{12,64}): (.+)$")
+ESTADOS_CAPA_LISTA = ("Pull complete", "Already exists")
 TIMEOUT_LISTAR_IMAGENES_SEGUNDOS = 15
 MAX_IMAGENES_LISTADAS = 50
 # Margen para que el timeout de dentro del contenedor actúe antes que el del host.
@@ -150,6 +155,102 @@ def ejecutar_proceso(
     return proceso.returncode, proceso.stdout
 
 
+class LectorLineas(Protocol):
+    """Ejecuta un proceso largo y llama a `al_avanzar` con cada línea de su salida (y con None
+    cada tanto, aunque no haya líneas, para que se vea que el tiempo corre)."""
+
+    def __call__(
+        self, argumentos: list[str], timeout: float, al_avanzar: Callable[[str | None], None]
+    ) -> tuple[int, str]: ...
+
+
+def ejecutar_proceso_con_lineas(
+    argumentos: list[str], timeout: float, al_avanzar: Callable[[str | None], None]
+) -> tuple[int, str]:
+    """Como ejecutar_proceso, pero va mostrando la salida mientras corre (docker pull).
+
+    Un hilo lee las líneas y el hilo principal las pasa a `al_avanzar`: así el timeout se
+    controla aunque el proceso no escriba nada, y Ctrl+C lo corta.
+    """
+    try:
+        proceso = subprocess.Popen(
+            argumentos,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except FileNotFoundError as error:
+        raise ErrorDocker("No se encontró el comando 'docker': instala Docker Desktop.") from error
+    lineas: queue.Queue[str | None] = queue.Queue()
+    lector = threading.Thread(target=_leer_lineas, args=(proceso, lineas), daemon=True)
+    lector.start()
+    salida: list[str] = []
+    limite = time.monotonic() + timeout
+    try:
+        while True:
+            try:
+                linea = lineas.get(timeout=INTERVALO_PROGRESO_SEGUNDOS)
+            except queue.Empty:
+                al_avanzar(None)
+            else:
+                if linea is None:
+                    break  # El proceso cerró la salida: terminó.
+                salida.append(linea)
+                al_avanzar(linea)
+            if time.monotonic() > limite:
+                proceso.kill()
+                return CODIGO_TIEMPO_AGOTADO, "".join(salida)
+        return proceso.wait(), "".join(salida)
+    finally:
+        if proceso.poll() is None:
+            proceso.kill()
+
+
+def _leer_lineas(proceso: subprocess.Popen[str], lineas: "queue.Queue[str | None]") -> None:
+    assert proceso.stdout is not None
+    for linea in proceso.stdout:
+        lineas.put(linea)
+    lineas.put(None)
+
+
+class ProgresoDescarga:
+    """Cuántas capas de la imagen ya se descargaron, a partir de la salida de 'docker pull'.
+
+    Sin terminal, docker no muestra bytes, pero sí el estado de cada capa ("abc123: Pull
+    complete").
+    """
+
+    def __init__(self, imagen: str, inicio: float) -> None:
+        self._imagen = imagen
+        self._inicio = inicio
+        self._capas: set[str] = set()
+        self._completas: set[str] = set()
+
+    def anotar(self, linea: str) -> None:
+        coincidencia = PATRON_CAPA.match(linea.strip())
+        if not coincidencia:
+            return
+        capa, estado = coincidencia.groups()
+        self._capas.add(capa)
+        if estado.strip() in ESTADOS_CAPA_LISTA:
+            self._completas.add(capa)
+
+    def mensaje(self, ahora: float) -> str:
+        transcurrido = _duracion(ahora - self._inicio)
+        if not self._capas:
+            return f"Descargando la imagen {self._imagen} (solo la primera vez, {transcurrido})..."
+        return (
+            f"Descargando la imagen {self._imagen}: {len(self._completas)} de "
+            f"{len(self._capas)} capas ({transcurrido})..."
+        )
+
+
+def _duracion(segundos: float) -> str:
+    minutos, resto = divmod(max(0, round(segundos)), 60)
+    return f"{minutos} min {resto:02d} s" if minutos else f"{resto} s"
+
+
 def verificar_docker(
     ejecutar: EjecutorProceso = ejecutar_proceso, reloj: Callable[[], float] = time.monotonic
 ) -> float:
@@ -210,8 +311,17 @@ class EntornoDocker:
         al_instalar: Callable[[Instalacion], None] | None = None,
         id_ejecucion: str | None = None,
         conservar: bool = False,
+        descargar: LectorLineas | None = None,
     ) -> None:
         self._repo = repo.resolve()
+        # docker pull con progreso. Con un `ejecutar` propio (los tests) y sin `descargar`,
+        # el pull también pasa por `ejecutar`, sin progreso.
+        if descargar is None:
+            descargar = (
+                ejecutar_proceso_con_lineas if ejecutar is ejecutar_proceso
+                else lambda argumentos, timeout, _: ejecutar(argumentos, timeout)
+            )
+        self._descargar = descargar
         # --conservar: al cerrar no se borra nada, para poder entrar a depurar.
         self._conservar = conservar
         self.conservados: Conservados | None = None
@@ -370,13 +480,29 @@ class EntornoDocker:
         if codigo == 0:
             return
         avisar(f"Descargando la imagen {imagen} (solo la primera vez)...")
-        codigo, salida = self._ejecutar(["docker", "pull", imagen], TIMEOUT_DESCARGA_SEGUNDOS)
+        progreso = ProgresoDescarga(imagen, self._reloj())
+        ultimo = ""
+
+        def al_avanzar(linea: str | None) -> None:
+            nonlocal ultimo
+            if linea:
+                progreso.anotar(linea)
+            mensaje = progreso.mensaje(self._reloj())
+            if mensaje != ultimo:
+                ultimo = mensaje
+                avisar(mensaje)
+
+        timeout = self._config.docker.timeout_descarga_segundos
+        codigo, salida = self._descargar(["docker", "pull", imagen], timeout, al_avanzar)
         if codigo == CODIGO_TIEMPO_AGOTADO:
             raise ErrorDocker(
-                f"La descarga de la imagen '{imagen}' tardó más de {TIMEOUT_DESCARGA_SEGUNDOS} s."
+                f"La descarga de la imagen '{imagen}' tardó más de {timeout} s. Si la red es "
+                f"lenta o la imagen es grande, sube docker.timeout_descarga_segundos en "
+                f"{NOMBRE_ARCHIVO}."
             )
         if codigo != 0:
-            raise ErrorDocker(f"No se pudo descargar la imagen '{imagen}': {salida.strip()}")
+            detalle = salida.strip()[-MAX_CARACTERES_ERROR_INSTALACION:]
+            raise ErrorDocker(f"No se pudo descargar la imagen '{imagen}': {detalle}")
 
     def _crear_red(self) -> None:
         self._red = self.nombre

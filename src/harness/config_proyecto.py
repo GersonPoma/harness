@@ -41,6 +41,8 @@ class ConfigDocker(_Modelo):
     instalar: list[str] = []
     reinstalar_si_cambia: list[str] = []
     cache: bool = True
+    # Tiempo máximo de cada 'docker pull' (la imagen del proyecto y las de los servicios).
+    timeout_descarga_segundos: Entero = 600
 
     @field_validator("instalar", mode="before")
     @classmethod

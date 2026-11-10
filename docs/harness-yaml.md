@@ -44,6 +44,7 @@ docker:
   reinstalar_si_cambia:
     - requirements*.txt
   cache: true                       # caché de dependencias entre ejecuciones (por defecto)
+  timeout_descarga_segundos: 600    # tiempo máximo de cada docker pull (por defecto)
 
 comandos:
   tests: pytest -q
@@ -121,6 +122,7 @@ archivos_protegidos:
 | `instalar` | texto o lista de texto | no | `[]` | Comandos de instalación. Corren **una vez**, en orden, al crear el contenedor. Si uno falla, la ejecución se detiene con error. |
 | `reinstalar_si_cambia` | lista de globs | no | `[]` | Si el modelo modifica alguno de estos archivos (por ejemplo `requirements.txt`), el harness vuelve a ejecutar `instalar` antes del siguiente comando. |
 | `cache` | booleano | no | `true` | Guarda lo que descargan pip, uv, npm, Maven y Gradle en el volumen de Docker `harness-cache-<proyecto>`, que sobrevive entre ejecuciones. Con `false`, cada ejecución descarga todo de nuevo. Ver [Caché de dependencias](#caché-de-dependencias). |
+| `timeout_descarga_segundos` | entero | no | `600` | Tiempo máximo de cada `docker pull` (la imagen del proyecto y las de los servicios que falten), entero ≥ 1. Mientras descarga, la consola muestra cuántas capas van ("Descargando la imagen gradle:8.14-jdk21: 3 de 7 capas (1 min 05 s)..."). Si se pasa, la ejecución se detiene con un error que dice que se suba esta clave. Las imágenes de Gradle o Maven son grandes: con una red lenta conviene subirla. |
 
 #### Caché de dependencias
 
@@ -354,6 +356,7 @@ AGENTS.md" pasa desapercibido y el modelo trabajaría sin las convenciones del p
 - `docker.directorio_trabajo` igual a `/harness-cache`, dentro de esa ruta o que la contenga
   → error: "no puede coincidir con la caché de dependencias (/harness-cache)".
 - `revision.max_vueltas` o `revision.max_pasos` menores que 1 → error.
+- `docker.timeout_descarga_segundos` menor que 1 o que no sea un entero → error.
 - Si no existe `harness.yaml`, el harness avisa y sugiere `harness init`.
 
 ## Implementación

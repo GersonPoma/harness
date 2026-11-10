@@ -1568,9 +1568,14 @@ uv tool install git+https://github.com/GersonPoma/harness@v0.1.0
           (`docker rmi <imagen>`), y avisa que pueden estar compartidas;
         - antes de borrar muestra cada elemento con su tamaño y el total, y pregunta
           `[s/N]`. Sin terminal no borra nada (código 1); `--si` es para scripts.
-  - [ ] **Tiempo máximo de descarga de imágenes configurable y con progreso:** hoy son 600 s
+  - [x] **Tiempo máximo de descarga de imágenes configurable y con progreso:** hoy son 600 s
         fijos (`TIMEOUT_DESCARGA_SEGUNDOS`) y no se ve cuánto falta; las imágenes de Gradle o
         Maven son grandes.
+        Hecho: `docker.timeout_descarga_segundos` (600 por defecto, ver
+        `docs/harness-yaml.md`). El `docker pull` se lee línea a línea y el indicador
+        muestra las capas listas y el tiempo ("3 de 7 capas (1 min 05 s)"): sin terminal,
+        docker no da bytes, pero sí el estado de cada capa. Al pasarse, el error dice qué
+        clave subir.
   - [ ] **Docker Desktop recién despertado (Resource Saver).** En la prueba de la fase 9, la
         instalación de TAREAS-3 tardó 1 min 39 s con la caché reutilizada (las otras, 11 a
         20 s). No fue el harness: Docker Desktop estaba en pausa por Resource Saver desde las
